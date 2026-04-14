@@ -1,0 +1,124 @@
+schema_version: stats-code.v0
+
+study:
+  title: Preventive Medicine Demo Cohort
+  design: cohort
+  population: Adults enrolled in annual occupational health surveillance
+
+study_context:
+  estimand: 1-year marginal risk ratio
+  exposure: Current smoking
+  comparator: Never smoking
+  outcome: Incident cardiometabolic disease
+  time_zero: Annual surveillance visit date
+  follow_up: 12 months after baseline visit
+  censoring: Death, loss to follow-up, or end of study window
+  missing_data_strategy: Multiple imputation for baseline covariates
+  clustering: Study site
+  sensitivity_analyses: Complete-case model and alternate smoking coding
+  reporting_guideline: STROBE
+
+data:
+  path: data/demo_cohort.csv
+  format: csv
+  id_column: participant_id
+  dictionary_path: data/demo_cohort.dictionary.csv
+  encoding: utf-8
+
+variables:
+  - name: disease
+    label: Incident cardiometabolic disease
+    kind: binary
+    roles: [outcome]
+    coding:
+      reference: "0"
+      levels: ["0", "1"]
+  - name: death
+    label: All-cause death
+    kind: event
+    roles: [event]
+  - name: fu_time
+    label: Follow-up time in months
+    kind: time
+    roles: [time]
+  - name: fu_pt
+    label: Person-time in years
+    kind: person_time
+    roles: [time]
+  - name: age
+    label: Age at baseline
+    kind: continuous
+    roles: [covariate]
+  - name: bmi
+    label: Body mass index
+    kind: continuous
+    roles: [covariate]
+  - name: smoke
+    label: Current smoking
+    kind: categorical
+    roles: [exposure]
+    coding:
+      reference: never
+      levels: [never, former, current]
+  - name: sex
+    label: Sex
+    kind: categorical
+    roles: [covariate, strata]
+    coding:
+      reference: female
+      levels: [female, male]
+  - name: site
+    label: Study site
+    kind: categorical
+    roles: [cluster]
+  - name: survey_weight
+    label: Sampling weight
+    kind: continuous
+    roles: [weight]
+
+survey:
+  weight: survey_weight
+  strata: site
+  cluster: site
+  variance_estimator: linearized
+  combined_cycles: [2024, 2025]
+
+privacy:
+  deidentify: true
+  direct_identifiers: [participant_id]
+  quasi_identifiers: [age, sex, site]
+  small_cell_threshold: 5
+
+analyses:
+  - kind: inspect
+  - kind: table_one
+    by: disease
+  - kind: rate
+    event: disease
+    person_time: fu_pt
+    strata: [sex]
+  - kind: model
+    model: logistic
+    outcome: disease
+    predictors: [age, bmi, smoke]
+    adjust: [sex, site]
+  - kind: model
+    model: cox
+    time: fu_time
+    event: death
+    predictors: [age, bmi, smoke]
+    adjust: [sex, site]
+
+report:
+  out_dir: stats-code-artifacts
+  include_methods: true
+  include_tables: true
+  include_assumptions: true
+
+audit:
+  log_dir: stats-code-artifacts/audit
+  save_commands: true
+  save_inputs: true
+  save_outputs: true
+  save_environment: true
+  save_decisions: true

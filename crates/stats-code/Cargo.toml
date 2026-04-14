@@ -1,0 +1,30 @@
+[package]
+name = "stats-code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "stats-code"
+path = "src/main.rs"
+
+[dependencies]
+api = { path = "../api" }
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+colored = "3.1.1"
+rustyline = "15"
+crossterm = "0.28"
+image = "0.25"
+icy_sixel = "0.1"
+calamine = "0.34.0"
+tempfile = "3"
+
+[lints]
+workspace = true

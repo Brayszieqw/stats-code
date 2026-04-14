@@ -1,0 +1,19 @@
+/target
+
+# Debug / scratch files
+*.log
+*.log.err
+*.pdb
+err.txt
+err2.txt
+err3.txt
+scratch_gamma.rs
+scratch_gamma.exe
+scratch_gamma.pdb
+render_lines.txt
+schema_types.txt
+install_log.txt
+opencode-test.*
+oc-stderr.log
+gen_cute_penguin.py
+clippy_output.txt

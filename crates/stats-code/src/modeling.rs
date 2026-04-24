@@ -21,7 +21,11 @@ pub(crate) struct LogisticVariablePlan {
 }
 
 impl LogisticVariablePlan {
-    pub(crate) fn append_design_values(&self, raw: &str, row: &mut Vec<f64>) -> Result<(), RowState> {
+    pub(crate) fn append_design_values(
+        &self,
+        raw: &str,
+        row: &mut Vec<f64>,
+    ) -> Result<(), RowState> {
         let trimmed = raw.trim();
         if is_missing_value(trimmed) {
             return Err(RowState::Missing);

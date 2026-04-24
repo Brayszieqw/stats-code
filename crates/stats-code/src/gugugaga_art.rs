@@ -1,6 +1,8 @@
+use icy_sixel::{
+    sixel_string, DiffusionMethod, MethodForLargest, MethodForRep, PixelFormat, Quality,
+};
 use image::imageops::FilterType;
 use std::io::{self, Write};
-use icy_sixel::{sixel_string, PixelFormat, DiffusionMethod, MethodForLargest, MethodForRep, Quality};
 
 /// 原图字节（编译时嵌入）—— 已裁切去除顶部白色留白
 const GUGUGAGA_BYTES: &[u8] = include_bytes!("../assets/gugugaga.jpg");
@@ -8,7 +10,6 @@ const GUGUGAGA_BYTES: &[u8] = include_bytes!("../assets/gugugaga.jpg");
 /// Sixel 图片目标高度（像素）
 /// 300px ≈ 终端 15-18 行
 const SIXEL_TARGET_HEIGHT: u32 = 300;
-
 
 /// 图片在终端中的近似字符宽度（列数）
 /// 300 * 0.875 = 262px，262 / 8 ≈ 33 列，+2 安全边距

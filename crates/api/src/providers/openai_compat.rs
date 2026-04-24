@@ -318,7 +318,7 @@ impl MessageStream {
             }
 
             if self.done {
-                self.pending.extend(self.state.finish()?);
+                self.pending.extend(self.state.finish());
                 if let Some(event) = self.pending.pop_front() {
                     return Ok(Some(event));
                 }
@@ -328,7 +328,7 @@ impl MessageStream {
             match self.response.chunk().await? {
                 Some(chunk) => {
                     for parsed in self.parser.push(&chunk)? {
-                        self.pending.extend(self.state.ingest_chunk(parsed)?);
+                        self.pending.extend(self.state.ingest_chunk(parsed));
                     }
                 }
                 None => {
@@ -389,7 +389,7 @@ impl StreamState {
         }
     }
 
-    fn ingest_chunk(&mut self, chunk: ChatCompletionChunk) -> Result<Vec<StreamEvent>, ApiError> {
+    fn ingest_chunk(&mut self, chunk: ChatCompletionChunk) -> Vec<StreamEvent> {
         let mut events = Vec::new();
         if !self.message_started {
             self.message_started = true;
@@ -444,7 +444,7 @@ impl StreamState {
                 state.apply(tool_call);
                 let block_index = state.block_index();
                 if !state.started {
-                    if let Some(start_event) = state.start_event()? {
+                    if let Some(start_event) = state.start_event() {
                         state.started = true;
                         events.push(StreamEvent::ContentBlockStart(start_event));
                     } else {
@@ -477,12 +477,12 @@ impl StreamState {
             }
         }
 
-        Ok(events)
+        events
     }
 
-    fn finish(&mut self) -> Result<Vec<StreamEvent>, ApiError> {
+    fn finish(&mut self) -> Vec<StreamEvent> {
         if self.finished {
-            return Ok(Vec::new());
+            return Vec::new();
         }
         self.finished = true;
 
@@ -496,7 +496,7 @@ impl StreamState {
 
         for state in self.tool_calls.values_mut() {
             if !state.started {
-                if let Some(start_event) = state.start_event()? {
+                if let Some(start_event) = state.start_event() {
                     state.started = true;
                     events.push(StreamEvent::ContentBlockStart(start_event));
                     if let Some(delta_event) = state.delta_event() {
@@ -531,7 +531,7 @@ impl StreamState {
             }));
             events.push(StreamEvent::MessageStop(MessageStopEvent {}));
         }
-        Ok(events)
+        events
     }
 }
 
@@ -564,22 +564,20 @@ impl ToolCallState {
         self.openai_index + 1
     }
 
-    fn start_event(&self) -> Result<Option<ContentBlockStartEvent>, ApiError> {
-        let Some(name) = self.name.clone() else {
-            return Ok(None);
-        };
+    fn start_event(&self) -> Option<ContentBlockStartEvent> {
+        let name = self.name.clone()?;
         let id = self
             .id
             .clone()
             .unwrap_or_else(|| format!("tool_call_{}", self.openai_index));
-        Ok(Some(ContentBlockStartEvent {
+        Some(ContentBlockStartEvent {
             index: self.block_index(),
             content_block: OutputContentBlock::ToolUse {
                 id,
                 name,
                 input: json!({}),
             },
-        }))
+        })
     }
 
     fn delta_event(&mut self) -> Option<ContentBlockDeltaEvent> {

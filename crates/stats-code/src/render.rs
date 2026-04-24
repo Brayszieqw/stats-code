@@ -118,7 +118,8 @@ pub fn render_tableone_text(result: &TableOneResult) -> String {
         let label = row.label.as_deref().unwrap_or(&row.variable);
         let row_name = row
             .level
-            .as_ref().map_or_else(|| label.to_string(), |level| format!("{label} = {level}"));
+            .as_ref()
+            .map_or_else(|| label.to_string(), |level| format!("{label} = {level}"));
         let group_cells = row
             .groups
             .iter()
@@ -400,7 +401,10 @@ pub fn render_linear_text(result: &LinearResult) -> String {
         result.converged, result.r_squared, result.adjusted_r_squared, result.residual_std_error
     );
     if let Some(f) = result.f_statistic {
-        let p_text = result.f_p_value.map(|p| format!(" p={p:.4}")).unwrap_or_default();
+        let p_text = result
+            .f_p_value
+            .map(|p| format!(" p={p:.4}"))
+            .unwrap_or_default();
         let _ = writeln!(out, "  F-statistic      {f:.4}{p_text}");
     }
     let _ = writeln!(out, "  Diagnostics");
@@ -1066,8 +1070,14 @@ pub fn build_audit_trail_markdown(spec: &AnalysisSpec) -> String {
     let _ = writeln!(
         out,
         "- Study context completeness: present={}, missing={}, recommended={}",
-        checklist.iter().filter(|item| item.status == "present").count(),
-        checklist.iter().filter(|item| item.status == "missing").count(),
+        checklist
+            .iter()
+            .filter(|item| item.status == "present")
+            .count(),
+        checklist
+            .iter()
+            .filter(|item| item.status == "missing")
+            .count(),
         checklist
             .iter()
             .filter(|item| item.status == "recommended")

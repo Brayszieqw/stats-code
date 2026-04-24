@@ -400,6 +400,7 @@ mod tests {
         StaticToolExecutor,
     };
     use crate::compact::CompactionConfig;
+    #[cfg(unix)]
     use crate::config::{RuntimeFeatureConfig, RuntimeHookConfig};
     use crate::permissions::{
         PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
@@ -793,12 +794,7 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
-    fn shell_snippet(script: &str) -> String {
-        script.replace('\'', "\"")
-    }
-
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     fn shell_snippet(script: &str) -> String {
         script.to_string()
     }

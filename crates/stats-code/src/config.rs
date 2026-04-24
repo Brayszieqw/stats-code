@@ -9,9 +9,7 @@ use api::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{
-    AiAskArgs, AuthDoctorArgs, AuthProvider, AuthSetArgs, ConfigModelArgs,
-};
+use crate::cli::{AiAskArgs, AuthDoctorArgs, AuthProvider, AuthSetArgs, ConfigModelArgs};
 use crate::helpers::{stringify_error, unix_timestamp_nanos};
 use crate::schema::{
     AiAskResult, AuthDoctorProviderStatus, AuthDoctorResult, AuthSetResult, ConfigResult,
@@ -199,7 +197,8 @@ pub(crate) fn handle_auth_doctor(args: &AuthDoctorArgs) -> Result<AuthDoctorResu
     let config_path = stats_code_auth_path();
     let store = load_auth_store(&config_path)?;
     let providers = args
-        .provider.map_or_else(supported_auth_providers, |provider| vec![provider]);
+        .provider
+        .map_or_else(supported_auth_providers, |provider| vec![provider]);
     let provider_statuses = providers
         .into_iter()
         .map(|provider| build_auth_doctor_provider_status(provider, &store))
@@ -378,15 +377,14 @@ pub(crate) fn prepare_ai_provider(
                 provider.api_key_env()
             ));
         };
-        let base_url = normalized_profile_base_url(provider, profile_provider.as_ref()).or_else(
-            || {
+        let base_url =
+            normalized_profile_base_url(provider, profile_provider.as_ref()).or_else(|| {
                 saved
                     .base_url
                     .as_ref()
                     .map(|value| value.trim().to_string())
                     .filter(|value| !value.is_empty())
-            },
-        );
+            });
         notes.push(format!(
             "Loaded {} credentials from the Stats Code auth store.",
             provider.display_name()
@@ -440,12 +438,16 @@ fn build_provider_client_with_overrides(
 ) -> Result<ProviderClient, String> {
     let base_url = base_url.filter(|value| !value.trim().is_empty());
     let client = match provider_kind {
-        ProviderKind::OpenAi => ProviderClient::OpenAi(
-            build_openai_compat_client(api_key, OpenAiCompatConfig::openai(), base_url),
-        ),
-        ProviderKind::Gemini => ProviderClient::Gemini(
-            build_openai_compat_client(api_key, OpenAiCompatConfig::gemini(), base_url),
-        ),
+        ProviderKind::OpenAi => ProviderClient::OpenAi(build_openai_compat_client(
+            api_key,
+            OpenAiCompatConfig::openai(),
+            base_url,
+        )),
+        ProviderKind::Gemini => ProviderClient::Gemini(build_openai_compat_client(
+            api_key,
+            OpenAiCompatConfig::gemini(),
+            base_url,
+        )),
         ProviderKind::DeepSeek => ProviderClient::DeepSeek(build_openai_compat_client(
             api_key,
             OpenAiCompatConfig::deepseek(),
@@ -576,7 +578,10 @@ pub(crate) fn stats_code_config_dir() -> PathBuf {
         return PathBuf::from(xdg_config_home).join("stats-code");
     }
 
-    home_dir().map_or_else(|| PathBuf::from(".stats-code"), |path| path.join(".stats-code"))
+    home_dir().map_or_else(
+        || PathBuf::from(".stats-code"),
+        |path| path.join(".stats-code"),
+    )
 }
 
 pub(crate) fn home_dir() -> Option<PathBuf> {
@@ -616,7 +621,10 @@ pub(crate) fn load_stats_code_settings(path: &Path) -> Result<StatsCodeSettings,
         .map_err(stringify_error)
 }
 
-pub(crate) fn save_stats_code_settings(path: &Path, settings: &StatsCodeSettings) -> Result<(), String> {
+pub(crate) fn save_stats_code_settings(
+    path: &Path,
+    settings: &StatsCodeSettings,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(stringify_error)?;
     }
@@ -635,7 +643,10 @@ pub(crate) fn load_stats_code_profile(path: &Path) -> Result<StatsCodeProfile, S
 }
 
 #[cfg(test)]
-pub(crate) fn save_stats_code_profile(path: &Path, profile: &StatsCodeProfile) -> Result<(), String> {
+pub(crate) fn save_stats_code_profile(
+    path: &Path,
+    profile: &StatsCodeProfile,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(stringify_error)?;
     }
@@ -655,7 +666,10 @@ pub(crate) fn load_stats_code_env(path: &Path) -> Result<StatsCodeProfileEnv, St
 }
 
 #[cfg(test)]
-pub(crate) fn save_stats_code_env(path: &Path, profile_env: &StatsCodeProfileEnv) -> Result<(), String> {
+pub(crate) fn save_stats_code_env(
+    path: &Path,
+    profile_env: &StatsCodeProfileEnv,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(stringify_error)?;
     }
@@ -776,10 +790,8 @@ pub(crate) fn estimate_session_cost_usd(
 ) -> Option<f64> {
     let resolved = resolve_model_alias(model);
     let pricing = pricing.get(&resolved).or_else(|| pricing.get(model))?;
-    let input_cost =
-        (usage.input_tokens as f64 / 1_000_000.0) * pricing.input_per_million_usd;
-    let output_cost =
-        (usage.output_tokens as f64 / 1_000_000.0) * pricing.output_per_million_usd;
+    let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * pricing.input_per_million_usd;
+    let output_cost = (usage.output_tokens as f64 / 1_000_000.0) * pricing.output_per_million_usd;
     Some(input_cost + output_cost)
 }
 
@@ -982,11 +994,11 @@ mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use super::*;
+    use crate::cli::Cli;
     use crate::cli::{
         AuthCommand, AuthDoctorArgs, AuthProvider, AuthSetArgs, Command, ConfigCommand,
         ConfigModelArgs,
     };
-    use crate::cli::Cli;
     use crate::handlers::dispatch;
 
     fn temp_dir(label: &str) -> PathBuf {

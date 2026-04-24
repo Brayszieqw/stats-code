@@ -58,7 +58,8 @@ pub(crate) fn default_chat_session_path(cwd: &Path) -> PathBuf {
     let stem = cwd
         .file_name()
         .and_then(|value| value.to_str())
-        .filter(|value| !value.trim().is_empty()).map_or_else(|| "workspace".to_string(), sanitize_session_name);
+        .filter(|value| !value.trim().is_empty())
+        .map_or_else(|| "workspace".to_string(), sanitize_session_name);
     stats_code_sessions_dir().join(format!("{stem}-{hash}.json"))
 }
 

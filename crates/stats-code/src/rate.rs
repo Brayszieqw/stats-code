@@ -138,4 +138,3 @@ pub(crate) struct RateAccumulator {
     events: f64,
     person_time: f64,
 }
-

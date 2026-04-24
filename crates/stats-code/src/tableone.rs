@@ -6,12 +6,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cli::TableOneArgs;
-use crate::helpers::{{require_column, stringify_error}};
-use crate::math::{{chi_square_cdf, kruskal_wallis_test, quantile_sorted, welch_t_pvalue, welch_t_statistic}};
-use crate::schema::{{
-    infer_variable_kind, is_missing_value, AnalysisSpec,
-    TableOneCell, TableOneGroupCell, TableOneResult, TableOneRow, VariableKind, VariableRole,
-}};
+use crate::helpers::{require_column, stringify_error};
+use crate::math::{
+    chi_square_cdf, kruskal_wallis_test, quantile_sorted, welch_t_pvalue, welch_t_statistic,
+};
+use crate::schema::{
+    infer_variable_kind, is_missing_value, AnalysisSpec, TableOneCell, TableOneGroupCell,
+    TableOneResult, TableOneRow, VariableKind, VariableRole,
+};
 
 pub(crate) fn tableone_csv(
     path: &Path,
@@ -87,7 +89,11 @@ pub(crate) fn tableone_csv(
                     spec.variables
                         .iter()
                         .find(|variable| variable.name == *name)
-                }).map_or_else(|| infer_tableone_kind(name, position, &observations), |variable| variable.kind),
+                })
+                .map_or_else(
+                    || infer_tableone_kind(name, position, &observations),
+                    |variable| variable.kind,
+                ),
         })
         .collect::<Vec<_>>();
 
@@ -361,7 +367,10 @@ pub(crate) fn build_continuous_cell(accumulator: &ContinuousAccumulator) -> Tabl
     }
 }
 
-pub(crate) fn build_categorical_cell(accumulator: &CategoricalAccumulator, level: &str) -> TableOneCell {
+pub(crate) fn build_categorical_cell(
+    accumulator: &CategoricalAccumulator,
+    level: &str,
+) -> TableOneCell {
     let count = accumulator.counts.get(level).copied().unwrap_or(0);
     let denominator = accumulator.non_missing_count();
     let percent = if denominator == 0 {
@@ -711,4 +720,3 @@ impl CategoricalAccumulator {
         self.counts.values().sum()
     }
 }
-

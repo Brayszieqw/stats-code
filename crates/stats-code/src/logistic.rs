@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cli::ModelLogisticArgs;
-use crate::helpers::{join_or_placeholder, merge_unique_strings, parse_event_value, require_column, stringify_error};
+use crate::helpers::{
+    join_or_placeholder, merge_unique_strings, parse_event_value, require_column, stringify_error,
+};
 use crate::math::{
     compute_logistic_c_statistic, compute_nagelkerke_r2, compute_null_log_likelihood, dot,
     fisher_information, invert_matrix_with_ridge, matrix_vector_mul, normal_cdf, safe_exp, sigmoid,
@@ -25,7 +27,11 @@ pub(crate) fn logistic_csv(
     analysis_spec: Option<&AnalysisSpec>,
     args: &ModelLogisticArgs,
 ) -> Result<LogisticResult, String> {
-    let predictors = merge_unique_strings(&args.predictors, &args.adjust, &[args.outcome.clone()]);
+    let predictors = merge_unique_strings(
+        &args.predictors,
+        &args.adjust,
+        std::slice::from_ref(&args.outcome),
+    );
     if predictors.is_empty() {
         return Err("Logistic requires at least one predictor or adjustment variable.".to_string());
     }
@@ -60,7 +66,7 @@ pub(crate) fn logistic_csv(
     let variable_plans = predictor_indices
         .iter()
         .map(|(name, index)| resolve_logistic_variable_plan(name, *index, analysis_spec, &records))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
     let design_terms = build_logistic_terms(&variable_plans);
     if design_terms.len() <= 1 {
         return Err(
@@ -209,7 +215,8 @@ pub(crate) fn logistic_csv(
 
     // Compute model diagnostics
     let null_log_likelihood = compute_null_log_likelihood(n_events, n_used);
-    let pseudo_r2_nagelkerke = compute_nagelkerke_r2(fit.log_likelihood, null_log_likelihood, n_used);
+    let pseudo_r2_nagelkerke =
+        compute_nagelkerke_r2(fit.log_likelihood, null_log_likelihood, n_used);
     let k = coefficients.len() as f64;
     let n_f = n_used as f64;
     let aic = -2.0 * fit.log_likelihood + 2.0 * k;
@@ -243,7 +250,11 @@ pub(crate) fn logistic_csv(
     })
 }
 
-pub(crate) fn build_logistic_formula(outcome: &str, predictors: &[String], adjust: &[String]) -> String {
+pub(crate) fn build_logistic_formula(
+    outcome: &str,
+    predictors: &[String],
+    adjust: &[String],
+) -> String {
     let terms = predictors
         .iter()
         .chain(adjust.iter())
@@ -260,7 +271,7 @@ pub(crate) fn resolve_logistic_variable_plan(
     source_index: usize,
     analysis_spec: Option<&AnalysisSpec>,
     records: &[csv::StringRecord],
-) -> Result<LogisticVariablePlan, String> {
+) -> LogisticVariablePlan {
     let variable_spec =
         analysis_spec.and_then(|spec| spec.variables.iter().find(|variable| variable.name == name));
     let kind = if let Some(variable) = variable_spec {
@@ -311,11 +322,11 @@ pub(crate) fn resolve_logistic_variable_plan(
         } else {
             LogisticEncoding::Continuous
         };
-        return Ok(LogisticVariablePlan {
+        return LogisticVariablePlan {
             name: name.to_string(),
             source_index,
             encoding,
-        });
+        };
     }
 
     let observed_levels = records
@@ -351,13 +362,13 @@ pub(crate) fn resolve_logistic_variable_plan(
         observed_levels.iter().cloned().collect::<Vec<_>>()
     };
     if ordered_levels.len() <= 1 {
-        return Ok(LogisticVariablePlan {
+        return LogisticVariablePlan {
             name: name.to_string(),
             source_index,
             encoding: LogisticEncoding::Omitted {
                 reason: "single_level_categorical_predictor".to_string(),
             },
-        });
+        };
     }
 
     let reference = variable_spec
@@ -367,14 +378,14 @@ pub(crate) fn resolve_logistic_variable_plan(
         .unwrap_or_else(|| ordered_levels[0].clone());
     ordered_levels.retain(|level| level != &reference);
 
-    Ok(LogisticVariablePlan {
+    LogisticVariablePlan {
         name: name.to_string(),
         source_index,
         encoding: LogisticEncoding::Dummy {
             reference,
             levels: ordered_levels,
         },
-    })
+    }
 }
 
 pub(crate) fn build_logistic_terms(plans: &[LogisticVariablePlan]) -> Vec<LogisticTermSpec> {
@@ -508,4 +519,3 @@ pub(crate) fn reference_note_for_plan(plan: &LogisticVariablePlan) -> Option<Str
         _ => None,
     }
 }
-

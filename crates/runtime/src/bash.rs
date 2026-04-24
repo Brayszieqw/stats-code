@@ -309,4 +309,3 @@ mod tests {
         assert!(!output.sandbox_status.expect("sandbox status").enabled);
     }
 }
-

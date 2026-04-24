@@ -9,13 +9,10 @@ use crate::cli::ModelLinearArgs;
 use crate::helpers::{merge_unique_strings, require_column, stringify_error};
 use crate::logistic::{build_logistic_terms, resolve_logistic_variable_plan};
 use crate::math::{
-    f_distribution_p_value, invert_matrix,
-    t_critical_value_95, t_distribution_p_value,
+    f_distribution_p_value, invert_matrix, t_critical_value_95, t_distribution_p_value,
 };
 use crate::modeling::{LogisticTermSpec, RowState};
-use crate::schema::{
-    is_missing_value, AnalysisSpec, LinearCoefficient, LinearResult,
-};
+use crate::schema::{is_missing_value, AnalysisSpec, LinearCoefficient, LinearResult};
 
 pub(crate) fn linear_csv(
     path: &Path,
@@ -23,9 +20,15 @@ pub(crate) fn linear_csv(
     analysis_spec: Option<&AnalysisSpec>,
     args: &ModelLinearArgs,
 ) -> Result<LinearResult, String> {
-    let predictors = merge_unique_strings(&args.predictors, &args.adjust, &[args.outcome.clone()]);
+    let predictors = merge_unique_strings(
+        &args.predictors,
+        &args.adjust,
+        std::slice::from_ref(&args.outcome),
+    );
     if predictors.is_empty() {
-        return Err("Linear regression requires at least one predictor or adjustment variable.".to_string());
+        return Err(
+            "Linear regression requires at least one predictor or adjustment variable.".to_string(),
+        );
     }
 
     let mut reader = csv::Reader::from_path(path).map_err(stringify_error)?;
@@ -58,7 +61,7 @@ pub(crate) fn linear_csv(
     let variable_plans = predictor_indices
         .iter()
         .map(|(name, index)| resolve_logistic_variable_plan(name, *index, analysis_spec, &records))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
     let design_terms = build_logistic_terms(&variable_plans);
     if design_terms.len() <= 1 {
         return Err(
@@ -139,33 +142,36 @@ pub(crate) fn linear_csv(
         }
     }
 
-    let xtx_inv = match invert_matrix(&xtx) {
-        Ok(inv) => inv,
-        Err(_) => {
-            return Ok(LinearResult {
-                status: "singular".to_string(),
-                data_path: path.display().to_string(),
-                analysis_path: analysis_path.map(|p| p.display().to_string()),
-                formula: build_linear_formula(&args.outcome, &design_terms),
-                outcome: args.outcome.clone(),
-                predictors: predictors.clone(),
-                n_total,
-                n_used,
-                n_excluded_missing,
-                n_excluded_invalid,
-                converged: false,
-                r_squared: 0.0,
-                adjusted_r_squared: 0.0,
-                f_statistic: None,
-                f_p_value: None,
-                residual_std_error: 0.0,
-                aic: None,
-                bic: None,
-                coefficients: Vec::new(),
-                notes: vec!["Design matrix is singular (XᵀX not invertible); model cannot be fitted.".to_string()],
-                warnings: vec!["Singular matrix detected. Check for multicollinearity or constant columns.".to_string()],
-            })
-        }
+    let Ok(xtx_inv) = invert_matrix(&xtx) else {
+        return Ok(LinearResult {
+            status: "singular".to_string(),
+            data_path: path.display().to_string(),
+            analysis_path: analysis_path.map(|p| p.display().to_string()),
+            formula: build_linear_formula(&args.outcome, &design_terms),
+            outcome: args.outcome.clone(),
+            predictors: predictors.clone(),
+            n_total,
+            n_used,
+            n_excluded_missing,
+            n_excluded_invalid,
+            converged: false,
+            r_squared: 0.0,
+            adjusted_r_squared: 0.0,
+            f_statistic: None,
+            f_p_value: None,
+            residual_std_error: 0.0,
+            aic: None,
+            bic: None,
+            coefficients: Vec::new(),
+            notes: vec![
+                "Design matrix is singular (XᵀX not invertible); model cannot be fitted."
+                    .to_string(),
+            ],
+            warnings: vec![
+                "Singular matrix detected. Check for multicollinearity or constant columns."
+                    .to_string(),
+            ],
+        });
     };
 
     // Compute β = (XᵀX)⁻¹ Xᵀy
@@ -276,7 +282,10 @@ pub(crate) fn linear_csv(
         coefficients,
         notes: vec![
             "Linear regression uses ordinary least squares (OLS).".to_string(),
-            format!("Degrees of freedom: model={}, residual={df_residual}.", p - 1),
+            format!(
+                "Degrees of freedom: model={}, residual={df_residual}.",
+                p - 1
+            ),
         ],
         warnings,
     })
@@ -290,4 +299,3 @@ pub(crate) fn build_linear_formula(outcome: &str, terms: &[LogisticTermSpec]) ->
         .join(" + ");
     format!("{outcome} ~ {rhs}")
 }
-

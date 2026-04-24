@@ -309,8 +309,7 @@ pub fn validate_study_context(spec: &AnalysisSpec) -> Vec<String> {
             "study_context.censoring is required for rate or time-to-event analyses".to_string(),
         );
     }
-    if has_declared_analyses
-        && is_blank_option(spec.study_context.missing_data_strategy.as_deref())
+    if has_declared_analyses && is_blank_option(spec.study_context.missing_data_strategy.as_deref())
     {
         issues
             .push("study_context.missing_data_strategy is required for analysis runs".to_string());
@@ -318,9 +317,7 @@ pub fn validate_study_context(spec: &AnalysisSpec) -> Vec<String> {
     if needs_clustering && is_blank_option(spec.study_context.clustering.as_deref()) {
         issues.push("study_context.clustering is required because clustered or survey structure is declared".to_string());
     }
-    if has_declared_analyses
-        && is_blank_option(spec.study_context.reporting_guideline.as_deref())
-    {
+    if has_declared_analyses && is_blank_option(spec.study_context.reporting_guideline.as_deref()) {
         issues.push(format!(
             "study_context.reporting_guideline is required (recommended: {})",
             recommended_reporting_guideline(&spec.study.design)
@@ -834,9 +831,15 @@ pub fn infer_variable_kind(
         return VariableKind::PersonTime;
     }
     // Event/outcome: use precise patterns to avoid false positives like case_id, test_case
-    if lower == "event" || lower == "death" || lower == "died" || lower == "outcome"
-        || lower.ends_with("_event") || lower.ends_with("_death") || lower.ends_with("_died")
-        || lower.starts_with("ev_") || lower.starts_with("event_")
+    if lower == "event"
+        || lower == "death"
+        || lower == "died"
+        || lower == "outcome"
+        || lower.ends_with("_event")
+        || lower.ends_with("_death")
+        || lower.ends_with("_died")
+        || lower.starts_with("ev_")
+        || lower.starts_with("event_")
     {
         return VariableKind::Event;
     }
@@ -872,9 +875,20 @@ pub fn is_missing_value(value: &str) -> bool {
     // Common text missing codes
     if matches!(
         lower.as_str(),
-        "na" | "n/a" | "null" | "missing" | "none" | "unknown"
-            | "." | "-" | "nd" | "nm" | "not applicable" | "not available"
-            | "nan" | "inf" | "-inf"
+        "na" | "n/a"
+            | "null"
+            | "missing"
+            | "none"
+            | "unknown"
+            | "."
+            | "-"
+            | "nd"
+            | "nm"
+            | "not applicable"
+            | "not available"
+            | "nan"
+            | "inf"
+            | "-inf"
     ) {
         return true;
     }

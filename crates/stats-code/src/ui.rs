@@ -30,6 +30,7 @@ pub struct ChatUiStatus {
 #[derive(Debug, Default)]
 pub struct ChatUi {}
 
+#[allow(clippy::unused_self)]
 impl ChatUi {
     #[must_use]
     pub fn new() -> Self {
@@ -41,7 +42,7 @@ impl ChatUi {
     /// 布局策略：Sixel 输出后光标在图片底部，向上移 N 行、逐行在右侧打印 N 行文字，
     /// 光标自动回到图片底部——不依赖精确的图片行数估算，杜绝光标偏移问题。
     pub fn print_welcome(&self, out: &mut impl Write, status: &ChatUiStatus) -> io::Result<()> {
-        let width = self.term_width();
+        let width = Self::term_width();
 
         // ── 1. 输出 Sixel 企鹅图片（直接写 stdout）──
         print_gugugaga_image();
@@ -87,15 +88,15 @@ impl ChatUi {
 
         // 右侧行列表（10 行，位于图片底部区域）
         let lines: Vec<&str> = vec![
-            &sep,           // ═══ 顶部装饰线
+            &sep, // ═══ 顶部装饰线
             "",
-            &title,         // ★ Stats Code 咕咕嘎嘎版  resumed
+            &title, // ★ Stats Code 咕咕嘎嘎版  resumed
             "",
-            &line_model,    // model= gpt-5.4
-            &line_workspace,// workspace= C:\Users\ljx
-            &line_tools,    // tools=on  fast=off  vim=off
+            &line_model,     // model= gpt-5.4
+            &line_workspace, // workspace= C:\Users\ljx
+            &line_tools,     // tools=on  fast=off  vim=off
             "",
-            &sep,           // ═══ 底部装饰线
+            &sep, // ═══ 底部装饰线
         ];
 
         let n = lines.len(); // 总行数
@@ -120,13 +121,18 @@ impl ChatUi {
     }
 
     /// 打印对话轮次（无任何边框，纯净类 Claude Code 风格）
-    pub fn print_turn(&self, out: &mut impl Write, kind: ChatEntryKind, body: &str) -> io::Result<()> {
+    pub fn print_turn(
+        &self,
+        out: &mut impl Write,
+        kind: ChatEntryKind,
+        body: &str,
+    ) -> io::Result<()> {
         let (label, color) = match kind {
-            ChatEntryKind::User      => ("You",   (240, 200, 120)),
+            ChatEntryKind::User => ("You", (240, 200, 120)),
             ChatEntryKind::Assistant => ("Stats", (120, 210, 140)),
-            ChatEntryKind::System    => ("Info",  (130, 170, 220)),
-            ChatEntryKind::Tool      => ("Tool",  (180, 150, 100)),
-            ChatEntryKind::Error     => ("Error", (220, 90,  90)),
+            ChatEntryKind::System => ("Info", (130, 170, 220)),
+            ChatEntryKind::Tool => ("Tool", (180, 150, 100)),
+            ChatEntryKind::Error => ("Error", (220, 90, 90)),
         };
 
         // 彩色标签，不带任何 │
@@ -136,7 +142,7 @@ impl ChatUi {
             .to_string();
         writeln!(out, "{label_str}")?;
 
-        let width = self.term_width().saturating_sub(4);
+        let width = Self::term_width().saturating_sub(4);
         let mut in_code_block = false;
 
         for raw_line in body.lines() {
@@ -173,7 +179,7 @@ impl ChatUi {
         status: &ChatUiStatus,
         pending: Option<&str>,
     ) -> io::Result<()> {
-        let width = self.term_width();
+        let width = Self::term_width();
         let line = "─".repeat(width).truecolor(70, 70, 80).to_string();
 
         // 上横线
@@ -211,13 +217,13 @@ impl ChatUi {
 
     /// 用户 Enter 后打印回车下横线（完成对话框闭合）
     pub fn print_input_bottom(&self, out: &mut impl Write) -> io::Result<()> {
-        let width = self.term_width();
+        let width = Self::term_width();
         let line = "─".repeat(width).truecolor(70, 70, 80).to_string();
         writeln!(out, "{line}")?;
         out.flush()
     }
 
-    fn term_width(&self) -> usize {
+    fn term_width() -> usize {
         match crossterm::terminal::size() {
             Ok((w, _)) => (w as usize).max(60),
             Err(_) => 80,

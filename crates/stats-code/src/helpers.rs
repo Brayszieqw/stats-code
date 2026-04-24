@@ -197,7 +197,9 @@ pub(crate) fn excel_to_temp_csv(excel_path: &Path) -> Result<PathBuf, String> {
 }
 
 /// Read all records from an Excel file (first sheet).
-pub(crate) fn read_excel_records(excel_path: &Path) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
+pub(crate) fn read_excel_records(
+    excel_path: &Path,
+) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
     let mut workbook = open_workbook_auto(excel_path)
         .map_err(|error| format!("Cannot open Excel file `{}`: {error}", excel_path.display()))?;
     let sheet_names = workbook.sheet_names().clone();
@@ -223,7 +225,7 @@ pub(crate) fn read_excel_records(excel_path: &Path) -> Result<(Vec<String>, Vec<
 pub(crate) fn excel_cell_to_string(cell: &Data) -> String {
     match cell {
         Data::Empty => String::new(),
-        Data::String(s) => s.clone(),
+        Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
         Data::Int(i) => i.to_string(),
         Data::Float(f) => {
             // If the float is actually an integer, format without decimal
@@ -233,10 +235,14 @@ pub(crate) fn excel_cell_to_string(cell: &Data) -> String {
                 f.to_string()
             }
         }
-        Data::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+        Data::Bool(b) => {
+            if *b {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            }
+        }
         Data::Error(e) => format!("{e:?}"),
         Data::DateTime(f) => f.to_string(),
-        Data::DateTimeIso(s) => s.clone(),
-        Data::DurationIso(s) => s.clone(),
     }
 }

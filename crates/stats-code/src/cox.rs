@@ -7,15 +7,18 @@ use std::path::Path;
 
 use crate::cli::ModelCoxArgs;
 use crate::helpers::{join_or_placeholder, merge_unique_strings, require_column, stringify_error};
-use crate::logistic::{build_nonintercept_terms, parse_binary_outcome, reference_note_for_plan, resolve_logistic_variable_plan};
+use crate::logistic::{
+    build_nonintercept_terms, parse_binary_outcome, reference_note_for_plan,
+    resolve_logistic_variable_plan,
+};
 use crate::math::{
-    compute_cox_concordance, dot, invert_matrix_with_ridge,
-    matrix_vector_mul, normal_cdf, safe_exp, CoxObservation,
+    compute_cox_concordance, dot, invert_matrix_with_ridge, matrix_vector_mul, normal_cdf,
+    safe_exp, CoxObservation,
 };
 use crate::modeling::{CoxFit, RowState};
-use crate::schema::{
-    is_missing_value, AnalysisSpec, CoxCoefficient, CoxResult,
-};
+use crate::schema::{is_missing_value, AnalysisSpec, CoxCoefficient, CoxResult};
+
+type CoxPartialStats = (f64, Vec<f64>, Vec<Vec<f64>>);
 
 pub(crate) fn cox_csv(
     path: &Path,
@@ -63,7 +66,7 @@ pub(crate) fn cox_csv(
     let variable_plans = predictor_indices
         .iter()
         .map(|(name, index)| resolve_logistic_variable_plan(name, *index, analysis_spec, &records))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
     let design_terms = build_nonintercept_terms(&variable_plans);
     if design_terms.is_empty() {
         return Err(
@@ -198,7 +201,8 @@ pub(crate) fn cox_csv(
     {
         warnings.push("possible_extreme_coefficients_or_instability".to_string());
     }
-    warnings.push("verify_proportional_hazards_with_log_log_plot_or_schoenfeld_residuals".to_string());
+    warnings
+        .push("verify_proportional_hazards_with_log_log_plot_or_schoenfeld_residuals".to_string());
 
     let mut notes = vec![
         "Complete-case Cox proportional hazards model with local deterministic fitting."
@@ -291,8 +295,12 @@ pub(crate) fn fit_cox_newton(observations: &[CoxObservation]) -> Result<CoxFit, 
     })
 }
 
-
-pub(crate) fn build_cox_formula(time: &str, event: &str, predictors: &[String], adjust: &[String]) -> String {
+pub(crate) fn build_cox_formula(
+    time: &str,
+    event: &str,
+    predictors: &[String],
+    adjust: &[String],
+) -> String {
     let terms = predictors
         .iter()
         .chain(adjust.iter())
@@ -328,10 +336,11 @@ pub(crate) fn count_tied_event_times(observations: &[CoxObservation]) -> usize {
     tied
 }
 
+#[allow(clippy::needless_range_loop)]
 pub(crate) fn cox_partial_stats(
     observations: &[CoxObservation],
     beta: &[f64],
-) -> Result<(f64, Vec<f64>, Vec<Vec<f64>>), String> {
+) -> Result<CoxPartialStats, String> {
     let p = beta.len();
     let mut event_entries = observations
         .iter()
@@ -408,4 +417,3 @@ pub(crate) fn cox_partial_stats(
 
     Ok((log_partial_likelihood, gradient, information))
 }
-

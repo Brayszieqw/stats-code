@@ -5,46 +5,38 @@ use std::path::Path;
 use clap::Parser;
 use serde_json::json;
 
-use crate::cli::{
-    AiCommand, AuthCommand, ChatArgs, Cli,
-    Command, ConfigCommand, InspectArgs, ModelCommand, ModelCoxArgs,
-    ModelLinearArgs, ModelLogisticArgs, RateArgs, ReportCommand, RunCommand,
-    TableOneArgs,
-};
 use crate::bridge::{
-    self, BridgeConfig, BridgeRequest, Engine,
-    bridge_to_logistic, execute_bridge,
+    self, bridge_to_logistic, execute_bridge, BridgeConfig, BridgeRequest, Engine,
+};
+use crate::chat::run_chat_repl;
+use crate::cli::{
+    AiCommand, AuthCommand, ChatArgs, Cli, Command, ConfigCommand, InspectArgs, ModelCommand,
+    ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, RateArgs, ReportCommand, RunCommand,
+    TableOneArgs,
 };
 use crate::config::{
     handle_ai_ask, handle_auth_doctor, handle_auth_set, handle_config_add_model,
     handle_config_default_model, handle_config_remove_model, handle_config_show,
 };
-use crate::render::{
-    render_ai_ask_text, render_auth_doctor_text, render_auth_set_text,
-    render_config_text, render_cox_text, render_inspect_text, render_linear_text,
-    render_logistic_text, render_planned_text, render_rate_text, render_report_build_text,
-    render_tableone_text,
-};
-use crate::schema::{
-    detect_data_format, load_analysis_spec,
-    AiAskResult, AuthDoctorResult, AuthSetResult, ConfigResult, CoxResult, DataFormat,
-    InspectResult, LinearResult, LogisticResult,
-    PlannedCommandResult, RateResult, ReportBuildResult, RunningColumnStats,
-    TableOneResult,
-};
-use crate::report::{
-    ensure_study_context_ready, handle_report_build, persist_run_artifacts,
-    resolve_data_path,
-};
-use crate::chat::run_chat_repl;
-use crate::helpers::{
-    excel_to_temp_csv, read_excel_records, stringify_error,
-};
-use crate::tableone::tableone_csv;
-use crate::rate::rate_csv;
 use crate::cox::cox_csv;
+use crate::helpers::{excel_to_temp_csv, read_excel_records, stringify_error};
 use crate::linear::linear_csv;
 use crate::logistic::logistic_csv;
+use crate::rate::rate_csv;
+use crate::render::{
+    render_ai_ask_text, render_auth_doctor_text, render_auth_set_text, render_config_text,
+    render_cox_text, render_inspect_text, render_linear_text, render_logistic_text,
+    render_planned_text, render_rate_text, render_report_build_text, render_tableone_text,
+};
+use crate::report::{
+    ensure_study_context_ready, handle_report_build, persist_run_artifacts, resolve_data_path,
+};
+use crate::schema::{
+    detect_data_format, load_analysis_spec, AiAskResult, AuthDoctorResult, AuthSetResult,
+    ConfigResult, CoxResult, DataFormat, InspectResult, LinearResult, LogisticResult,
+    PlannedCommandResult, RateResult, ReportBuildResult, RunningColumnStats, TableOneResult,
+};
+use crate::tableone::tableone_csv;
 
 pub fn run() -> Result<(), String> {
     let cli = Cli::parse();
@@ -324,7 +316,6 @@ pub fn dispatch(cli: &Cli) -> Result<String, String> {
     }
 }
 
-
 // Chat-related code has been moved to crate::chat module.
 // Types, REPL loop, slash commands, tool calling, session management
 // are now in src/chat.rs
@@ -341,14 +332,12 @@ pub(crate) fn handle_inspect(args: &InspectArgs) -> Result<InspectResult, String
             rows: None,
             columns: 0,
             variables: Vec::new(),
-            notes: vec![
-                format!(
-                    "{:?} format is not yet supported for inspect. \
+            notes: vec![format!(
+                "{:?} format is not yet supported for inspect. \
                      Please convert your file to CSV first, for example: \
                      `pandas.read_excel('file.xlsx').to_csv('file.csv', index=False)`",
-                    format
-                ),
-            ],
+                format
+            )],
         }),
         DataFormat::Unknown => Err(format!(
             "Unsupported data file extension for `{}`. Expected csv, xlsx/xls, parquet, or xpt.",
@@ -445,9 +434,6 @@ fn inspect_excel(path: &Path) -> Result<InspectResult, String> {
     })
 }
 
-
-
-
 pub(crate) fn handle_tableone(args: &TableOneArgs) -> Result<TableOneResult, String> {
     let (data_path, analysis_path) = resolve_data_path(args.data.as_ref(), args.analysis.as_ref())?;
     let analysis_spec = analysis_path
@@ -478,7 +464,6 @@ pub(crate) fn handle_tableone(args: &TableOneArgs) -> Result<TableOneResult, Str
     }
 }
 
-
 pub(crate) fn handle_rate(args: &RateArgs) -> Result<RateResult, String> {
     let (data_path, analysis_path) = resolve_data_path(args.data.as_ref(), args.analysis.as_ref())?;
     let analysis_spec = analysis_path
@@ -504,7 +489,6 @@ pub(crate) fn handle_rate(args: &RateArgs) -> Result<RateResult, String> {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Common model handler infrastructure
 // ---------------------------------------------------------------------------
@@ -529,7 +513,11 @@ fn resolve_model_context(
     if let (Some(path), Some(spec)) = (analysis_path.as_deref(), analysis_spec.as_ref()) {
         ensure_study_context_ready(path, spec)?;
     }
-    Ok(ModelContext { data_path, analysis_path, analysis_spec })
+    Ok(ModelContext {
+        data_path,
+        analysis_path,
+        analysis_spec,
+    })
 }
 
 /// Ensure we have a CSV path, converting from Excel if necessary.
@@ -554,18 +542,30 @@ fn run_python_bridge<T>(
     let (csv_path, is_temp) = ensure_csv_path(data_path)?;
     let request = build_request(&csv_path);
     let response = execute_bridge(&request, &BridgeConfig::default())?;
-    if is_temp { let _ = fs::remove_file(&csv_path); }
+    if is_temp {
+        let _ = fs::remove_file(&csv_path);
+    }
     convert_response(&response)
 }
 
 /// Run a model through the Rust engine with CSV/Excel format dispatch.
 fn run_rust_model<T>(
     ctx: &ModelContext,
-    fit_csv: impl FnOnce(&Path, Option<&Path>, Option<&crate::schema::AnalysisSpec>) -> Result<T, String>,
+    fit_csv: impl FnOnce(
+        &Path,
+        Option<&Path>,
+        Option<&crate::schema::AnalysisSpec>,
+    ) -> Result<T, String>,
 ) -> Result<T, String> {
     let (csv_path, is_temp) = ensure_csv_path(&ctx.data_path)?;
-    let result = fit_csv(&csv_path, ctx.analysis_path.as_deref(), ctx.analysis_spec.as_ref());
-    if is_temp { let _ = fs::remove_file(&csv_path); }
+    let result = fit_csv(
+        &csv_path,
+        ctx.analysis_path.as_deref(),
+        ctx.analysis_spec.as_ref(),
+    );
+    if is_temp {
+        let _ = fs::remove_file(&csv_path);
+    }
     result
 }
 
@@ -573,11 +573,15 @@ fn run_rust_model<T>(
 // Model handlers
 // ---------------------------------------------------------------------------
 
-pub(crate) fn handle_model_logistic(args: &ModelLogisticArgs, engine: Engine) -> Result<LogisticResult, String> {
+pub(crate) fn handle_model_logistic(
+    args: &ModelLogisticArgs,
+    engine: Engine,
+) -> Result<LogisticResult, String> {
     let ctx = resolve_model_context(args.data.as_ref(), args.analysis.as_ref())?;
 
     if matches!(engine, Engine::Python) {
-        return run_python_bridge(&ctx.data_path,
+        return run_python_bridge(
+            &ctx.data_path,
             |csv| BridgeRequest::from_logistic(args, csv),
             bridge_to_logistic,
         );
@@ -593,7 +597,8 @@ pub(crate) fn handle_model_cox(args: &ModelCoxArgs, engine: Engine) -> Result<Co
     let ctx = resolve_model_context(args.data.as_ref(), args.analysis.as_ref())?;
 
     if matches!(engine, Engine::Python) {
-        return run_python_bridge(&ctx.data_path,
+        return run_python_bridge(
+            &ctx.data_path,
             |csv| BridgeRequest::from_cox(args, csv),
             bridge::bridge_to_cox,
         );
@@ -605,12 +610,15 @@ pub(crate) fn handle_model_cox(args: &ModelCoxArgs, engine: Engine) -> Result<Co
     run_rust_model(&ctx, |csv, ap, spec| cox_csv(csv, ap, spec, args))
 }
 
-
-pub(crate) fn handle_model_linear(args: &ModelLinearArgs, engine: Engine) -> Result<LinearResult, String> {
+pub(crate) fn handle_model_linear(
+    args: &ModelLinearArgs,
+    engine: Engine,
+) -> Result<LinearResult, String> {
     let ctx = resolve_model_context(args.data.as_ref(), args.analysis.as_ref())?;
 
     if matches!(engine, Engine::Python) {
-        return run_python_bridge(&ctx.data_path,
+        return run_python_bridge(
+            &ctx.data_path,
             |csv| BridgeRequest::from_linear(args, csv),
             bridge::bridge_to_linear,
         );
@@ -622,25 +630,18 @@ pub(crate) fn handle_model_linear(args: &ModelLinearArgs, engine: Engine) -> Res
     run_rust_model(&ctx, |csv, ap, spec| linear_csv(csv, ap, spec, args))
 }
 
-
-
 // Report-related code has been moved to crate::report module.
 // handle_report_build, discover_report_evidence, evidence types, etc.
 // are now in src/report.rs
-
-
-
-
 
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-
     use crate::cli::{
-        Command, InspectArgs, ModelCommand, ModelCoxArgs, ModelLinearArgs,
-        ModelLogisticArgs, RateArgs, TableOneArgs,
+        Command, InspectArgs, ModelCommand, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs,
+        RateArgs, TableOneArgs,
     };
     use crate::schema::{detect_data_format, load_analysis_spec, AnalysisSpec, DataFormat};
 
@@ -718,7 +719,7 @@ mod tests {
         let csv_path = root.join("demo.csv");
         fs::write(
             &analysis_path,
-            r#"
+            r"
 study:
   title: Demo cohort
   design: cohort
@@ -733,7 +734,7 @@ analyses:
   - kind: rate
     event: case
     person_time: fu_pt
-"#,
+",
         )
         .expect("write analysis yaml");
         fs::write(&csv_path, "case,fu_pt\n1,2.0\n0,1.0\n").expect("write csv");
@@ -910,7 +911,7 @@ analyses:
         let rendered = dispatch(&cli).expect("linear should succeed");
         assert!(rendered.contains("Linear Model"));
         assert!(rendered.contains("Intercept"));
-        assert!(rendered.contains("x"));
+        assert!(rendered.contains('x'));
 
         // Verify R² is very high (near perfect linear data)
         assert!(rendered.contains("R²="));
@@ -938,14 +939,23 @@ analyses:
             adjust: vec![],
             strata: Vec::new(),
         };
-        let result = super::handle_model_linear(&args, crate::bridge::Engine::Rust).expect("linear should succeed");
+        let result = super::handle_model_linear(&args, crate::bridge::Engine::Rust)
+            .expect("linear should succeed");
         assert_eq!(result.status, "ok");
         assert_eq!(result.n_used, 10);
-        assert!((result.r_squared - 1.0).abs() < 1e-8, "perfect R²: got {}", result.r_squared);
+        assert!(
+            (result.r_squared - 1.0).abs() < 1e-8,
+            "perfect R²: got {}",
+            result.r_squared
+        );
         assert_eq!(result.coefficients.len(), 2);
         // Intercept → 1.0
         let intercept = &result.coefficients[0];
-        assert!((intercept.beta - 1.0).abs() < 1e-8, "intercept: got {}", intercept.beta);
+        assert!(
+            (intercept.beta - 1.0).abs() < 1e-8,
+            "intercept: got {}",
+            intercept.beta
+        );
         // Slope → 2.0
         let slope = &result.coefficients[1];
         assert!((slope.beta - 2.0).abs() < 1e-8, "slope: got {}", slope.beta);
@@ -953,4 +963,3 @@ analyses:
         fs::remove_dir_all(root).expect("cleanup");
     }
 }
-

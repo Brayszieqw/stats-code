@@ -48,6 +48,7 @@ pub(crate) fn safe_exp(value: f64) -> f64 {
 }
 
 /// Gauss-Jordan matrix inversion.
+#[allow(clippy::needless_range_loop)]
 pub(crate) fn invert_matrix(matrix: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, String> {
     let n = matrix.len();
     if n == 0 || matrix.iter().any(|row| row.len() != n) {
@@ -103,13 +104,15 @@ pub(crate) fn invert_matrix(matrix: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, String
 
 /// Matrix inversion with progressive ridge regularization fallback.
 pub(crate) fn invert_matrix_with_ridge(matrix: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, String> {
-    if let Ok(value) = invert_matrix(matrix) { Ok(value) } else {
+    if let Ok(value) = invert_matrix(matrix) {
+        Ok(value)
+    } else {
         let n = matrix.len();
         let mut ridge = 1e-8_f64;
         for _ in 0..8 {
             let mut regularized = matrix.to_vec();
-            for index in 0..n {
-                regularized[index][index] += ridge;
+            for (index, row) in regularized.iter_mut().enumerate().take(n) {
+                row[index] += ridge;
             }
             if let Ok(value) = invert_matrix(&regularized) {
                 return Ok(value);
@@ -170,8 +173,8 @@ pub(crate) fn log_gamma_lanczos(x: f64) -> f64 {
         let xx = x - 1.0;
         let t = xx + 7.5;
         let mut s = c[0];
-        for i in 1..c.len() {
-            s += c[i] / (xx + i as f64);
+        for (i, coefficient) in c.iter().enumerate().skip(1) {
+            s += coefficient / (xx + i as f64);
         }
         0.5 * (2.0 * std::f64::consts::PI).ln() + (xx + 0.5) * t.ln() - t + s.ln()
     }
@@ -265,9 +268,8 @@ pub(crate) fn regularized_incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
     if x > (a + 1.0) / (a + b + 2.0) {
         return 1.0 - regularized_incomplete_beta(b, a, 1.0 - x);
     }
-    let log_prefix =
-        a * x.ln() + b * (1.0 - x).ln() - log_gamma_lanczos(a) - log_gamma_lanczos(b)
-            + log_gamma_lanczos(a + b);
+    let log_prefix = a * x.ln() + b * (1.0 - x).ln() - log_gamma_lanczos(a) - log_gamma_lanczos(b)
+        + log_gamma_lanczos(a + b);
     let prefix = log_prefix.exp() / a;
     let mut c = 1.0_f64;
     let mut d = 1.0 / (1.0 - (a + b) * x / (a + 1.0));
@@ -280,8 +282,7 @@ pub(crate) fn regularized_incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
         c = 1.0 + a_even / c;
         f *= c * d;
         // Odd step
-        let a_odd =
-            -(a + m_f) * (a + b + m_f) * x / ((a + 2.0 * m_f) * (a + 2.0 * m_f + 1.0));
+        let a_odd = -(a + m_f) * (a + b + m_f) * x / ((a + 2.0 * m_f) * (a + 2.0 * m_f + 1.0));
         d = 1.0 / (1.0 + a_odd * d);
         c = 1.0 + a_odd / c;
         let delta = c * d;
@@ -305,7 +306,11 @@ pub(crate) fn compute_null_log_likelihood(n_events: usize, n_total: usize) -> f6
 }
 
 /// Nagelkerke pseudo-R² = (1 - exp(-2/n * (LL - LL0))) / (1 - exp(2/n * LL0))
-pub(crate) fn compute_nagelkerke_r2(log_likelihood: f64, null_log_likelihood: f64, n: usize) -> f64 {
+pub(crate) fn compute_nagelkerke_r2(
+    log_likelihood: f64,
+    null_log_likelihood: f64,
+    n: usize,
+) -> f64 {
     let n_f = n as f64;
     let cox_snell = 1.0 - ((-2.0 / n_f) * (log_likelihood - null_log_likelihood)).exp();
     let max_r2 = 1.0 - ((2.0 / n_f) * null_log_likelihood).exp();
@@ -318,6 +323,13 @@ pub(crate) fn compute_nagelkerke_r2(log_likelihood: f64, null_log_likelihood: f6
 
 /// C-statistic (concordance / AUROC) for logistic regression.
 pub(crate) fn compute_logistic_c_statistic(y: &[f64], predicted: &[f64]) -> f64 {
+    if y.len() > 10_000 {
+        eprintln!(
+            "Warning: C-statistic computation is O(n\u{00b2}). n={} will require ~{} comparisons.",
+            y.len(),
+            (y.len() as u64).saturating_mul(y.len() as u64 - 1) / 2
+        );
+    }
     let mut concordant = 0u64;
     let mut discordant = 0u64;
     let mut tied = 0u64;
@@ -353,10 +365,13 @@ pub(crate) fn compute_logistic_c_statistic(y: &[f64], predicted: &[f64]) -> f64 
 
 /// Cox concordance index using linear predictors.
 pub(crate) fn compute_cox_concordance(observations: &[CoxObservation], beta: &[f64]) -> f64 {
-    let linear_predictors: Vec<f64> = observations
-        .iter()
-        .map(|obs| dot(&obs.x, beta))
-        .collect();
+    if observations.len() > 10_000 {
+        eprintln!(
+            "Warning: Cox concordance computation is O(n\u{00b2}). n={} may take a long time.",
+            observations.len()
+        );
+    }
+    let linear_predictors: Vec<f64> = observations.iter().map(|obs| dot(&obs.x, beta)).collect();
     let mut concordant = 0u64;
     let mut discordant = 0u64;
     let mut tied = 0u64;
@@ -423,7 +438,7 @@ pub(crate) fn f_distribution_p_value(f: f64, df1: f64, df2: f64) -> f64 {
     let x = df1 * f / (df1 * f + df2);
     // 1 - I_x(df1/2, df2/2) = I_{1-x}(df2/2, df1/2)
     let p = regularized_beta_incomplete(x, df1 / 2.0, df2 / 2.0);
-    (1.0 - p).max(0.0).min(1.0)
+    (1.0 - p).clamp(0.0, 1.0)
 }
 
 /// Regularized incomplete beta function `I_x(a, b)` — delegates to [`regularized_incomplete_beta`].
@@ -433,9 +448,6 @@ pub(crate) fn regularized_beta_incomplete(x: f64, a: f64, b: f64) -> f64 {
     regularized_incomplete_beta(a, b, x)
 }
 
-
-
-
 /// Two-sided p-value for the t distribution using the incomplete beta function.
 pub(crate) fn t_distribution_p_value(t: f64, df: f64) -> f64 {
     if df <= 0.0 || !t.is_finite() {
@@ -443,7 +455,7 @@ pub(crate) fn t_distribution_p_value(t: f64, df: f64) -> f64 {
     }
     let x = df / (df + t * t);
     let p = regularized_beta_incomplete(x, df / 2.0, 0.5);
-    p.max(0.0).min(1.0)
+    p.clamp(0.0, 1.0)
 }
 
 /// Approximate critical value for t distribution at 97.5% (two-sided 95% CI).
@@ -478,8 +490,7 @@ pub(crate) fn welch_t_statistic(a: &[f64], b: &[f64]) -> (f64, f64) {
     }
     let t = (mean1 - mean2) / se;
     let numerator = (var1 / n1 + var2 / n2).powi(2);
-    let denominator =
-        (var1 / n1).powi(2) / (n1 - 1.0) + (var2 / n2).powi(2) / (n2 - 1.0);
+    let denominator = (var1 / n1).powi(2) / (n1 - 1.0) + (var2 / n2).powi(2) / (n2 - 1.0);
     let df = if denominator > 0.0 {
         numerator / denominator
     } else {
@@ -522,8 +533,8 @@ pub(crate) fn kruskal_wallis_test(group_values: &[&[f64]]) -> Option<f64> {
             j += 1;
         }
         let avg_rank = (i + 1 + j) as f64 / 2.0;
-        for idx in i..j {
-            ranks[idx] = avg_rank;
+        for rank in ranks.iter_mut().take(j).skip(i) {
+            *rank = avg_rank;
         }
         i = j;
     }
@@ -573,7 +584,10 @@ pub(crate) fn poisson_rate_ci_per_1000(events: f64, person_time: f64) -> (f64, f
     }
     let rate = events / person_time * 1000.0;
     if events == 0.0 {
-        return (0.0, -1000.0 * (1.0_f64 - 0.025_f64.powf(1.0)).ln() / person_time);
+        return (
+            0.0,
+            -1000.0 * (1.0_f64 - 0.025_f64.powf(1.0)).ln() / person_time,
+        );
     }
     let se_ln = 1.0 / events.sqrt();
     let ln_rate = rate.ln();
@@ -603,7 +617,11 @@ mod tests {
     #[test]
     fn normal_cdf_known_values() {
         // R: pnorm(0) = 0.5 (A&S approximation has ~1e-7 precision)
-        assert!((normal_cdf(0.0) - 0.5).abs() < 1e-7, "pnorm(0): got {}", normal_cdf(0.0));
+        assert!(
+            (normal_cdf(0.0) - 0.5).abs() < 1e-7,
+            "pnorm(0): got {}",
+            normal_cdf(0.0)
+        );
         // R: pnorm(1.96) ≈ 0.97500210
         assert!((normal_cdf(1.96) - 0.975_002_10).abs() < 1e-6);
         // R: pnorm(-1.96) ≈ 0.02499790
@@ -618,10 +636,16 @@ mod tests {
     fn chi_square_cdf_known_values() {
         // R: pchisq(3.841, df=1) ≈ 0.95 (critical value for p=0.05)
         let cdf = chi_square_cdf(3.841, 1.0);
-        assert!((cdf - 0.95).abs() < 0.005, "chi2 CDF at 3.841, df=1: got {cdf}");
+        assert!(
+            (cdf - 0.95).abs() < 0.005,
+            "chi2 CDF at 3.841, df=1: got {cdf}"
+        );
         // R: pchisq(5.991, df=2) ≈ 0.95
         let cdf2 = chi_square_cdf(5.991, 2.0);
-        assert!((cdf2 - 0.95).abs() < 0.005, "chi2 CDF at 5.991, df=2: got {cdf2}");
+        assert!(
+            (cdf2 - 0.95).abs() < 0.005,
+            "chi2 CDF at 5.991, df=2: got {cdf2}"
+        );
         // R: pchisq(0.0, df=1) = 0.0
         assert!((chi_square_cdf(0.0, 1.0)).abs() < 1e-10);
     }
@@ -685,9 +709,21 @@ mod tests {
         // Subject 2: event at t=2, x=[0.5] (medium risk)
         // Subject 3: censored at t=3, x=[0.0] (low risk)
         let obs = vec![
-            CoxObservation { time: 1.0, event: true, x: vec![1.0] },
-            CoxObservation { time: 2.0, event: true, x: vec![0.5] },
-            CoxObservation { time: 3.0, event: false, x: vec![0.0] },
+            CoxObservation {
+                time: 1.0,
+                event: true,
+                x: vec![1.0],
+            },
+            CoxObservation {
+                time: 2.0,
+                event: true,
+                x: vec![0.5],
+            },
+            CoxObservation {
+                time: 3.0,
+                event: false,
+                x: vec![0.0],
+            },
         ];
         let beta = vec![1.0]; // positive β → higher x = higher risk
         let c = compute_cox_concordance(&obs, &beta);

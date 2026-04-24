@@ -17,3 +17,10 @@ opencode-test.*
 oc-stderr.log
 gen_cute_penguin.py
 clippy_output.txt
+scratch_cdp_check.js
+evaluation_report.md
+
+# Non-project directories
+.codex-backups/
+claw-code/
+codex_tmp/

@@ -241,8 +241,6 @@ pub(crate) fn collect_pending_tool_uses(content: &[OutputContentBlock]) -> Vec<P
         .collect()
 }
 
-
-
 /// P1 UX4: Short version — shows only filenames for path args, keeps other args intact.
 pub(crate) fn summarize_tool_input_short(input: &Value) -> String {
     let Some(object) = input.as_object() else {

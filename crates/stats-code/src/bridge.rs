@@ -132,21 +132,15 @@ fn resolve_python_script(name: &str) -> Result<String, String> {
     if let Some(home) = dirs_user_script_dir() {
         let user_path = home.join(name);
         if user_path.is_file() {
-            return std::fs::read_to_string(&user_path).map_err(|e| {
-                format!(
-                    "Failed to read user script {}: {e}",
-                    user_path.display()
-                )
-            });
+            return std::fs::read_to_string(&user_path)
+                .map_err(|e| format!("Failed to read user script {}: {e}", user_path.display()));
         }
     }
 
     // Phase A: built-in scripts
     match name {
         "bridge_runner.py" => Ok(include_str!("../scripts/python/bridge_runner.py").to_string()),
-        "model_logistic.py" => {
-            Ok(include_str!("../scripts/python/model_logistic.py").to_string())
-        }
+        "model_logistic.py" => Ok(include_str!("../scripts/python/model_logistic.py").to_string()),
         "model_linear.py" => Ok(include_str!("../scripts/python/model_linear.py").to_string()),
         "model_cox.py" => Ok(include_str!("../scripts/python/model_cox.py").to_string()),
         _ => Err(format!("Unknown built-in script: {name}")),
@@ -157,15 +151,21 @@ fn resolve_python_script(name: &str) -> Result<String, String> {
 fn dirs_user_script_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        std::env::var("USERPROFILE")
-            .ok()
-            .map(|p| PathBuf::from(p).join(".stats-code").join("scripts").join("python"))
+        std::env::var("USERPROFILE").ok().map(|p| {
+            PathBuf::from(p)
+                .join(".stats-code")
+                .join("scripts")
+                .join("python")
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
-        std::env::var("HOME")
-            .ok()
-            .map(|p| PathBuf::from(p).join(".stats-code").join("scripts").join("python"))
+        std::env::var("HOME").ok().map(|p| {
+            PathBuf::from(p)
+                .join(".stats-code")
+                .join("scripts")
+                .join("python")
+        })
     }
 }
 
@@ -186,8 +186,8 @@ pub fn execute_bridge(
     let python = discover_engine(Engine::Python)?;
 
     // Write the request JSON to a temp file
-    let mut tmp = tempfile::NamedTempFile::new()
-        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    let mut tmp =
+        tempfile::NamedTempFile::new().map_err(|e| format!("Failed to create temp file: {e}"))?;
     let json_bytes = serde_json::to_vec_pretty(request)
         .map_err(|e| format!("Failed to serialize request: {e}"))?;
     tmp.write_all(&json_bytes)
@@ -220,9 +220,7 @@ pub fn execute_bridge(
 
     // Execute: python runner.py --input params.json
     let mut cmd = Command::new(&python);
-    cmd.arg(runner_tmp.path())
-        .arg("--input")
-        .arg(tmp.path());
+    cmd.arg(runner_tmp.path()).arg("--input").arg(tmp.path());
 
     if let Some(ref wd) = config.work_dir {
         cmd.current_dir(wd);
@@ -245,8 +243,9 @@ pub fn execute_bridge(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str::<BridgeResponse>(stdout.trim())
-        .map_err(|e| format!("Failed to parse bridge response JSON: {e}\n--- raw stdout ---\n{stdout}"))
+    serde_json::from_str::<BridgeResponse>(stdout.trim()).map_err(|e| {
+        format!("Failed to parse bridge response JSON: {e}\n--- raw stdout ---\n{stdout}")
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +255,7 @@ pub fn execute_bridge(
 use crate::cli::{ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs};
 
 impl BridgeRequest {
-    #[must_use] 
+    #[must_use]
     pub fn from_logistic(args: &ModelLogisticArgs, data_path: &Path) -> Self {
         let mut all_predictors = args.predictors.clone();
         all_predictors.extend(args.adjust.iter().cloned());
@@ -273,7 +272,7 @@ impl BridgeRequest {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_linear(args: &ModelLinearArgs, data_path: &Path) -> Self {
         let mut all_predictors = args.predictors.clone();
         all_predictors.extend(args.adjust.iter().cloned());
@@ -290,7 +289,7 @@ impl BridgeRequest {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_cox(args: &ModelCoxArgs, data_path: &Path) -> Self {
         let mut all_predictors = args.predictors.clone();
         all_predictors.extend(args.adjust.iter().cloned());
@@ -362,18 +361,16 @@ pub fn execute_custom_script(
     params_json: Option<&str>,
 ) -> Result<CustomScriptResult, String> {
     if !script_path.is_file() {
-        return Err(format!(
-            "Script not found: {}",
-            script_path.display()
-        ));
+        return Err(format!("Script not found: {}", script_path.display()));
     }
 
     let interpreter = discover_engine(engine)?;
 
     // Build the input JSON
     let params_value: Value = match params_json {
-        Some(json_str) => serde_json::from_str(json_str)
-            .map_err(|e| format!("Invalid --params JSON: {e}"))?,
+        Some(json_str) => {
+            serde_json::from_str(json_str).map_err(|e| format!("Invalid --params JSON: {e}"))?
+        }
         None => Value::Object(serde_json::Map::new()),
     };
 
@@ -383,8 +380,8 @@ pub fn execute_custom_script(
     });
 
     // Write input to a temp file
-    let mut tmp = tempfile::NamedTempFile::new()
-        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    let mut tmp =
+        tempfile::NamedTempFile::new().map_err(|e| format!("Failed to create temp file: {e}"))?;
     tmp.write_all(
         serde_json::to_vec_pretty(&input_json)
             .map_err(|e| format!("Failed to serialize input: {e}"))?

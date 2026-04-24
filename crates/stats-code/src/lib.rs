@@ -19,12 +19,12 @@ mod schema;
 mod tableone;
 mod ui;
 
+pub use bridge::Engine;
 pub use cli::{
     AiAskArgs, AiCommand, AuthCommand, AuthDoctorArgs, AuthProvider, AuthSetArgs, ChatArgs, Cli,
     Command, ConfigCommand, ConfigModelArgs, InspectArgs, ModelCommand, ModelCoxArgs,
     ModelLogisticArgs, RateArgs, ReportBuildArgs, ReportCommand, RunCommand, RunScriptArgs,
     TableOneArgs,
 };
-pub use bridge::Engine;
 pub use handlers::{dispatch, run};
 pub use schema::{AnalysisSpec, DataFormat};

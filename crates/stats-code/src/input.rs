@@ -3,7 +3,9 @@ use std::cell::RefCell;
 use std::io::{self, IsTerminal, Write};
 
 use crossterm::cursor::{MoveToColumn, MoveUp};
-use crossterm::event::{self, Event as CrosstermEvent, KeyCode as CrosstermKeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event as CrosstermEvent, KeyCode as CrosstermKeyCode, KeyEventKind, KeyModifiers,
+};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use rustyline::completion::{Completer, Pair};
@@ -167,11 +169,11 @@ impl LineEditor {
         match self.read_initial_key()? {
             InitialKeyRead::Slash => self.read_slash_line(),
             InitialKeyRead::Prefill(initial) => {
-                self.clear_prompt_line()?;
+                Self::clear_prompt_line()?;
                 self.read_with_rustyline(Some(initial))
             }
             InitialKeyRead::UseRustyline => {
-                self.clear_prompt_line()?;
+                Self::clear_prompt_line()?;
                 self.read_with_rustyline(None)
             }
             InitialKeyRead::SubmitEmpty => {
@@ -189,7 +191,9 @@ impl LineEditor {
 
     fn read_with_rustyline(&mut self, initial: Option<String>) -> io::Result<ReadOutcome> {
         let readline = match initial {
-            Some(initial) => self.editor.readline_with_initial(&self.prompt, (&initial, "")),
+            Some(initial) => self
+                .editor
+                .readline_with_initial(&self.prompt, (&initial, "")),
             None => self.editor.readline(&self.prompt),
         };
 
@@ -303,7 +307,7 @@ impl LineEditor {
                 }
                 (CrosstermKeyCode::Tab, _) => {
                     if let Some(choice) = matches.get(selected) {
-                        buffer = choice.clone();
+                        buffer.clone_from(choice);
                     }
                 }
                 (CrosstermKeyCode::Char(ch), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
@@ -327,7 +331,7 @@ impl LineEditor {
             .unwrap_or_default()
     }
 
-    fn clear_prompt_line(&self) -> io::Result<()> {
+    fn clear_prompt_line() -> io::Result<()> {
         let mut stdout = io::stdout();
         execute!(stdout, MoveToColumn(0), Clear(ClearType::CurrentLine))
     }

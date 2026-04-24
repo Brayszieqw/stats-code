@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::cli::ReportBuildArgs;
 use crate::helpers::{
     extract_string_field, fingerprint_file, path_matches, resolve_path_for_match,
     resolve_path_str_for_match, stringify_error, unix_timestamp_nanos,
@@ -19,7 +20,6 @@ use crate::schema::{
     load_analysis_spec, validate_study_context, AnalysisSpec, CoxResult, InspectResult,
     LinearResult, LogisticResult, RateResult, ReportBuildResult, TableOneResult, VariableRole,
 };
-use crate::cli::ReportBuildArgs;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,9 +111,10 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
                 .map(|report| resolve_relative_to_analysis(&analysis_path, &report.out_dir))
         })
         .unwrap_or_else(|| PathBuf::from("stats-code-artifacts"));
-    let artifacts_dir = args
-        .artifacts
-        .as_ref().map_or_else(|| out_dir.clone(), |path| resolve_relative_to_analysis(&analysis_path, path));
+    let artifacts_dir = args.artifacts.as_ref().map_or_else(
+        || out_dir.clone(),
+        |path| resolve_relative_to_analysis(&analysis_path, path),
+    );
     let report_dir = out_dir.join("report");
     let tables_dir = out_dir.join("tables");
     let audit_dir = out_dir.join("audit");
@@ -310,7 +311,10 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
 // Study context validation & template
 // ---------------------------------------------------------------------------
 
-pub(crate) fn ensure_study_context_ready(analysis_path: &Path, spec: &AnalysisSpec) -> Result<(), String> {
+pub(crate) fn ensure_study_context_ready(
+    analysis_path: &Path,
+    spec: &AnalysisSpec,
+) -> Result<(), String> {
     let issues = validate_study_context(spec);
     if issues.is_empty() {
         return Ok(());
@@ -433,7 +437,9 @@ pub(crate) fn resolve_data_path(
         return Ok((path.clone(), explicit_analysis.cloned()));
     }
 
-    let analysis_path = if let Some(path) = explicit_analysis.cloned() { path } else {
+    let analysis_path = if let Some(path) = explicit_analysis.cloned() {
+        path
+    } else {
         let default = PathBuf::from("analysis.yaml");
         if default.is_file() {
             default
@@ -455,7 +461,8 @@ pub(crate) fn resolve_relative_to_analysis(analysis_path: &Path, path: &Path) ->
         path.to_path_buf()
     } else {
         analysis_path
-            .parent().map_or_else(|| path.to_path_buf(), |parent| parent.join(path))
+            .parent()
+            .map_or_else(|| path.to_path_buf(), |parent| parent.join(path))
     }
 }
 
@@ -763,10 +770,7 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
             .map(|coefficient| {
                 format!(
                     "{} β {:.4} [{:.4}, {:.4}]",
-                    coefficient.term,
-                    coefficient.beta,
-                    coefficient.ci_lower,
-                    coefficient.ci_upper
+                    coefficient.term, coefficient.beta, coefficient.ci_lower, coefficient.ci_upper
                 )
             })
             .collect::<Vec<_>>()
@@ -847,14 +851,16 @@ fn build_tableone_markdown(result: &TableOneResult) -> String {
         let label = row.label.as_deref().unwrap_or(&row.variable);
         let name = row
             .level
-            .as_ref().map_or_else(|| label.to_string(), |level| format!("{label} = {level}"));
+            .as_ref()
+            .map_or_else(|| label.to_string(), |level| format!("{label} = {level}"));
         let group_cells = result
             .group_levels
             .iter()
             .map(|group| {
                 row.groups
                     .iter()
-                    .find(|cell| &cell.group == group).map_or_else(|| "NA".to_string(), |cell| cell.cell.display.clone())
+                    .find(|cell| &cell.group == group)
+                    .map_or_else(|| "NA".to_string(), |cell| cell.cell.display.clone())
             })
             .collect::<Vec<_>>()
             .join(" | ");
@@ -946,9 +952,16 @@ fn build_linear_markdown(result: &LinearResult) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "- Formula: `{}`", result.formula);
     let _ = writeln!(out, "- Rows used: {}", result.n_used);
-    let _ = writeln!(out, "- R²: {:.4}, Adjusted R²: {:.4}", result.r_squared, result.adjusted_r_squared);
+    let _ = writeln!(
+        out,
+        "- R²: {:.4}, Adjusted R²: {:.4}",
+        result.r_squared, result.adjusted_r_squared
+    );
     if let Some(f) = result.f_statistic {
-        let p_text = result.f_p_value.map(|p| format!(", p={p:.4}")).unwrap_or_default();
+        let p_text = result
+            .f_p_value
+            .map(|p| format!(", p={p:.4}"))
+            .unwrap_or_default();
         let _ = writeln!(out, "- F-statistic: {f:.4}{p_text}");
     }
     let _ = writeln!(out);
@@ -1152,7 +1165,7 @@ mod tests {
         let analysis_path = root.join("analysis.yaml");
         fs::write(
             &analysis_path,
-            r#"
+            r"
 study:
   title: Demo cohort
   design: cohort
@@ -1199,7 +1212,7 @@ audit:
   save_outputs: true
   save_environment: true
   save_decisions: true
-"#,
+",
         )
         .expect("write analysis yaml");
 
@@ -1251,7 +1264,7 @@ audit:
         let data_path = root.join("demo.csv");
         fs::write(
             &analysis_path,
-            r#"
+            r"
 study:
   title: Demo cohort
   design: cohort
@@ -1286,7 +1299,7 @@ report:
   include_methods: true
   include_tables: true
   include_assumptions: true
-"#,
+",
         )
         .expect("write analysis yaml");
         fs::write(&data_path, "disease,fu_pt,age,sex\n1,1.0,50,female\n").expect("write csv");
@@ -1416,7 +1429,8 @@ report:
             }),
         });
 
-        let rendered = crate::handlers::dispatch(&cli).expect("report build should consume evidence");
+        let rendered =
+            crate::handlers::dispatch(&cli).expect("report build should consume evidence");
         assert!(rendered.contains("Report Build"));
         let report_md =
             fs::read_to_string(out_dir.join("report").join("report.md")).expect("read report");
@@ -1441,7 +1455,7 @@ report:
         let other_data_path = root.join("other.csv");
         fs::write(
             &analysis_path,
-            r#"
+            r"
 study:
   title: Demo cohort
   design: cohort
@@ -1470,7 +1484,7 @@ report:
   include_methods: true
   include_tables: true
   include_assumptions: true
-"#,
+",
         )
         .expect("write analysis yaml");
         fs::write(&data_path, "disease,age\n1,50\n0,40\n").expect("write primary csv");
@@ -1642,7 +1656,7 @@ report:
         let analysis_path = root.join("analysis.yaml");
         fs::write(
             &analysis_path,
-            r#"
+            r"
 study:
   title: Demo cohort
   design: cohort
@@ -1656,7 +1670,7 @@ variables:
 analyses:
   - kind: table_one
     by: disease
-"#,
+",
         )
         .expect("write analysis yaml");
         fs::write(root.join("demo.csv"), "disease\n1\n0\n").expect("write csv");

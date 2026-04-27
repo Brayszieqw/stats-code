@@ -4,10 +4,23 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::schema::{
-    format_variable_kind, AiAskResult, AnalysisKind, AnalysisSpec, AuthDoctorResult, AuthSetResult,
-    ColumnInspection, ConfigResult, CoxResult, InspectResult, LinearResult, LogisticResult,
-    ModelKind, PlannedCommandResult, RateResult, ReportBuildResult, TableOneResult, VariableRole,
+    format_variable_kind, AiAskResult, AnalysisCheckLevel, AnalysisCheckResult, AnalysisKind,
+    AnalysisSpec, AuditExplainArtifact, AuditExplainResult, AuthDoctorResult, AuthSetResult,
+    ColumnInspection, ConfigResult, CoxResult, DoctorResult, InitProjectResult, InspectResult,
+    LinearResult, LogisticResult, ModelKind, OpenReportResult, PlannedCommandResult, RateResult,
+    ReportBuildResult, ReportVerifyResult, TableOneResult, VariableRole, WorkflowRunResult,
 };
+
+pub(crate) fn format_p_value(p: f64) -> String {
+    if !p.is_finite() {
+        return "NA".to_string();
+    }
+    if p < 0.001 {
+        "<0.001".to_string()
+    } else {
+        format!("{p:.4}")
+    }
+}
 
 pub fn render_inspect_text(result: &InspectResult) -> String {
     let mut out = String::new();
@@ -127,7 +140,7 @@ pub fn render_tableone_text(result: &TableOneResult) -> String {
             .collect::<Vec<_>>()
             .join(" | ");
         let p_text = match (&row.test_name, row.p_value) {
-            (Some(test), Some(p)) => format!(" p={p:.4} ({test})"),
+            (Some(test), Some(p)) => format!(" p={} ({test})", format_p_value(p)),
             _ => String::new(),
         };
         let warnings = if row.warnings.is_empty() {
@@ -253,6 +266,7 @@ pub fn render_logistic_text(result: &LogisticResult) -> String {
     }
     let _ = writeln!(out, "  Coefficients");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let level = coefficient
             .level
             .as_ref()
@@ -265,12 +279,12 @@ pub fn render_logistic_text(result: &LogisticResult) -> String {
             .unwrap_or_default();
         let _ = writeln!(
             out,
-            "  - {} OR={:.4} CI95=[{:.4}, {:.4}] p={:.4} beta={:.4} se={:.4}{}{}",
+            "  - {} OR={:.4} CI95=[{:.4}, {:.4}] p={} beta={:.4} se={:.4}{}{}",
             coefficient.term,
             coefficient.odds_ratio,
             coefficient.ci_lower,
             coefficient.ci_upper,
-            coefficient.p_value,
+            p_value,
             coefficient.beta,
             coefficient.standard_error,
             level,
@@ -332,6 +346,7 @@ pub fn render_cox_text(result: &CoxResult) -> String {
     }
     let _ = writeln!(out, "  Coefficients");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let level = coefficient
             .level
             .as_ref()
@@ -344,12 +359,12 @@ pub fn render_cox_text(result: &CoxResult) -> String {
             .unwrap_or_default();
         let _ = writeln!(
             out,
-            "  - {} HR={:.4} CI95=[{:.4}, {:.4}] p={:.4} beta={:.4} se={:.4}{}{}",
+            "  - {} HR={:.4} CI95=[{:.4}, {:.4}] p={} beta={:.4} se={:.4}{}{}",
             coefficient.term,
             coefficient.hazard_ratio,
             coefficient.ci_lower,
             coefficient.ci_upper,
-            coefficient.p_value,
+            p_value,
             coefficient.beta,
             coefficient.standard_error,
             level,
@@ -403,7 +418,7 @@ pub fn render_linear_text(result: &LinearResult) -> String {
     if let Some(f) = result.f_statistic {
         let p_text = result
             .f_p_value
-            .map(|p| format!(" p={p:.4}"))
+            .map(|p| format!(" p={}", format_p_value(p)))
             .unwrap_or_default();
         let _ = writeln!(out, "  F-statistic      {f:.4}{p_text}");
     }
@@ -416,6 +431,7 @@ pub fn render_linear_text(result: &LinearResult) -> String {
     }
     let _ = writeln!(out, "  Coefficients");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let level = coefficient
             .level
             .as_ref()
@@ -428,12 +444,12 @@ pub fn render_linear_text(result: &LinearResult) -> String {
             .unwrap_or_default();
         let _ = writeln!(
             out,
-            "  - {} beta={:.4} se={:.4} t={:.4} p={:.4} CI95=[{:.4}, {:.4}]{}{}",
+            "  - {} beta={:.4} se={:.4} t={:.4} p={} CI95=[{:.4}, {:.4}]{}{}",
             coefficient.term,
             coefficient.beta,
             coefficient.standard_error,
             coefficient.t_statistic,
-            coefficient.p_value,
+            p_value,
             coefficient.ci_lower,
             coefficient.ci_upper,
             level,
@@ -455,6 +471,19 @@ pub fn render_linear_text(result: &LinearResult) -> String {
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::format_p_value;
+
+    #[test]
+    fn format_p_value_uses_threshold_for_tiny_values() {
+        assert_eq!(format_p_value(0.0), "<0.001");
+        assert_eq!(format_p_value(0.0009), "<0.001");
+        assert_eq!(format_p_value(0.001), "0.0010");
+        assert_eq!(format_p_value(0.8355440287990006), "0.8355");
+    }
+}
+
 pub fn render_report_build_text(result: &ReportBuildResult) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "Report Build");
@@ -472,6 +501,224 @@ pub fn render_report_build_text(result: &ReportBuildResult) -> String {
         }
     }
     out
+}
+
+pub fn render_report_verify_text(result: &ReportVerifyResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Report Verify");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Artifacts        {}", result.artifacts_dir);
+    let _ = writeln!(
+        out,
+        "  Summary          accepted={} rejected={} errors={} warnings={}",
+        result.accepted_count, result.rejected_count, result.error_count, result.warning_count
+    );
+    let _ = writeln!(out, "  Checks");
+    for item in &result.items {
+        let _ = writeln!(
+            out,
+            "  - {} {}: {}",
+            analysis_check_level_label(item.level),
+            item.code,
+            item.message
+        );
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_analysis_check_text(result: &AnalysisCheckResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Analysis Check");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Analysis         {}", result.analysis_path);
+    let _ = writeln!(out, "  Data path        {}", result.data_path);
+    let _ = writeln!(
+        out,
+        "  Summary          errors={} warnings={}",
+        result.error_count, result.warning_count
+    );
+    let _ = writeln!(out, "  Checks");
+    for item in &result.items {
+        let _ = writeln!(
+            out,
+            "  - {} {}: {}",
+            analysis_check_level_label(item.level),
+            item.code,
+            item.message
+        );
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+fn analysis_check_level_label(level: AnalysisCheckLevel) -> &'static str {
+    match level {
+        AnalysisCheckLevel::Ok => "OK",
+        AnalysisCheckLevel::Warning => "WARNING",
+        AnalysisCheckLevel::Error => "ERROR",
+    }
+}
+
+pub fn render_workflow_run_text(result: &WorkflowRunResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Workflow Run");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Run ID           {}", result.run_id);
+    let _ = writeln!(out, "  Analysis         {}", result.analysis_path);
+    let _ = writeln!(out, "  Data path        {}", result.data_path);
+    let _ = writeln!(out, "  Artifacts        {}", result.artifacts_dir);
+    let _ = writeln!(out, "  Report           {}", result.report_output_dir);
+    let _ = writeln!(out, "  Steps");
+    for step in &result.steps {
+        let _ = writeln!(
+            out,
+            "  - #{} {} status={} artifact={}",
+            step.step_index, step.command, step.status, step.artifact_dir
+        );
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_init_project_text(result: &InitProjectResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Init Project");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Project          {}", result.project_dir);
+    let _ = writeln!(out, "  Analysis         {}", result.analysis_path);
+    let _ = writeln!(out, "  Data dir         {}", result.data_dir);
+    let _ = writeln!(out, "  Written files");
+    for file in &result.written_files {
+        let _ = writeln!(out, "  - {file}");
+    }
+    if !result.next_steps.is_empty() {
+        let _ = writeln!(out, "  Next steps");
+        for step in &result.next_steps {
+            let _ = writeln!(out, "  - {step}");
+        }
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_doctor_text(result: &DoctorResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Doctor");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Version          {}", result.version);
+    let _ = writeln!(out, "  Current dir      {}", result.current_dir);
+    let _ = writeln!(out, "  Executable       {}", result.executable);
+    let _ = writeln!(
+        out,
+        "  Summary          errors={} warnings={}",
+        result.error_count, result.warning_count
+    );
+    let _ = writeln!(out, "  Checks");
+    for item in &result.items {
+        let _ = writeln!(
+            out,
+            "  - {} {}: {}",
+            analysis_check_level_label(item.level),
+            item.code,
+            item.message
+        );
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_audit_explain_text(result: &AuditExplainResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Audit Explain");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Artifacts        {}", result.artifacts_dir);
+    let _ = writeln!(out, "  Evidence index   {}", result.evidence_index_path);
+    let _ = writeln!(
+        out,
+        "  Summary          accepted={} rejected={} policy_exceptions={}",
+        result.accepted_count, result.rejected_count, result.policy_exception_count
+    );
+    write_audit_artifact_group(&mut out, "Accepted artifacts", &result.accepted_artifacts);
+    write_audit_artifact_group(&mut out, "Rejected artifacts", &result.rejected_artifacts);
+    if !result.policy_exceptions.is_empty() {
+        let _ = writeln!(out, "  Policy exceptions");
+        for exception in &result.policy_exceptions {
+            let _ = writeln!(out, "  - {exception}");
+        }
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_open_report_text(result: &OpenReportResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Open Report");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Artifacts        {}", result.artifacts_dir);
+    let _ = writeln!(out, "  Report           {}", result.report_path);
+    let _ = writeln!(out, "  Opened           {}", result.opened);
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+fn write_audit_artifact_group(out: &mut String, title: &str, artifacts: &[AuditExplainArtifact]) {
+    let _ = writeln!(out, "  {title}");
+    if artifacts.is_empty() {
+        let _ = writeln!(out, "  - <none>");
+        return;
+    }
+    for artifact in artifacts {
+        let step = artifact
+            .analysis_step_index
+            .map(|index| format!(" step=#{index}"))
+            .unwrap_or_default();
+        let decision = artifact
+            .report_decision
+            .as_ref()
+            .map(|value| format!(" decision={value}"))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "  - {} status={}{}{} reason={}",
+            artifact.command, artifact.status, decision, step, artifact.reason
+        );
+    }
 }
 
 pub fn render_auth_set_text(result: &AuthSetResult) -> String {
@@ -792,6 +1039,10 @@ pub fn build_methods_markdown(spec: &AnalysisSpec) -> String {
         if let Some(estimator) = &survey.variance_estimator {
             let _ = writeln!(out, "  - Variance estimator: `{estimator}`");
         }
+        let _ = writeln!(
+            out,
+            "  - Note: supported deterministic Rust engines apply survey weights to point estimates; complex-survey variance still requires explicit review."
+        );
     }
     if let Some(privacy) = &spec.privacy {
         let _ = writeln!(
@@ -800,6 +1051,10 @@ pub fn build_methods_markdown(spec: &AnalysisSpec) -> String {
             privacy.deidentify,
             privacy.direct_identifiers.join(", "),
             privacy.quasi_identifiers.join(", ")
+        );
+        let _ = writeln!(
+            out,
+            "  - Note: report markdown applies small-cell suppression when configured; de-identification and identifier removal still require explicit review."
         );
     }
     let _ = writeln!(out);
@@ -1001,7 +1256,7 @@ pub fn build_assumptions_markdown(spec: &AnalysisSpec) -> String {
         );
     }
     if spec.survey.is_some() {
-        let _ = writeln!(out, "- Survey design: confirm weight, strata, cluster, and variance estimator choices before inference.");
+        let _ = writeln!(out, "- Survey design: confirm weights were applied where supported and review strata, cluster, replicate-weight, and variance-estimator handling before inference.");
     }
     for step in &spec.analyses {
         if step.kind != AnalysisKind::Model {

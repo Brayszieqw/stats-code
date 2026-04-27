@@ -2,7 +2,7 @@
 // Shared modeling types used across logistic, cox, and linear regression modules.
 // ---------------------------------------------------------------------------
 
-use crate::schema::is_missing_value;
+use crate::schema::is_missing_value_for_column;
 
 /// Row-level parse status used by all model data-loading loops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +27,7 @@ impl LogisticVariablePlan {
         row: &mut Vec<f64>,
     ) -> Result<(), RowState> {
         let trimmed = raw.trim();
-        if is_missing_value(trimmed) {
+        if is_missing_value_for_column(&self.name, trimmed) {
             return Err(RowState::Missing);
         }
         match &self.encoding {

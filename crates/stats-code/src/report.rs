@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::cli::ReportBuildArgs;
+use crate::cli::{ReportBuildArgs, ReportVerifyArgs};
 use crate::helpers::{
     extract_string_field, fingerprint_file, path_matches, resolve_path_for_match,
     resolve_path_str_for_match, stringify_error, unix_timestamp_nanos,
@@ -14,12 +15,16 @@ use crate::render::{
     build_analysis_manifest, build_assumptions_markdown, build_audit_trail_markdown,
     build_command_log, build_methods_markdown, build_report_markdown,
     build_reporting_checklist_markdown, build_study_context_markdown, build_tables_readme,
-    build_variables_markdown,
+    build_variables_markdown, format_p_value,
 };
 use crate::schema::{
-    load_analysis_spec, validate_study_context, AnalysisSpec, CoxResult, InspectResult,
-    LinearResult, LogisticResult, RateResult, ReportBuildResult, TableOneResult, VariableRole,
+    load_analysis_spec, validate_study_context, AnalysisCheckItem, AnalysisCheckLevel,
+    AnalysisKind, AnalysisSpec, ArtifactMetadata, ArtifactRole, ArtifactStatus, CoxResult,
+    InspectResult, LinearResult, LogisticResult, ModelKind, RateResult, ReportBuildResult,
+    ReportVerifyResult, TableOneResult, VariableRole,
 };
+
+const ARTIFACT_SCHEMA_VERSION: &str = "1.0";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +40,8 @@ pub(crate) struct ReportEvidence {
     pub cox: Option<CoxResult>,
     pub linear: Option<LinearResult>,
     pub discovered_runs: Vec<DiscoveredRunArtifact>,
+    pub accepted_artifacts: Vec<ReportArtifactDecision>,
+    pub rejected_artifacts: Vec<ReportArtifactDecision>,
     pub notes: Vec<String>,
 }
 
@@ -54,14 +61,16 @@ pub(crate) struct ReportEvidenceQuery {
     pub analysis_path_resolved: String,
     pub data_path_resolved: String,
     pub data_fingerprint_fnv1a64: Option<String>,
+    pub include_exploratory: bool,
 }
 
 impl ReportEvidenceQuery {
-    pub fn new(analysis_path: &Path, data_path: &Path) -> Self {
+    pub fn new(analysis_path: &Path, data_path: &Path, include_exploratory: bool) -> Self {
         Self {
             analysis_path_resolved: resolve_path_for_match(analysis_path),
             data_path_resolved: resolve_path_for_match(data_path),
             data_fingerprint_fnv1a64: fingerprint_file(data_path),
+            include_exploratory,
         }
     }
 }
@@ -73,15 +82,38 @@ pub(crate) struct DiscoveredRunArtifact {
     pub result_path: String,
     pub context_path: Option<String>,
     pub matched_by: String,
+    pub matched_analysis_step_index: Option<usize>,
+    pub artifact: Option<ArtifactMetadata>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ReportArtifactDecision {
+    pub command: String,
+    pub run_dir: String,
+    pub result_path: Option<String>,
+    pub context_path: Option<String>,
+    pub status: ArtifactStatus,
+    pub reason: String,
+    pub matched_by: Option<String>,
+    pub matched_analysis_step_index: Option<usize>,
+    pub artifact: Option<ArtifactMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RunArtifactContext {
+    #[serde(default)]
+    pub artifact_schema_version: Option<String>,
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+    #[serde(default)]
+    pub stats_code_version: Option<String>,
     pub command: String,
     #[serde(default)]
     pub analysis_path: Option<String>,
     #[serde(default)]
     pub analysis_path_resolved: Option<String>,
+    #[serde(default)]
+    pub analysis_fingerprint_fnv1a64: Option<String>,
     #[serde(default)]
     pub data_path: Option<String>,
     #[serde(default)]
@@ -92,6 +124,8 @@ pub(crate) struct RunArtifactContext {
     pub cwd: Option<String>,
     #[serde(default)]
     pub generated_at_unix_nanos: Option<u128>,
+    #[serde(default)]
+    pub artifact: Option<ArtifactMetadata>,
 }
 
 // ---------------------------------------------------------------------------
@@ -119,12 +153,13 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
     let tables_dir = out_dir.join("tables");
     let audit_dir = out_dir.join("audit");
     let data_path = resolve_relative_to_analysis(&analysis_path, &spec.data.path);
-    let evidence_query = ReportEvidenceQuery::new(&analysis_path, &data_path);
+    let evidence_query =
+        ReportEvidenceQuery::new(&analysis_path, &data_path, args.include_exploratory);
     fs::create_dir_all(&report_dir).map_err(stringify_error)?;
     fs::create_dir_all(&tables_dir).map_err(stringify_error)?;
     fs::create_dir_all(&audit_dir).map_err(stringify_error)?;
 
-    let evidence = discover_report_evidence(&artifacts_dir, &evidence_query)?;
+    let evidence = discover_report_evidence(&artifacts_dir, &evidence_query, &spec)?;
 
     let normalized_json = serde_json::to_string_pretty(&spec).map_err(stringify_error)?;
     let analysis_fingerprint = fingerprint_file(&analysis_path);
@@ -179,6 +214,7 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
             "data_path": data_path.display().to_string(),
             "data_path_resolved": evidence_query.data_path_resolved,
             "data_fingerprint_fnv1a64": evidence_query.data_fingerprint_fnv1a64,
+            "include_exploratory": evidence_query.include_exploratory,
         },
         "discovered_runs": evidence.discovered_runs.iter().map(|run| json!({
             "command": &run.command,
@@ -186,7 +222,11 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
             "result_path": &run.result_path,
             "context_path": &run.context_path,
             "matched_by": &run.matched_by,
+            "matched_analysis_step_index": run.matched_analysis_step_index,
+            "artifact": &run.artifact,
         })).collect::<Vec<_>>(),
+        "accepted_artifacts": evidence.accepted_artifacts.iter().map(report_artifact_decision_json).collect::<Vec<_>>(),
+        "rejected_artifacts": evidence.rejected_artifacts.iter().map(report_artifact_decision_json).collect::<Vec<_>>(),
         "notes": evidence.notes.clone(),
     }))
     .map_err(stringify_error)?;
@@ -252,7 +292,7 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
     if let Some(tableone) = &evidence.tableone {
         write_report_file(
             &tables_dir.join("tableone.md"),
-            &build_tableone_markdown(tableone),
+            &build_tableone_markdown(tableone, small_cell_threshold(&spec)),
             &mut written_files,
         )?;
     }
@@ -305,6 +345,731 @@ pub(crate) fn handle_report_build(args: &ReportBuildArgs) -> Result<ReportBuildR
             },
         ],
     })
+}
+
+pub(crate) fn handle_report_verify(args: &ReportVerifyArgs) -> ReportVerifyResult {
+    let artifacts_dir = args
+        .artifacts
+        .canonicalize()
+        .unwrap_or_else(|_| args.artifacts.clone());
+    let audit_dir = artifacts_dir.join("audit");
+    let report_dir = artifacts_dir.join("report");
+    let run_path = audit_dir.join("run.json");
+    let evidence_path = audit_dir.join("evidence-index.json");
+    let manifest_path = audit_dir.join("analysis_manifest.json");
+    let report_path = report_dir.join("report.md");
+    let mut items = Vec::new();
+    let mut notes = Vec::new();
+
+    verify_path_exists(
+        &mut items,
+        "artifacts_dir_found",
+        "artifacts_dir_missing",
+        &artifacts_dir,
+        "artifacts directory",
+    );
+    verify_path_exists(
+        &mut items,
+        "audit_dir_found",
+        "audit_dir_missing",
+        &audit_dir,
+        "audit directory",
+    );
+    verify_path_exists(
+        &mut items,
+        "report_markdown_found",
+        "report_markdown_missing",
+        &report_path,
+        "report/report.md",
+    );
+    verify_path_exists(
+        &mut items,
+        "run_metadata_found",
+        "run_metadata_missing",
+        &run_path,
+        "audit/run.json",
+    );
+    verify_path_exists(
+        &mut items,
+        "evidence_index_found",
+        "evidence_index_missing",
+        &evidence_path,
+        "audit/evidence-index.json",
+    );
+    verify_path_exists(
+        &mut items,
+        "analysis_manifest_found",
+        "analysis_manifest_missing",
+        &manifest_path,
+        "audit/analysis_manifest.json",
+    );
+
+    let run_json = read_report_verify_json(&run_path, &mut items, "run_metadata_json");
+    let evidence_json = read_report_verify_json(&evidence_path, &mut items, "evidence_index_json");
+
+    if let Some(run) = &run_json {
+        verify_required_string(
+            &mut items,
+            run,
+            &["schema_version"],
+            "run_schema_version_present",
+            "run_schema_version_missing",
+            "audit/run.json schema_version",
+        );
+        verify_required_string(
+            &mut items,
+            run,
+            &["stats_code_version"],
+            "stats_code_version_present",
+            "stats_code_version_missing",
+            "audit/run.json stats_code_version",
+        );
+        verify_required_string(
+            &mut items,
+            run,
+            &["analysis_fingerprint_fnv1a64"],
+            "analysis_fingerprint_present",
+            "analysis_fingerprint_missing",
+            "audit/run.json analysis_fingerprint_fnv1a64",
+        );
+        verify_required_string(
+            &mut items,
+            run,
+            &["data_fingerprint_fnv1a64"],
+            "data_fingerprint_present",
+            "data_fingerprint_missing",
+            "audit/run.json data_fingerprint_fnv1a64",
+        );
+    }
+
+    let mut accepted_count = 0usize;
+    let mut rejected_count = 0usize;
+    if let (Some(run), Some(evidence)) = (&run_json, &evidence_json) {
+        verify_report_identity(run, evidence, &mut items);
+        accepted_count = verify_accepted_report_artifacts(evidence, &artifacts_dir, &mut items);
+        rejected_count = verify_rejected_report_artifacts(evidence, &mut items);
+        if evidence
+            .get("query")
+            .and_then(|query| query.get("include_exploratory"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            push_verify_item(
+                &mut items,
+                AnalysisCheckLevel::Warning,
+                "include_exploratory_enabled",
+                "evidence-index query includes exploratory artifacts",
+            );
+        }
+    }
+
+    if accepted_count == 0 {
+        push_verify_item(
+            &mut items,
+            AnalysisCheckLevel::Warning,
+            "accepted_artifacts_empty",
+            "no accepted artifacts were recorded in evidence-index.json",
+        );
+    }
+
+    if rejected_count > 0 {
+        notes.push(format!(
+            "{rejected_count} rejected artifact(s) are recorded; inspect audit/evidence-index.json for reasons."
+        ));
+    }
+
+    let error_count = items
+        .iter()
+        .filter(|item| item.level == AnalysisCheckLevel::Error)
+        .count();
+    let warning_count = items
+        .iter()
+        .filter(|item| item.level == AnalysisCheckLevel::Warning)
+        .count();
+    let status = if error_count == 0 { "ok" } else { "error" }.to_string();
+
+    ReportVerifyResult {
+        status,
+        artifacts_dir: artifacts_dir.display().to_string(),
+        accepted_count,
+        rejected_count,
+        error_count,
+        warning_count,
+        items,
+        notes,
+    }
+}
+
+fn push_verify_item(
+    items: &mut Vec<AnalysisCheckItem>,
+    level: AnalysisCheckLevel,
+    code: &str,
+    message: impl Into<String>,
+) {
+    items.push(AnalysisCheckItem {
+        level,
+        code: code.to_string(),
+        message: message.into(),
+    });
+}
+
+fn verify_path_exists(
+    items: &mut Vec<AnalysisCheckItem>,
+    ok_code: &str,
+    error_code: &str,
+    path: &Path,
+    label: &str,
+) {
+    if path.exists() {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            ok_code,
+            format!("{label} found at `{}`", path.display()),
+        );
+    } else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            error_code,
+            format!("{label} is missing at `{}`", path.display()),
+        );
+    }
+}
+
+fn read_report_verify_json(
+    path: &Path,
+    items: &mut Vec<AnalysisCheckItem>,
+    code_prefix: &str,
+) -> Option<Value> {
+    if !path.is_file() {
+        return None;
+    }
+    match fs::read_to_string(path) {
+        Ok(contents) => match serde_json::from_str::<Value>(&contents) {
+            Ok(value) => {
+                push_verify_item(
+                    items,
+                    AnalysisCheckLevel::Ok,
+                    &format!("{code_prefix}_valid"),
+                    format!("{} parsed as JSON", path.display()),
+                );
+                Some(value)
+            }
+            Err(error) => {
+                push_verify_item(
+                    items,
+                    AnalysisCheckLevel::Error,
+                    &format!("{code_prefix}_invalid"),
+                    format!("{} is not valid JSON: {error}", path.display()),
+                );
+                None
+            }
+        },
+        Err(error) => {
+            push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                &format!("{code_prefix}_unreadable"),
+                format!("{} could not be read: {error}", path.display()),
+            );
+            None
+        }
+    }
+}
+
+fn verify_required_string(
+    items: &mut Vec<AnalysisCheckItem>,
+    value: &Value,
+    keys: &[&str],
+    ok_code: &str,
+    error_code: &str,
+    label: &str,
+) {
+    if string_at(value, keys).is_some() {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            ok_code,
+            format!("{label} is present"),
+        );
+    } else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            error_code,
+            format!("{label} is missing"),
+        );
+    }
+}
+
+fn verify_report_identity(run: &Value, evidence: &Value, items: &mut Vec<AnalysisCheckItem>) {
+    match (
+        string_at(run, &["data_fingerprint_fnv1a64"]),
+        string_at(evidence, &["query", "data_fingerprint_fnv1a64"]),
+    ) {
+        (Some(run_hash), Some(query_hash)) if run_hash == query_hash => push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            "data_fingerprint_matches",
+            "run metadata and evidence-index data fingerprints match",
+        ),
+        (Some(run_hash), Some(query_hash)) => push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "data_fingerprint_mismatch",
+            format!("run metadata data fingerprint `{run_hash}` differs from evidence-index `{query_hash}`"),
+        ),
+        _ => push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "data_fingerprint_missing_for_match",
+            "run metadata or evidence-index data fingerprint is missing",
+        ),
+    }
+
+    match (
+        string_at(run, &["analysis_path"]),
+        string_at(evidence, &["query", "analysis_path"]),
+    ) {
+        (Some(run_path), Some(query_path)) if path_matches(run_path, query_path) => {
+            push_verify_item(
+                items,
+                AnalysisCheckLevel::Ok,
+                "analysis_path_matches",
+                "run metadata and evidence-index analysis paths match",
+            );
+        }
+        (Some(run_path), Some(query_path)) => push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "analysis_path_mismatch",
+            format!("run metadata analysis path `{run_path}` differs from evidence-index `{query_path}`"),
+        ),
+        _ => push_verify_item(
+            items,
+            AnalysisCheckLevel::Warning,
+            "analysis_path_match_unavailable",
+            "run metadata or evidence-index analysis path is missing",
+        ),
+    }
+
+    match (
+        string_at(run, &["data_path"]),
+        string_at(evidence, &["query", "data_path"]),
+    ) {
+        (Some(run_path), Some(query_path)) if path_matches(run_path, query_path) => {
+            push_verify_item(
+                items,
+                AnalysisCheckLevel::Ok,
+                "data_path_matches",
+                "run metadata and evidence-index data paths match",
+            );
+        }
+        (Some(run_path), Some(query_path)) => push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "data_path_mismatch",
+            format!(
+                "run metadata data path `{run_path}` differs from evidence-index `{query_path}`"
+            ),
+        ),
+        _ => push_verify_item(
+            items,
+            AnalysisCheckLevel::Warning,
+            "data_path_match_unavailable",
+            "run metadata or evidence-index data path is missing",
+        ),
+    }
+}
+
+fn verify_accepted_report_artifacts(
+    evidence: &Value,
+    artifacts_dir: &Path,
+    items: &mut Vec<AnalysisCheckItem>,
+) -> usize {
+    let Some(accepted) = evidence.get("accepted_artifacts").and_then(Value::as_array) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "accepted_artifacts_missing",
+            "evidence-index.json does not contain accepted_artifacts array",
+        );
+        return 0;
+    };
+
+    let include_exploratory = evidence
+        .get("query")
+        .and_then(|query| query.get("include_exploratory"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut seen_steps = BTreeSet::new();
+
+    for (index, artifact) in accepted.iter().enumerate() {
+        let label = format!("accepted_artifacts[{index}]");
+        match string_at(artifact, &["status"]) {
+            Some("accepted") => push_verify_item(
+                items,
+                AnalysisCheckLevel::Ok,
+                "accepted_status_ok",
+                format!("{label} status is accepted"),
+            ),
+            Some(status) => push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                "accepted_status_invalid",
+                format!("{label} status is `{status}`, expected `accepted`"),
+            ),
+            None => push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                "accepted_status_missing",
+                format!("{label} status is missing"),
+            ),
+        }
+
+        verify_artifact_path_field(
+            artifact,
+            artifacts_dir,
+            &["result_path"],
+            &label,
+            "artifact_result_found",
+            "artifact_result_missing",
+            items,
+        );
+        verify_artifact_path_field(
+            artifact,
+            artifacts_dir,
+            &["context_path"],
+            &label,
+            "artifact_context_found",
+            "artifact_context_missing",
+            items,
+        );
+        verify_artifact_context_schema(artifact, artifacts_dir, &label, items);
+        verify_accepted_artifact_diagnostics(artifact, artifacts_dir, &label, items);
+
+        match artifact
+            .get("matched_analysis_step_index")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+        {
+            Some(step_index) => {
+                if seen_steps.insert(step_index) {
+                    push_verify_item(
+                        items,
+                        AnalysisCheckLevel::Ok,
+                        "analysis_step_match_present",
+                        format!("{label} matched declared analysis step #{step_index}"),
+                    );
+                } else {
+                    push_verify_item(
+                        items,
+                        AnalysisCheckLevel::Error,
+                        "analysis_step_match_duplicate",
+                        format!("{label} duplicates declared analysis step #{step_index}"),
+                    );
+                }
+            }
+            None => push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                "analysis_step_match_missing",
+                format!("{label} does not record matched_analysis_step_index"),
+            ),
+        }
+
+        match string_at(artifact, &["artifact", "role"]) {
+            Some("declared") => push_verify_item(
+                items,
+                AnalysisCheckLevel::Ok,
+                "artifact_role_declared",
+                format!("{label} is declared evidence"),
+            ),
+            Some("exploratory") if include_exploratory => push_verify_item(
+                items,
+                AnalysisCheckLevel::Warning,
+                "artifact_role_exploratory_included",
+                format!("{label} is exploratory and was explicitly included"),
+            ),
+            Some("exploratory") => push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                "artifact_role_exploratory_unexpected",
+                format!("{label} is exploratory but include_exploratory=false"),
+            ),
+            Some(role) => push_verify_item(
+                items,
+                AnalysisCheckLevel::Error,
+                "artifact_role_invalid",
+                format!("{label} has unexpected artifact role `{role}`"),
+            ),
+            None => push_verify_item(
+                items,
+                AnalysisCheckLevel::Warning,
+                "artifact_role_missing",
+                format!("{label} does not record artifact.role"),
+            ),
+        }
+
+        match string_at(artifact, &["artifact", "status"]) {
+            Some("produced" | "accepted") => push_verify_item(
+                items,
+                AnalysisCheckLevel::Ok,
+                "artifact_status_valid",
+                format!("{label} has a valid artifact.status"),
+            ),
+            Some(status) => push_verify_item(
+                items,
+                AnalysisCheckLevel::Warning,
+                "artifact_status_unexpected",
+                format!("{label} has unexpected artifact.status `{status}`"),
+            ),
+            None => push_verify_item(
+                items,
+                AnalysisCheckLevel::Warning,
+                "artifact_status_missing",
+                format!("{label} does not record artifact.status"),
+            ),
+        }
+    }
+
+    accepted.len()
+}
+
+fn verify_rejected_report_artifacts(evidence: &Value, items: &mut Vec<AnalysisCheckItem>) -> usize {
+    let Some(rejected) = evidence.get("rejected_artifacts").and_then(Value::as_array) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "rejected_artifacts_missing",
+            "evidence-index.json does not contain rejected_artifacts array",
+        );
+        return 0;
+    };
+
+    if rejected.is_empty() {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            "rejected_artifacts_empty",
+            "no rejected artifacts were recorded",
+        );
+    } else {
+        for (index, artifact) in rejected.iter().enumerate() {
+            let reason = string_at(artifact, &["reason"]).unwrap_or("no reason recorded");
+            push_verify_item(
+                items,
+                AnalysisCheckLevel::Warning,
+                "rejected_artifact_recorded",
+                format!("rejected_artifacts[{index}] was rejected: {reason}"),
+            );
+        }
+    }
+
+    rejected.len()
+}
+
+fn verify_accepted_artifact_diagnostics(
+    value: &Value,
+    artifacts_dir: &Path,
+    label: &str,
+    items: &mut Vec<AnalysisCheckItem>,
+) {
+    let Some(raw) = string_at(value, &["result_path"]) else {
+        return;
+    };
+    let path = resolve_artifact_reference(raw, artifacts_dir);
+    if !path.is_file() {
+        return;
+    }
+    let Ok(contents) = fs::read_to_string(&path) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "accepted_artifact_result_unreadable",
+            format!(
+                "{label} result_path could not be read at `{}`",
+                path.display()
+            ),
+        );
+        return;
+    };
+    let Ok(result_value) = serde_json::from_str::<Value>(&contents) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "accepted_artifact_result_invalid_json",
+            format!(
+                "{label} result_path is not valid JSON at `{}`",
+                path.display()
+            ),
+        );
+        return;
+    };
+    if let Some(reason) = blocking_diagnostics_reason(&result_value) {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "accepted_artifact_blocking_diagnostics",
+            format!("{label} was accepted but {reason}"),
+        );
+    } else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            "accepted_artifact_no_blocking_diagnostics",
+            format!("{label} has no blocking diagnostics"),
+        );
+    }
+}
+
+fn verify_artifact_context_schema(
+    value: &Value,
+    artifacts_dir: &Path,
+    label: &str,
+    items: &mut Vec<AnalysisCheckItem>,
+) {
+    let Some(raw) = string_at(value, &["context_path"]) else {
+        return;
+    };
+    let path = resolve_artifact_reference(raw, artifacts_dir);
+    if !path.is_file() {
+        return;
+    }
+    let Ok(contents) = fs::read_to_string(&path) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "artifact_context_unreadable",
+            format!(
+                "{label} context_path could not be read at `{}`",
+                path.display()
+            ),
+        );
+        return;
+    };
+    let Ok(context_value) = serde_json::from_str::<Value>(&contents) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            "artifact_context_invalid_json",
+            format!(
+                "{label} context_path is not valid JSON at `{}`",
+                path.display()
+            ),
+        );
+        return;
+    };
+    match string_at(&context_value, &["artifact_schema_version"]) {
+        Some(version) if version == ARTIFACT_SCHEMA_VERSION => push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            "artifact_schema_version_supported",
+            format!("{label} context artifact_schema_version={ARTIFACT_SCHEMA_VERSION}"),
+        ),
+        Some(version) => push_verify_item(
+            items,
+            AnalysisCheckLevel::Warning,
+            "artifact_schema_version_unexpected",
+            format!("{label} context artifact_schema_version `{version}` is not supported"),
+        ),
+        None => push_verify_item(
+            items,
+            AnalysisCheckLevel::Warning,
+            "artifact_schema_version_missing",
+            format!("{label} context does not record artifact_schema_version"),
+        ),
+    }
+}
+
+fn verify_artifact_path_field(
+    value: &Value,
+    artifacts_dir: &Path,
+    keys: &[&str],
+    label: &str,
+    ok_code: &str,
+    error_code: &str,
+    items: &mut Vec<AnalysisCheckItem>,
+) {
+    let field_name = keys.last().copied().unwrap_or("path");
+    let Some(raw) = string_at(value, keys) else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            error_code,
+            format!("{label} {field_name} is missing"),
+        );
+        return;
+    };
+    let path = resolve_artifact_reference(raw, artifacts_dir);
+    if path.is_file() {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Ok,
+            ok_code,
+            format!("{label} {field_name} exists at `{}`", path.display()),
+        );
+    } else {
+        push_verify_item(
+            items,
+            AnalysisCheckLevel::Error,
+            error_code,
+            format!("{label} {field_name} is missing at `{}`", path.display()),
+        );
+    }
+}
+
+fn resolve_artifact_reference(raw: &str, artifacts_dir: &Path) -> PathBuf {
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        path
+    } else {
+        artifacts_dir.join(path)
+    }
+}
+
+fn string_at<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    let mut current = value;
+    for key in keys {
+        current = current.get(*key)?;
+    }
+    current.as_str().filter(|text| !text.trim().is_empty())
+}
+
+fn blocking_diagnostics_reason(result_value: &Value) -> Option<String> {
+    let codes = blocking_diagnostic_codes(result_value);
+    if codes.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "artifact has blocking diagnostics: {}",
+            codes.join(", ")
+        ))
+    }
+}
+
+fn blocking_diagnostic_codes(result_value: &Value) -> Vec<String> {
+    result_value
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .map(|diagnostics| {
+            diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    matches!(
+                        string_at(diagnostic, &["severity"]),
+                        Some("blocking" | "error")
+                    )
+                })
+                .map(|diagnostic| {
+                    string_at(diagnostic, &["code"])
+                        .unwrap_or("blocking_diagnostic")
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -470,9 +1235,74 @@ pub(crate) fn resolve_relative_to_analysis(analysis_path: &Path, path: &Path) ->
 // Evidence discovery
 // ---------------------------------------------------------------------------
 
+fn report_artifact_decision_json(decision: &ReportArtifactDecision) -> Value {
+    json!({
+        "command": &decision.command,
+        "run_dir": &decision.run_dir,
+        "result_path": &decision.result_path,
+        "context_path": &decision.context_path,
+        "status": decision.status,
+        "report_decision": report_decision_label(decision.status),
+        "reason": &decision.reason,
+        "matched_by": &decision.matched_by,
+        "matched_analysis_step_index": decision.matched_analysis_step_index,
+        "artifact": &decision.artifact,
+    })
+}
+
+fn report_decision_label(status: ArtifactStatus) -> &'static str {
+    match status {
+        ArtifactStatus::Accepted => "accepted",
+        ArtifactStatus::Rejected => "rejected",
+        ArtifactStatus::Produced => "undecided",
+    }
+}
+
+struct RejectedArtifactDecisionParams<'a> {
+    command: &'a str,
+    run_dir: &'a Path,
+    result_path: Option<&'a Path>,
+    context_path: Option<&'a Path>,
+    reason: &'a str,
+    matched_by: Option<String>,
+    matched_analysis_step_index: Option<usize>,
+    artifact: Option<ArtifactMetadata>,
+}
+
+fn rejected_artifact_decision(
+    params: RejectedArtifactDecisionParams<'_>,
+) -> ReportArtifactDecision {
+    ReportArtifactDecision {
+        command: params.command.to_string(),
+        run_dir: params.run_dir.display().to_string(),
+        result_path: params.result_path.map(|path| path.display().to_string()),
+        context_path: params.context_path.map(|path| path.display().to_string()),
+        status: ArtifactStatus::Rejected,
+        reason: params.reason.to_string(),
+        matched_by: params.matched_by,
+        matched_analysis_step_index: params.matched_analysis_step_index,
+        artifact: params.artifact,
+    }
+}
+
+fn accepted_artifact_decision(discovered: &DiscoveredRunArtifact) -> ReportArtifactDecision {
+    ReportArtifactDecision {
+        command: discovered.command.clone(),
+        run_dir: discovered.run_dir.clone(),
+        result_path: Some(discovered.result_path.clone()),
+        context_path: discovered.context_path.clone(),
+        status: ArtifactStatus::Accepted,
+        reason: "matched current analysis/data identity and declared analysis step".to_string(),
+        matched_by: Some(discovered.matched_by.clone()),
+        matched_analysis_step_index: discovered.matched_analysis_step_index,
+        artifact: discovered.artifact.clone(),
+    }
+}
+
 fn discover_report_evidence(
     source_dir: &Path,
     query: &ReportEvidenceQuery,
+    spec: &AnalysisSpec,
 ) -> Result<ReportEvidence, String> {
     let mut evidence = ReportEvidence {
         source_dir: source_dir.to_path_buf(),
@@ -548,6 +1378,35 @@ fn discover_report_evidence(
                 )),
             }
         }
+        let context_artifact = context.as_ref().and_then(|value| value.artifact.clone());
+        let context_path_for_decision = context_path.is_file().then_some(context_path.as_path());
+        if context_artifact
+            .as_ref()
+            .is_some_and(|artifact| artifact.role == ArtifactRole::Exploratory)
+            && !query.include_exploratory
+        {
+            let reason = "exploratory artifact was not requested";
+            let matched_analysis_step_index = context_artifact
+                .as_ref()
+                .and_then(|artifact| artifact.analysis_step_index);
+            evidence.rejected_artifacts.push(rejected_artifact_decision(
+                RejectedArtifactDecisionParams {
+                    command: &command_name,
+                    run_dir: &path,
+                    result_path: Some(&result_path),
+                    context_path: context_path_for_decision,
+                    reason,
+                    matched_by: None,
+                    matched_analysis_step_index,
+                    artifact: context_artifact,
+                },
+            ));
+            evidence
+                .notes
+                .push(format!("Skipped `{}` because {reason}.", path.display()));
+            continue;
+        }
+
         let Some(matched_by) = match_report_artifact(
             query,
             &command_name,
@@ -555,56 +1414,306 @@ fn discover_report_evidence(
             &result_value,
             context.as_ref(),
         ) else {
+            let reason = "artifact did not match the current analysis/data identity";
+            let matched_analysis_step_index = context_artifact
+                .as_ref()
+                .and_then(|artifact| artifact.analysis_step_index);
+            evidence.rejected_artifacts.push(rejected_artifact_decision(
+                RejectedArtifactDecisionParams {
+                    command: &command_name,
+                    run_dir: &path,
+                    result_path: Some(&result_path),
+                    context_path: context_path_for_decision,
+                    reason,
+                    matched_by: None,
+                    matched_analysis_step_index,
+                    artifact: context_artifact,
+                },
+            ));
             evidence.notes.push(format!(
                 "Skipped `{}` because it did not match the current analysis/data identity.",
                 path.display()
             ));
             continue;
         };
-        let discovered = DiscoveredRunArtifact {
-            command: command_name.clone(),
-            run_dir: path.display().to_string(),
-            result_path: result_path.display().to_string(),
-            context_path: context_path
-                .is_file()
-                .then(|| context_path.display().to_string()),
-            matched_by,
-        };
         match command_name.as_str() {
             "inspect" => {
                 if let Ok(value) = serde_json::from_value::<InspectResult>(result_value.clone()) {
-                    evidence.inspect = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                    if let Some(step_index) = declared_inspect_step_index(spec) {
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.inspect = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             "tableone" => {
                 if let Ok(value) = serde_json::from_value::<TableOneResult>(result_value.clone()) {
-                    evidence.tableone = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                    if let Some(step_index) = tableone_declared_step_index(spec, &value) {
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.tableone = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             "rate" => {
                 if let Ok(value) = serde_json::from_value::<RateResult>(result_value.clone()) {
-                    evidence.rate = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                    if let Some(step_index) = rate_declared_step_index(spec, &value) {
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.rate = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             "model_logistic" => {
                 if let Ok(value) = serde_json::from_value::<LogisticResult>(result_value.clone()) {
-                    evidence.logistic = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                    if let Some(step_index) = model_declared_step_index(
+                        spec,
+                        ModelKind::Logistic,
+                        Some(&value.outcome),
+                        None,
+                        None,
+                        &value.predictors,
+                    ) {
+                        if let Some(reason) = blocking_diagnostics_reason(&result_value) {
+                            evidence.rejected_artifacts.push(rejected_artifact_decision(
+                                RejectedArtifactDecisionParams {
+                                    command: &command_name,
+                                    run_dir: &path,
+                                    result_path: Some(&result_path),
+                                    context_path: context_path_for_decision,
+                                    reason: &reason,
+                                    matched_by: Some(matched_by),
+                                    matched_analysis_step_index: Some(step_index),
+                                    artifact: context_artifact,
+                                },
+                            ));
+                            evidence
+                                .notes
+                                .push(format!("Skipped `{}` because {reason}.", path.display()));
+                            continue;
+                        }
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.logistic = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             "model_cox" => {
-                if let Ok(value) = serde_json::from_value::<CoxResult>(result_value) {
-                    evidence.cox = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                if let Ok(value) = serde_json::from_value::<CoxResult>(result_value.clone()) {
+                    if let Some(step_index) = model_declared_step_index(
+                        spec,
+                        ModelKind::Cox,
+                        None,
+                        Some(&value.time),
+                        Some(&value.event),
+                        &value.predictors,
+                    ) {
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.cox = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             "model_linear" => {
                 if let Ok(value) = serde_json::from_value::<LinearResult>(result_value) {
-                    evidence.linear = Some(value);
-                    evidence.discovered_runs.push(discovered);
+                    if let Some(step_index) = model_declared_step_index(
+                        spec,
+                        ModelKind::Linear,
+                        Some(&value.outcome),
+                        None,
+                        None,
+                        &value.predictors,
+                    ) {
+                        let discovered = DiscoveredRunArtifact {
+                            command: command_name.clone(),
+                            run_dir: path.display().to_string(),
+                            result_path: result_path.display().to_string(),
+                            context_path: context_path
+                                .is_file()
+                                .then(|| context_path.display().to_string()),
+                            matched_by,
+                            matched_analysis_step_index: Some(step_index),
+                            artifact: context_artifact,
+                        };
+                        evidence.linear = Some(value);
+                        evidence
+                            .accepted_artifacts
+                            .push(accepted_artifact_decision(&discovered));
+                        evidence.discovered_runs.push(discovered);
+                    } else {
+                        let reason = "artifact does not match a declared analysis step";
+                        evidence.rejected_artifacts.push(rejected_artifact_decision(
+                            RejectedArtifactDecisionParams {
+                                command: &command_name,
+                                run_dir: &path,
+                                result_path: Some(&result_path),
+                                context_path: context_path_for_decision,
+                                reason,
+                                matched_by: Some(matched_by),
+                                matched_analysis_step_index: None,
+                                artifact: context_artifact,
+                            },
+                        ));
+                        evidence.notes.push(format!(
+                            "Skipped `{}` because it does not match a declared analysis step.",
+                            path.display()
+                        ));
+                    }
                 }
             }
             _ => {}
@@ -623,6 +1732,64 @@ fn discover_report_evidence(
 // ---------------------------------------------------------------------------
 // Markdown builders from evidence
 // ---------------------------------------------------------------------------
+
+const MODEL_SCIENTIFIC_NOTATION_ABS: f64 = 1.0e6;
+const MODEL_SMALL_SCIENTIFIC_NOTATION_ABS: f64 = 1.0e-4;
+const MODEL_UNSTABLE_INTERVAL_ABS: f64 = 1.0e100;
+
+fn format_model_number(value: f64, precision: usize) -> String {
+    if !value.is_finite() {
+        return "NA".to_string();
+    }
+    let abs = value.abs();
+    if abs != 0.0
+        && !(MODEL_SMALL_SCIENTIFIC_NOTATION_ABS..MODEL_SCIENTIFIC_NOTATION_ABS).contains(&abs)
+    {
+        format!("{value:.precision$e}")
+    } else {
+        format!("{value:.precision$}")
+    }
+}
+
+fn has_unstable_model_interval(lower: f64, upper: f64) -> bool {
+    !lower.is_finite()
+        || !upper.is_finite()
+        || lower.abs() >= MODEL_UNSTABLE_INTERVAL_ABS
+        || upper.abs() >= MODEL_UNSTABLE_INTERVAL_ABS
+        || lower > upper
+}
+
+fn format_model_ci(lower: f64, upper: f64, precision: usize) -> String {
+    if has_unstable_model_interval(lower, upper) {
+        "unstable".to_string()
+    } else {
+        format!(
+            "[{}, {}]",
+            format_model_number(lower, precision),
+            format_model_number(upper, precision)
+        )
+    }
+}
+
+fn format_model_ci_phrase(lower: f64, upper: f64, precision: usize) -> String {
+    if has_unstable_model_interval(lower, upper) {
+        "(CI unstable)".to_string()
+    } else {
+        format_model_ci(lower, upper, precision)
+    }
+}
+
+fn write_report_warnings(out: &mut String, label: &str, warnings: &[String]) {
+    if !warnings.is_empty() {
+        let _ = writeln!(out, "- {label} warnings: {}.", warnings.join(", "));
+    }
+}
+
+fn write_model_table_warnings(out: &mut String, warnings: &[String]) {
+    if !warnings.is_empty() {
+        let _ = writeln!(out, "- Warnings: {}.", warnings.join(", "));
+    }
+}
 
 fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvidence) -> String {
     let mut out = String::new();
@@ -673,7 +1840,7 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
             tableone.group_levels.len(),
             tableone.rows.len()
         );
-    } else {
+    } else if declares_tableone(spec) {
         let _ = writeln!(out, "- Table 1: no observed result found.");
     }
     if let Some(rate) = &evidence.rate {
@@ -695,7 +1862,7 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
                 top_rows
             }
         );
-    } else {
+    } else if declares_rate(spec) {
         let _ = writeln!(out, "- Rate analysis: no observed result found.");
     }
     if let Some(logistic) = &evidence.logistic {
@@ -706,11 +1873,10 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
             .take(3)
             .map(|coefficient| {
                 format!(
-                    "{} OR {:.2} [{:.2}, {:.2}]",
+                    "{} OR {} {}",
                     coefficient.term,
-                    coefficient.odds_ratio,
-                    coefficient.ci_lower,
-                    coefficient.ci_upper
+                    format_model_number(coefficient.odds_ratio, 2),
+                    format_model_ci_phrase(coefficient.ci_lower, coefficient.ci_upper, 2)
                 )
             })
             .collect::<Vec<_>>()
@@ -727,7 +1893,8 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
                 top_terms
             }
         );
-    } else {
+        write_report_warnings(&mut out, "Logistic model", &logistic.warnings);
+    } else if declares_model(spec, ModelKind::Logistic) {
         let _ = writeln!(out, "- Logistic model: no observed result found.");
     }
     if let Some(cox) = &evidence.cox {
@@ -737,11 +1904,10 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
             .take(3)
             .map(|coefficient| {
                 format!(
-                    "{} HR {:.2} [{:.2}, {:.2}]",
+                    "{} HR {} {}",
                     coefficient.term,
-                    coefficient.hazard_ratio,
-                    coefficient.ci_lower,
-                    coefficient.ci_upper
+                    format_model_number(coefficient.hazard_ratio, 2),
+                    format_model_ci_phrase(coefficient.ci_lower, coefficient.ci_upper, 2)
                 )
             })
             .collect::<Vec<_>>()
@@ -759,7 +1925,8 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
                 top_terms
             }
         );
-    } else {
+        write_report_warnings(&mut out, "Cox model", &cox.warnings);
+    } else if declares_model(spec, ModelKind::Cox) {
         let _ = writeln!(out, "- Cox model: no observed result found.");
     }
     if let Some(linear) = &evidence.linear {
@@ -791,6 +1958,12 @@ fn build_report_markdown_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvi
     let _ = writeln!(out);
     let _ = writeln!(out, "## Interpretation Notes");
     let _ = writeln!(out, "- Generated tables in `tables/` are derived from stored command results, not free-text guesses.");
+    if let Some(threshold) = small_cell_threshold(spec) {
+        let _ = writeln!(
+            out,
+            "- Small-cell suppression was applied to report markdown tables for positive cells below {threshold}."
+        );
+    }
     let _ = writeln!(out, "- Carry effect sizes, confidence intervals, and warnings forward into manuscript-facing text.");
     let _ = writeln!(
         out,
@@ -828,10 +2001,103 @@ fn build_tables_readme_from_evidence(spec: &AnalysisSpec, evidence: &ReportEvide
     out
 }
 
-fn build_tableone_markdown(result: &TableOneResult) -> String {
+fn declared_inspect_step_index(spec: &AnalysisSpec) -> Option<usize> {
+    spec.analyses
+        .iter()
+        .position(|step| matches!(step.kind, AnalysisKind::Inspect))
+}
+
+fn declares_tableone(spec: &AnalysisSpec) -> bool {
+    spec.analyses
+        .iter()
+        .any(|step| matches!(step.kind, AnalysisKind::TableOne))
+}
+
+fn declares_rate(spec: &AnalysisSpec) -> bool {
+    spec.analyses
+        .iter()
+        .any(|step| matches!(step.kind, AnalysisKind::Rate))
+}
+
+fn declares_model(spec: &AnalysisSpec, model: ModelKind) -> bool {
+    spec.analyses
+        .iter()
+        .any(|step| matches!(step.kind, AnalysisKind::Model) && step.model == Some(model))
+}
+
+fn tableone_declared_step_index(spec: &AnalysisSpec, result: &TableOneResult) -> Option<usize> {
+    spec.analyses.iter().position(|step| {
+        matches!(step.kind, AnalysisKind::TableOne)
+            && optional_string_matches(step.by.as_deref(), &result.by)
+    })
+}
+
+fn rate_declared_step_index(spec: &AnalysisSpec, result: &RateResult) -> Option<usize> {
+    spec.analyses.iter().position(|step| {
+        matches!(step.kind, AnalysisKind::Rate)
+            && optional_string_matches(step.event.as_deref(), &result.event)
+            && optional_string_matches(step.person_time.as_deref(), &result.person_time)
+            && declared_list_matches(&step.strata, &result.strata)
+    })
+}
+
+fn model_declared_step_index(
+    spec: &AnalysisSpec,
+    model: ModelKind,
+    outcome: Option<&str>,
+    time: Option<&str>,
+    event: Option<&str>,
+    predictors: &[String],
+) -> Option<usize> {
+    spec.analyses.iter().position(|step| {
+        matches!(step.kind, AnalysisKind::Model)
+            && step.model == Some(model)
+            && optional_string_matches(step.outcome.as_deref(), outcome.unwrap_or_default())
+            && optional_string_matches(step.time.as_deref(), time.unwrap_or_default())
+            && optional_string_matches(step.event.as_deref(), event.unwrap_or_default())
+            && declared_predictors_match(step, predictors)
+    })
+}
+
+fn optional_string_matches(expected: Option<&str>, actual: &str) -> bool {
+    expected.is_none_or(|expected| expected == actual)
+}
+
+fn declared_list_matches(expected: &[String], actual: &[String]) -> bool {
+    expected.is_empty()
+        || expected
+            .iter()
+            .all(|expected| actual.iter().any(|value| value == expected))
+}
+
+fn declared_predictors_match(
+    step: &crate::schema::AnalysisStepSpec,
+    actual_predictors: &[String],
+) -> bool {
+    step.predictors
+        .iter()
+        .chain(step.adjust.iter())
+        .all(|expected| actual_predictors.iter().any(|value| value == expected))
+}
+
+fn small_cell_threshold(spec: &AnalysisSpec) -> Option<usize> {
+    spec.privacy
+        .as_ref()
+        .and_then(|privacy| privacy.small_cell_threshold)
+        .filter(|threshold| *threshold > 1)
+}
+
+fn build_tableone_markdown(result: &TableOneResult, small_cell_threshold: Option<usize>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Table 1");
     let _ = writeln!(out);
+    if let Some(threshold) = small_cell_threshold {
+        let _ = writeln!(
+            out,
+            "Positive cells with n < {threshold} are suppressed in this markdown table."
+        );
+        let _ = writeln!(out);
+    }
     let _ = writeln!(
         out,
         "| Variable | Overall | {} |",
@@ -860,17 +2126,35 @@ fn build_tableone_markdown(result: &TableOneResult) -> String {
                 row.groups
                     .iter()
                     .find(|cell| &cell.group == group)
-                    .map_or_else(|| "NA".to_string(), |cell| cell.cell.display.clone())
+                    .map_or_else(
+                        || "NA".to_string(),
+                        |cell| format_tableone_cell(&cell.cell, small_cell_threshold),
+                    )
             })
             .collect::<Vec<_>>()
             .join(" | ");
         let _ = writeln!(
             out,
             "| {name} | {} | {} |",
-            row.overall.display, group_cells
+            format_tableone_cell(&row.overall, small_cell_threshold),
+            group_cells
         );
     }
     out
+}
+
+fn format_tableone_cell(cell: &crate::schema::TableOneCell, threshold: Option<usize>) -> String {
+    if let Some(threshold) = threshold {
+        if is_small_positive_cell(cell, threshold) {
+            return format!("suppressed (<{threshold})");
+        }
+    }
+    cell.display.clone()
+}
+
+fn is_small_positive_cell(cell: &crate::schema::TableOneCell, threshold: usize) -> bool {
+    let count = cell.count.unwrap_or(cell.n_non_missing);
+    count > 0 && count < threshold
 }
 
 fn build_rate_markdown(result: &RateResult) -> String {
@@ -905,18 +2189,19 @@ fn build_logistic_markdown(result: &LogisticResult) -> String {
     let _ = writeln!(out, "- Formula: `{}`", result.formula);
     let _ = writeln!(out, "- Rows used: {}", result.n_used);
     let _ = writeln!(out, "- Events: {}", result.n_events);
+    write_model_table_warnings(&mut out, &result.warnings);
     let _ = writeln!(out);
     let _ = writeln!(out, "| Term | OR | 95% CI | p-value |");
     let _ = writeln!(out, "| --- | ---: | --- | ---: |");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let _ = writeln!(
             out,
-            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} |",
+            "| {} | {} | {} | {} |",
             coefficient.term,
-            coefficient.odds_ratio,
-            coefficient.ci_lower,
-            coefficient.ci_upper,
-            coefficient.p_value
+            format_model_number(coefficient.odds_ratio, 4),
+            format_model_ci(coefficient.ci_lower, coefficient.ci_upper, 4),
+            p_value
         );
     }
     out
@@ -929,18 +2214,19 @@ fn build_cox_markdown(result: &CoxResult) -> String {
     let _ = writeln!(out, "- Formula: `{}`", result.formula);
     let _ = writeln!(out, "- Rows used: {}", result.n_used);
     let _ = writeln!(out, "- Events: {}", result.n_events);
+    write_model_table_warnings(&mut out, &result.warnings);
     let _ = writeln!(out);
     let _ = writeln!(out, "| Term | HR | 95% CI | p-value |");
     let _ = writeln!(out, "| --- | ---: | --- | ---: |");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let _ = writeln!(
             out,
-            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} |",
+            "| {} | {} | {} | {} |",
             coefficient.term,
-            coefficient.hazard_ratio,
-            coefficient.ci_lower,
-            coefficient.ci_upper,
-            coefficient.p_value
+            format_model_number(coefficient.hazard_ratio, 4),
+            format_model_ci(coefficient.ci_lower, coefficient.ci_upper, 4),
+            p_value
         );
     }
     out
@@ -960,7 +2246,7 @@ fn build_linear_markdown(result: &LinearResult) -> String {
     if let Some(f) = result.f_statistic {
         let p_text = result
             .f_p_value
-            .map(|p| format!(", p={p:.4}"))
+            .map(|p| format!(", p={}", format_p_value(p)))
             .unwrap_or_default();
         let _ = writeln!(out, "- F-statistic: {f:.4}{p_text}");
     }
@@ -968,14 +2254,15 @@ fn build_linear_markdown(result: &LinearResult) -> String {
     let _ = writeln!(out, "| Term | β | SE | t | p-value | 95% CI |");
     let _ = writeln!(out, "| --- | ---: | ---: | ---: | ---: | --- |");
     for coefficient in &result.coefficients {
+        let p_value = format_p_value(coefficient.p_value);
         let _ = writeln!(
             out,
-            "| {} | {:.4} | {:.4} | {:.4} | {:.4} | [{:.4}, {:.4}] |",
+            "| {} | {:.4} | {:.4} | {:.4} | {} | [{:.4}, {:.4}] |",
             coefficient.term,
             coefficient.beta,
             coefficient.standard_error,
             coefficient.t_statistic,
-            coefficient.p_value,
+            p_value,
             coefficient.ci_lower,
             coefficient.ci_upper,
         );
@@ -997,19 +2284,29 @@ fn write_report_file(
     Ok(())
 }
 
-pub(crate) fn persist_run_artifacts(
+pub(crate) fn persist_run_artifacts_with_metadata(
     base_dir: &Path,
     command_name: &str,
     request: &Value,
     response: &Value,
-) -> Result<(), String> {
+    artifact: Option<&ArtifactMetadata>,
+) -> Result<PathBuf, String> {
     let run_dir = base_dir.join(format!("{}-{}", command_name, unix_timestamp_nanos()));
+    let artifact_id = run_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command_name)
+        .to_string();
     fs::create_dir_all(&run_dir).map_err(stringify_error)?;
     fs::write(
         run_dir.join("command.json"),
         serde_json::to_string_pretty(&json!({
+            "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
+            "artifact_id": &artifact_id,
+            "stats_code_version": env!("CARGO_PKG_VERSION"),
             "command": command_name,
             "request": request,
+            "artifact": artifact,
         }))
         .map_err(stringify_error)?,
     )
@@ -1021,17 +2318,25 @@ pub(crate) fn persist_run_artifacts(
     .map_err(stringify_error)?;
     fs::write(
         run_dir.join("context.json"),
-        serde_json::to_string_pretty(&build_run_artifact_context(command_name, request, response))
-            .map_err(stringify_error)?,
+        serde_json::to_string_pretty(&build_run_artifact_context(
+            command_name,
+            request,
+            response,
+            &artifact_id,
+            artifact.cloned(),
+        ))
+        .map_err(stringify_error)?,
     )
     .map_err(stringify_error)?;
-    Ok(())
+    Ok(run_dir)
 }
 
 fn build_run_artifact_context(
     command_name: &str,
     request: &Value,
     response: &Value,
+    artifact_id: &str,
+    artifact: Option<ArtifactMetadata>,
 ) -> RunArtifactContext {
     let cwd = std::env::current_dir().ok();
     let analysis_path = extract_string_field(response, &["analysis_path"])
@@ -1040,11 +2345,18 @@ fn build_run_artifact_context(
         .or_else(|| extract_string_field(request, &["data", "data_path"]));
 
     RunArtifactContext {
+        artifact_schema_version: Some(ARTIFACT_SCHEMA_VERSION.to_string()),
+        artifact_id: Some(artifact_id.to_string()),
+        stats_code_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         command: command_name.to_string(),
         analysis_path: analysis_path.clone(),
         analysis_path_resolved: analysis_path
             .as_deref()
             .map(|path| resolve_path_str_for_match(path, cwd.as_deref())),
+        analysis_fingerprint_fnv1a64: analysis_path.as_deref().and_then(|path| {
+            let resolved = resolve_path_str_for_match(path, cwd.as_deref());
+            fingerprint_file(Path::new(&resolved))
+        }),
         data_path: data_path.clone(),
         data_path_resolved: data_path
             .as_deref()
@@ -1055,6 +2367,7 @@ fn build_run_artifact_context(
         }),
         cwd: cwd.map(|path| path.display().to_string()),
         generated_at_unix_nanos: Some(unix_timestamp_nanos()),
+        artifact,
     }
 }
 
@@ -1134,8 +2447,11 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::cli::{Command, ReportBuildArgs, ReportCommand};
+    use crate::cli::{
+        Command, ReportBuildArgs, ReportCommand, ReportVerifyArgs, WorkflowCommand, WorkflowRunArgs,
+    };
     use crate::helpers::{fingerprint_file, resolve_path_for_match};
+    use crate::schema::{AnalysisSpec, Diagnostic, LogisticCoefficient, LogisticResult};
 
     fn temp_dir(label: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -1156,6 +2472,170 @@ mod tests {
             engine: crate::bridge::Engine::Rust,
             command: Some(command),
         }
+    }
+
+    fn write_minimal_verified_report_artifacts(root: &std::path::Path) -> PathBuf {
+        let out_dir = root.join("artifacts");
+        let audit_dir = out_dir.join("audit");
+        let report_dir = out_dir.join("report");
+        let run_dir = out_dir.join("inspect-main");
+        fs::create_dir_all(&audit_dir).expect("create audit dir");
+        fs::create_dir_all(&report_dir).expect("create report dir");
+        fs::create_dir_all(&run_dir).expect("create run dir");
+
+        let analysis_path = root.join("analysis.yaml");
+        let data_path = root.join("demo.csv");
+        let result_path = run_dir.join("result.json");
+        let context_path = run_dir.join("context.json");
+        fs::write(&analysis_path, "schema_version: stats-code.v0\n").expect("write analysis");
+        fs::write(&data_path, "disease\n1\n0\n").expect("write data");
+        fs::write(&result_path, r#"{"status":"ok"}"#).expect("write result");
+        fs::write(&context_path, r#"{"command":"inspect"}"#).expect("write context");
+        fs::write(report_dir.join("report.md"), "# Report\n").expect("write report");
+        fs::write(audit_dir.join("analysis_manifest.json"), "{}").expect("write manifest");
+        fs::write(
+            audit_dir.join("run.json"),
+            serde_json::to_string_pretty(&json!({
+                "schema_version": "stats-code.v0",
+                "stats_code_version": "0.1.0",
+                "analysis_path": analysis_path.display().to_string(),
+                "data_path": data_path.display().to_string(),
+                "analysis_fingerprint_fnv1a64": "analysis-hash",
+                "data_fingerprint_fnv1a64": "data-hash",
+            }))
+            .expect("serialize run"),
+        )
+        .expect("write run");
+        fs::write(
+            audit_dir.join("evidence-index.json"),
+            serde_json::to_string_pretty(&json!({
+                "artifacts_dir": out_dir.display().to_string(),
+                "query": {
+                    "analysis_path": analysis_path.display().to_string(),
+                    "data_path": data_path.display().to_string(),
+                    "data_fingerprint_fnv1a64": "data-hash",
+                    "include_exploratory": false,
+                },
+                "discovered_runs": [],
+                "accepted_artifacts": [
+                    {
+                        "command": "inspect",
+                        "run_dir": run_dir.display().to_string(),
+                        "result_path": result_path.display().to_string(),
+                        "context_path": context_path.display().to_string(),
+                        "status": "accepted",
+                        "reason": "matched declared analysis step",
+                        "matched_by": "analysis_step",
+                        "matched_analysis_step_index": 0,
+                        "artifact": {
+                            "role": "declared",
+                            "status": "produced",
+                            "formal_run_id": "run-1",
+                            "analysis_step_index": 0,
+                        },
+                    }
+                ],
+                "rejected_artifacts": [],
+                "notes": [],
+            }))
+            .expect("serialize evidence"),
+        )
+        .expect("write evidence");
+
+        out_dir
+    }
+
+    fn unstable_logistic_result() -> LogisticResult {
+        LogisticResult {
+            status: "ok".to_string(),
+            validity_status: "unstable".to_string(),
+            data_path: "demo.csv".to_string(),
+            analysis_path: Some("analysis.yaml".to_string()),
+            formula: "logit(disease ~ age)".to_string(),
+            outcome: "disease".to_string(),
+            predictors: vec!["age".to_string()],
+            survey_weight: None,
+            n_total: 36,
+            n_used: 36,
+            n_excluded_missing: 0,
+            n_excluded_invalid: 0,
+            n_events: 14,
+            n_nonevents: 22,
+            iterations: 50,
+            converged: false,
+            log_likelihood: -0.0001,
+            null_log_likelihood: None,
+            pseudo_r2_nagelkerke: None,
+            aic: None,
+            bic: None,
+            c_statistic: None,
+            coefficients: vec![LogisticCoefficient {
+                term: "age".to_string(),
+                variable: "age".to_string(),
+                level: None,
+                reference: None,
+                beta: 29.2379,
+                standard_error: 8064.97,
+                odds_ratio: 4_987_598_079_561.157,
+                ci_lower: 0.0,
+                ci_upper: f64::MAX,
+                p_value: 0.9971,
+            }],
+            notes: vec![],
+            diagnostics: vec![Diagnostic::blocking(
+                "unstable_confidence_interval",
+                "Confidence interval is unstable.",
+                None,
+            )],
+            warnings: vec![
+                "model_did_not_converge_within_max_iterations".to_string(),
+                "possible_separation_or_extreme_fitted_probabilities".to_string(),
+            ],
+        }
+    }
+
+    #[test]
+    fn model_markdown_marks_unstable_intervals_and_warnings() {
+        let markdown = super::build_logistic_markdown(&unstable_logistic_result());
+
+        assert!(markdown.contains(
+            "- Warnings: model_did_not_converge_within_max_iterations, possible_separation_or_extreme_fitted_probabilities."
+        ));
+        assert!(markdown.contains("| age | 4.9876e12 | unstable | 0.9971 |"));
+        assert!(!markdown.contains("17976931348623157"));
+    }
+
+    #[test]
+    fn report_markdown_marks_unstable_model_summaries_and_warnings() {
+        let spec: AnalysisSpec = serde_yaml::from_str(
+            r"
+study:
+  title: Demo cohort
+  design: cohort
+data:
+  path: demo.csv
+  format: csv
+analyses:
+  - kind: model
+    model: logistic
+    outcome: disease
+    predictors: [age]
+",
+        )
+        .expect("parse analysis spec");
+        let evidence = super::ReportEvidence {
+            source_dir: PathBuf::from("runs"),
+            logistic: Some(unstable_logistic_result()),
+            ..super::ReportEvidence::default()
+        };
+
+        let report = super::build_report_markdown_from_evidence(&spec, &evidence);
+
+        assert!(report.contains("age OR 4.99e12 (CI unstable)"));
+        assert!(report.contains(
+            "Logistic model warnings: model_did_not_converge_within_max_iterations, possible_separation_or_extreme_fitted_probabilities."
+        ));
+        assert!(!report.contains("17976931348623157"));
     }
 
     #[test]
@@ -1222,6 +2702,7 @@ audit:
                 analysis: analysis_path.clone(),
                 out: Some(out_dir.clone()),
                 artifacts: None,
+                include_exploratory: false,
             }),
         });
 
@@ -1252,6 +2733,574 @@ audit:
             .expect("read manifest");
         assert!(manifest.contains("\"analysis_fingerprint_fnv1a64\""));
         assert!(manifest.contains("\"reporting\""));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_verify_accepts_evidence_index_with_existing_artifacts() {
+        let root = temp_dir("report-verify-ok");
+        fs::create_dir_all(&root).expect("create root");
+        let out_dir = write_minimal_verified_report_artifacts(&root);
+
+        let result = super::handle_report_verify(&ReportVerifyArgs {
+            artifacts: out_dir.clone(),
+            fail_on_warning: false,
+        });
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.accepted_count, 1);
+        assert_eq!(result.rejected_count, 0);
+        assert_eq!(result.error_count, 0);
+        assert!(result
+            .items
+            .iter()
+            .any(|item| item.code == "data_fingerprint_matches"));
+
+        let rendered = crate::handlers::dispatch(&test_cli(Command::Report {
+            command: ReportCommand::Verify(ReportVerifyArgs {
+                artifacts: out_dir,
+                fail_on_warning: false,
+            }),
+        }))
+        .expect("report verify should render");
+        assert!(rendered.contains("Report Verify"));
+        assert!(rendered.contains("Status           ok"));
+        assert!(rendered.contains("accepted=1 rejected=0 errors=0"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_verify_reports_missing_accepted_result_path() {
+        let root = temp_dir("report-verify-missing-result");
+        fs::create_dir_all(&root).expect("create root");
+        let out_dir = write_minimal_verified_report_artifacts(&root);
+        fs::remove_file(out_dir.join("inspect-main").join("result.json")).expect("remove result");
+
+        let result = super::handle_report_verify(&ReportVerifyArgs {
+            artifacts: out_dir,
+            fail_on_warning: false,
+        });
+        assert_eq!(result.status, "error");
+        assert!(result.error_count > 0);
+        assert!(result
+            .items
+            .iter()
+            .any(|item| item.code == "artifact_result_missing"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_verify_reports_accepted_artifact_with_blocking_diagnostics() {
+        let root = temp_dir("report-verify-blocking-diagnostics");
+        fs::create_dir_all(&root).expect("create root");
+        let out_dir = write_minimal_verified_report_artifacts(&root);
+        fs::write(
+            out_dir.join("inspect-main").join("result.json"),
+            serde_json::to_string_pretty(&json!({
+                "status": "ok",
+                "diagnostics": [
+                    {
+                        "code": "unstable_confidence_interval",
+                        "severity": "blocking",
+                        "message": "Confidence interval is unstable."
+                    }
+                ]
+            }))
+            .expect("serialize result"),
+        )
+        .expect("write result");
+
+        let result = super::handle_report_verify(&ReportVerifyArgs {
+            artifacts: out_dir,
+            fail_on_warning: false,
+        });
+        assert_eq!(result.status, "error");
+        assert!(result
+            .items
+            .iter()
+            .any(|item| item.code == "accepted_artifact_blocking_diagnostics"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn workflow_report_rejects_logistic_with_blocking_diagnostics() {
+        let root = temp_dir("workflow-logistic-blocking-diagnostics");
+        fs::create_dir_all(&root).expect("create root");
+        let analysis_path = root.join("analysis.yaml");
+        fs::write(
+            &analysis_path,
+            r"
+schema_version: stats-code.v0
+study:
+  title: Separation demo
+  design: cohort
+study_context:
+  estimand: Odds ratio
+  exposure: Treatment
+  comparator: Control
+  outcome: Outcome
+  missing_data_strategy: Complete-case analysis
+  reporting_guideline: STROBE
+data:
+  path: demo.csv
+  format: csv
+variables:
+  - name: outcome
+    kind: binary
+    roles: [outcome]
+  - name: treatment
+    kind: binary
+    roles: [exposure]
+  - name: age
+    kind: continuous
+    roles: [covariate]
+analyses:
+  - id: logistic_sep
+    kind: model
+    model: logistic
+    outcome: outcome
+    predictors: [treatment, age]
+report:
+  out_dir: artifacts
+  include_methods: true
+  include_tables: true
+  include_assumptions: true
+",
+        )
+        .expect("write analysis");
+        fs::write(
+            root.join("demo.csv"),
+            "outcome,treatment,age\n0,0,40\n0,0,42\n0,0,44\n0,0,46\n1,1,50\n1,1,52\n1,1,54\n1,1,56\n",
+        )
+        .expect("write csv");
+        let out_dir = root.join("artifacts");
+        crate::handlers::dispatch(&test_cli(Command::Workflow {
+            command: WorkflowCommand::Run(WorkflowRunArgs {
+                analysis: analysis_path,
+                out: Some(out_dir.clone()),
+                explore_out: None,
+                include_exploratory: false,
+                strict: false,
+                allow_warnings: false,
+                allow_unenforced_survey: false,
+                allow_unenforced_privacy: false,
+                no_chat: true,
+            }),
+        }))
+        .expect("workflow should execute and reject bad formal evidence");
+
+        let step_dir = fs::read_dir(&out_dir)
+            .expect("read artifacts")
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.join("context.json").is_file())
+            .expect("step artifact with context");
+        let command_json =
+            fs::read_to_string(step_dir.join("command.json")).expect("read command json");
+        let context_json =
+            fs::read_to_string(step_dir.join("context.json")).expect("read context json");
+        assert!(command_json.contains("\"artifact_schema_version\": \"1.0\""));
+        assert!(context_json.contains("\"artifact_schema_version\": \"1.0\""));
+        assert!(context_json.contains("\"stats_code_version\""));
+
+        let report_md =
+            fs::read_to_string(out_dir.join("report").join("report.md")).expect("read report");
+        let evidence_index = fs::read_to_string(out_dir.join("audit").join("evidence-index.json"))
+            .expect("read evidence index");
+        assert!(report_md.contains("Regression models: adjusted effect estimates."));
+        assert!(!report_md.contains("2.9804e44"));
+        assert!(evidence_index.contains("\"rejected_artifacts\""));
+        assert!(evidence_index.contains("artifact has blocking diagnostics"));
+        assert!(evidence_index.contains("possible_complete_separation"));
+        assert!(evidence_index.contains("\"report_decision\": \"rejected\""));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_build_only_reports_missing_declared_analyses() {
+        let root = temp_dir("report-declared-missing-only");
+        fs::create_dir_all(&root).expect("create root");
+        let analysis_path = root.join("analysis.yaml");
+        fs::write(
+            &analysis_path,
+            r"
+study:
+  title: Descriptive-only cohort
+  design: cross-sectional
+study_context:
+  estimand: Descriptive prevalence summaries
+  exposure: Category
+  comparator: Other categories
+  outcome: Prevalence
+  missing_data_strategy: Report missing values
+  reporting_guideline: STROBE
+data:
+  path: demo.csv
+  format: csv
+variables:
+  - name: category
+    kind: categorical
+    roles: [exposure]
+  - name: data_value
+    kind: continuous
+    roles: [outcome]
+analyses:
+  - kind: inspect
+  - kind: table_one
+    by: category
+report:
+  out_dir: epistat-artifacts
+  include_methods: true
+  include_tables: true
+  include_assumptions: true
+",
+        )
+        .expect("write analysis yaml");
+        let data_path = root.join("demo.csv");
+        fs::write(&data_path, "category,data_value\nA,1.0\nB,2.0\n").expect("write csv");
+        let artifacts_dir = root.join("runs");
+        let tableone_dir = artifacts_dir.join("tableone-1");
+        fs::create_dir_all(&tableone_dir).expect("create tableone dir");
+        fs::write(
+            tableone_dir.join("command.json"),
+            r#"{"command":"tableone","request":{}}"#,
+        )
+        .expect("write tableone command");
+        fs::write(
+            tableone_dir.join("context.json"),
+            serde_json::to_string_pretty(&json!({
+                "command": "tableone",
+                "analysis_path": analysis_path.display().to_string(),
+                "analysis_path_resolved": resolve_path_for_match(&analysis_path),
+                "data_path": data_path.display().to_string(),
+                "data_path_resolved": resolve_path_for_match(&data_path),
+                "data_fingerprint_fnv1a64": fingerprint_file(&data_path).expect("fingerprint"),
+                "cwd": root.display().to_string(),
+            }))
+            .expect("serialize tableone context"),
+        )
+        .expect("write tableone context");
+        fs::write(
+            tableone_dir.join("result.json"),
+            r#"{
+  "status":"ok",
+  "data_path":"demo.csv",
+  "analysis_path":"analysis.yaml",
+  "by":"category",
+  "group_levels":["A","B"],
+  "rows":[
+    {
+      "variable":"data_value",
+      "kind":"continuous",
+      "overall":{"display":"1.50 (0.71); median 1.50 [1.00, 2.00]","n_total":2,"n_non_missing":2,"missing_count":0},
+      "groups":[
+        {"group":"A","cell":{"display":"1.00 (NA); median 1.00 [1.00, 1.00]","n_total":1,"n_non_missing":1,"missing_count":0}},
+        {"group":"B","cell":{"display":"2.00 (NA); median 2.00 [2.00, 2.00]","n_total":1,"n_non_missing":1,"missing_count":0}}
+      ],
+      "test_name":"Welch_t_test",
+      "p_value":0.0,
+      "warnings":[]
+    }
+  ],
+  "notes":[]
+}"#,
+        )
+        .expect("write tableone result");
+
+        let out_dir = root.join("artifacts");
+        let cli = test_cli(Command::Report {
+            command: ReportCommand::Build(ReportBuildArgs {
+                analysis: analysis_path,
+                out: Some(out_dir.clone()),
+                artifacts: Some(artifacts_dir),
+                include_exploratory: false,
+            }),
+        });
+
+        crate::handlers::dispatch(&cli).expect("report build should succeed");
+        let report_md =
+            fs::read_to_string(out_dir.join("report").join("report.md")).expect("read report");
+        assert!(report_md.contains("Table 1 available for `category`"));
+        assert!(!report_md.contains("Rate analysis: no observed result found."));
+        assert!(!report_md.contains("Logistic model: no observed result found."));
+        assert!(!report_md.contains("Cox model: no observed result found."));
+        let table_md =
+            fs::read_to_string(out_dir.join("tables").join("tableone.md")).expect("read table");
+        assert!(table_md.contains("data_value"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_build_selects_tableone_matching_declared_by() {
+        let root = temp_dir("report-tableone-declared-by");
+        fs::create_dir_all(&root).expect("create root");
+        let analysis_path = root.join("analysis.yaml");
+        fs::write(
+            &analysis_path,
+            r"
+study:
+  title: Descriptive-only cohort
+  design: cross-sectional
+study_context:
+  estimand: Descriptive prevalence summaries
+  exposure: Category
+  comparator: Other categories
+  outcome: Prevalence
+  missing_data_strategy: Report missing values
+  reporting_guideline: STROBE
+data:
+  path: demo.csv
+  format: csv
+variables:
+  - name: category
+    kind: categorical
+    roles: [exposure]
+  - name: year
+    kind: categorical
+    roles: [strata]
+  - name: data_value
+    kind: continuous
+    roles: [outcome]
+analyses:
+  - kind: inspect
+  - kind: table_one
+    by: category
+report:
+  out_dir: epistat-artifacts
+  include_methods: true
+  include_tables: true
+  include_assumptions: true
+",
+        )
+        .expect("write analysis yaml");
+        let data_path = root.join("demo.csv");
+        fs::write(
+            &data_path,
+            "category,year,data_value\nA,2022,1.0\nB,2023,2.0\n",
+        )
+        .expect("write csv");
+        let data_fingerprint = fingerprint_file(&data_path).expect("fingerprint");
+        let artifacts_dir = root.join("runs");
+        let category_dir = artifacts_dir.join("tableone-category");
+        let year_dir = artifacts_dir.join("tableone-year");
+        fs::create_dir_all(&category_dir).expect("create category dir");
+        fs::create_dir_all(&year_dir).expect("create year dir");
+
+        for run_dir in [&category_dir, &year_dir] {
+            fs::write(
+                run_dir.join("command.json"),
+                r#"{"command":"tableone","request":{}}"#,
+            )
+            .expect("write tableone command");
+            fs::write(
+                run_dir.join("context.json"),
+                serde_json::to_string_pretty(&json!({
+                    "command": "tableone",
+                    "analysis_path": analysis_path.display().to_string(),
+                    "analysis_path_resolved": resolve_path_for_match(&analysis_path),
+                    "data_path": data_path.display().to_string(),
+                    "data_path_resolved": resolve_path_for_match(&data_path),
+                    "data_fingerprint_fnv1a64": data_fingerprint,
+                    "cwd": root.display().to_string(),
+                }))
+                .expect("serialize context"),
+            )
+            .expect("write context");
+        }
+
+        fs::write(
+            category_dir.join("result.json"),
+            r#"{
+  "status":"ok",
+  "data_path":"demo.csv",
+  "analysis_path":"analysis.yaml",
+  "by":"category",
+  "group_levels":["A","B"],
+  "rows":[
+    {
+      "variable":"data_value",
+      "kind":"continuous",
+      "overall":{"display":"1.50 (0.71)","n_total":2,"n_non_missing":2,"missing_count":0},
+      "groups":[
+        {"group":"A","cell":{"display":"1.00","n_total":1,"n_non_missing":1,"missing_count":0}},
+        {"group":"B","cell":{"display":"2.00","n_total":1,"n_non_missing":1,"missing_count":0}}
+      ],
+      "warnings":[]
+    }
+  ],
+  "notes":[]
+}"#,
+        )
+        .expect("write category result");
+        fs::write(
+            year_dir.join("result.json"),
+            r#"{
+  "status":"ok",
+  "data_path":"demo.csv",
+  "analysis_path":"analysis.yaml",
+  "by":"year",
+  "group_levels":["2022","2023"],
+  "rows":[
+    {
+      "variable":"data_value",
+      "kind":"continuous",
+      "overall":{"display":"1.50 (0.71)","n_total":2,"n_non_missing":2,"missing_count":0},
+      "groups":[
+        {"group":"2022","cell":{"display":"1.00","n_total":1,"n_non_missing":1,"missing_count":0}},
+        {"group":"2023","cell":{"display":"2.00","n_total":1,"n_non_missing":1,"missing_count":0}}
+      ],
+      "warnings":[]
+    }
+  ],
+  "notes":[]
+}"#,
+        )
+        .expect("write year result");
+
+        let out_dir = root.join("artifacts");
+        let cli = test_cli(Command::Report {
+            command: ReportCommand::Build(ReportBuildArgs {
+                analysis: analysis_path,
+                out: Some(out_dir.clone()),
+                artifacts: Some(artifacts_dir),
+                include_exploratory: false,
+            }),
+        });
+
+        crate::handlers::dispatch(&cli).expect("report build should succeed");
+        let report_md =
+            fs::read_to_string(out_dir.join("report").join("report.md")).expect("read report");
+        let table_md =
+            fs::read_to_string(out_dir.join("tables").join("tableone.md")).expect("read table");
+        let evidence_index = fs::read_to_string(out_dir.join("audit").join("evidence-index.json"))
+            .expect("read evidence index");
+        assert!(report_md.contains("Table 1 available for `category`"));
+        assert!(!report_md.contains("Table 1 available for `year`"));
+        assert!(table_md.contains("| Variable | Overall | A | B |"));
+        assert!(!table_md.contains("| Variable | Overall | 2022 | 2023 |"));
+        assert!(evidence_index.contains("\"accepted_artifacts\""));
+        assert!(evidence_index.contains("\"rejected_artifacts\""));
+        assert!(evidence_index.contains("artifact does not match a declared analysis step"));
+        assert!(evidence_index.contains("\"matched_analysis_step_index\": 1"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn report_build_rejects_exploratory_artifacts_by_default() {
+        let root = temp_dir("report-exploratory-filter");
+        fs::create_dir_all(&root).expect("create root");
+        let analysis_path = root.join("analysis.yaml");
+        fs::write(
+            &analysis_path,
+            r"
+study:
+  title: Exploratory filter cohort
+  design: cross-sectional
+study_context:
+  estimand: Descriptive prevalence summaries
+  exposure: Category
+  comparator: Other categories
+  outcome: Prevalence
+  missing_data_strategy: Report missing values
+  reporting_guideline: STROBE
+data:
+  path: demo.csv
+  format: csv
+variables:
+  - name: category
+    kind: categorical
+    roles: [exposure]
+  - name: data_value
+    kind: continuous
+    roles: [outcome]
+analyses:
+  - kind: table_one
+    by: category
+report:
+  out_dir: epistat-artifacts
+  include_methods: true
+  include_tables: true
+  include_assumptions: true
+",
+        )
+        .expect("write analysis yaml");
+        let data_path = root.join("demo.csv");
+        fs::write(&data_path, "category,data_value\nA,1.0\nB,2.0\n").expect("write csv");
+
+        let artifacts_dir = root.join("runs");
+        let tableone_dir = artifacts_dir.join("tableone-explore");
+        fs::create_dir_all(&tableone_dir).expect("create tableone dir");
+        fs::write(
+            tableone_dir.join("command.json"),
+            r#"{"command":"tableone","request":{}}"#,
+        )
+        .expect("write tableone command");
+        fs::write(
+            tableone_dir.join("context.json"),
+            serde_json::to_string_pretty(&json!({
+                "command": "tableone",
+                "analysis_path": analysis_path.display().to_string(),
+                "analysis_path_resolved": resolve_path_for_match(&analysis_path),
+                "data_path": data_path.display().to_string(),
+                "data_path_resolved": resolve_path_for_match(&data_path),
+                "data_fingerprint_fnv1a64": fingerprint_file(&data_path).expect("fingerprint"),
+                "cwd": root.display().to_string(),
+                "artifact": {
+                    "role": "exploratory",
+                    "status": "produced"
+                }
+            }))
+            .expect("serialize context"),
+        )
+        .expect("write context");
+        fs::write(
+            tableone_dir.join("result.json"),
+            r#"{
+  "status":"ok",
+  "data_path":"demo.csv",
+  "analysis_path":"analysis.yaml",
+  "by":"category",
+  "group_levels":["A","B"],
+  "rows":[
+    {
+      "variable":"data_value",
+      "kind":"continuous",
+      "overall":{"display":"1.50 (0.71)","n_total":2,"n_non_missing":2,"missing_count":0},
+      "groups":[
+        {"group":"A","cell":{"display":"1.00","n_total":1,"n_non_missing":1,"missing_count":0}},
+        {"group":"B","cell":{"display":"2.00","n_total":1,"n_non_missing":1,"missing_count":0}}
+      ],
+      "warnings":[]
+    }
+  ],
+  "notes":[]
+}"#,
+        )
+        .expect("write result");
+
+        let out_dir = root.join("formal-report");
+        let cli = test_cli(Command::Report {
+            command: ReportCommand::Build(ReportBuildArgs {
+                analysis: analysis_path,
+                out: Some(out_dir.clone()),
+                artifacts: Some(artifacts_dir),
+                include_exploratory: false,
+            }),
+        });
+
+        crate::handlers::dispatch(&cli).expect("report build should reject exploratory evidence");
+        assert!(!out_dir.join("tables").join("tableone.md").exists());
+        let evidence_index = fs::read_to_string(out_dir.join("audit").join("evidence-index.json"))
+            .expect("read evidence index");
+        assert!(evidence_index.contains("\"rejected_artifacts\""));
+        assert!(evidence_index.contains("exploratory artifact was not requested"));
+        assert!(evidence_index.contains("\"role\": \"exploratory\""));
 
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -1426,6 +3475,7 @@ report:
                 analysis: analysis_path.clone(),
                 out: Some(out_dir.clone()),
                 artifacts: Some(artifacts_dir.clone()),
+                include_exploratory: false,
             }),
         });
 
@@ -1633,6 +3683,7 @@ report:
                 analysis: analysis_path.clone(),
                 out: Some(out_dir.clone()),
                 artifacts: Some(artifacts_dir.clone()),
+                include_exploratory: false,
             }),
         });
 
@@ -1680,6 +3731,7 @@ analyses:
                 analysis: analysis_path,
                 out: Some(root.join("artifacts")),
                 artifacts: None,
+                include_exploratory: false,
             }),
         });
 

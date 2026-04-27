@@ -21,10 +21,13 @@ mod ui;
 
 pub use bridge::Engine;
 pub use cli::{
-    AiAskArgs, AiCommand, AuthCommand, AuthDoctorArgs, AuthProvider, AuthSetArgs, ChatArgs, Cli,
-    Command, ConfigCommand, ConfigModelArgs, InspectArgs, ModelCommand, ModelCoxArgs,
-    ModelLogisticArgs, RateArgs, ReportBuildArgs, ReportCommand, RunCommand, RunScriptArgs,
-    TableOneArgs,
+    AiAskArgs, AiCommand, AuditCommand, AuditExplainArgs, AuthCommand, AuthDoctorArgs,
+    AuthProvider, AuthSetArgs, ChatArgs, CheckArgs, Cli, Command, ConfigCommand, ConfigModelArgs,
+    InspectArgs, ModelCommand, ModelCoxArgs, ModelLogisticArgs, OpenCommand, OpenReportArgs,
+    PlanArgs, RateArgs, ReportBuildArgs, ReportCommand, ReportVerifyArgs, RunCommand,
+    RunScriptArgs, TableOneArgs, WorkflowCommand, WorkflowRunArgs,
 };
 pub use handlers::{dispatch, run};
-pub use schema::{AnalysisSpec, DataFormat};
+pub use schema::{
+    AnalysisCheckResult, AnalysisSpec, DataFormat, ReportVerifyResult, WorkflowRunResult,
+};

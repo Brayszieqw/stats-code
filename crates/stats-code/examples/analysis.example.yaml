@@ -90,19 +90,24 @@ privacy:
   small_cell_threshold: 5
 
 analyses:
-  - kind: inspect
-  - kind: table_one
+  - id: inspect_main
+    kind: inspect
+  - id: table1_by_disease
+    kind: table_one
     by: disease
-  - kind: rate
+  - id: rate_by_sex
+    kind: rate
     event: disease
     person_time: fu_pt
     strata: [sex]
-  - kind: model
+  - id: logistic_main
+    kind: model
     model: logistic
     outcome: disease
     predictors: [age, bmi, smoke]
     adjust: [sex, site]
-  - kind: model
+  - id: cox_main
+    kind: model
     model: cox
     time: fu_time
     event: death

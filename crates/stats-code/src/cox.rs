@@ -6,7 +6,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cli::ModelCoxArgs;
-use crate::helpers::{join_or_placeholder, merge_unique_strings, require_column, stringify_error};
+use crate::helpers::{
+    join_or_placeholder, merge_unique_strings, parse_positive_weight, require_column,
+    stringify_error,
+};
 use crate::logistic::{
     build_nonintercept_terms, parse_binary_outcome, reference_note_for_plan,
     resolve_logistic_variable_plan,
@@ -16,7 +19,7 @@ use crate::math::{
     safe_exp, CoxObservation,
 };
 use crate::modeling::{CoxFit, RowState};
-use crate::schema::{is_missing_value, AnalysisSpec, CoxCoefficient, CoxResult};
+use crate::schema::{is_missing_value_for_column, AnalysisSpec, CoxCoefficient, CoxResult};
 
 type CoxPartialStats = (f64, Vec<f64>, Vec<Vec<f64>>);
 
@@ -49,6 +52,13 @@ pub(crate) fn cox_csv(
         .collect::<BTreeMap<_, _>>();
     let time_index = require_column(&header_index, &args.time)?;
     let event_index = require_column(&header_index, &args.event)?;
+    let survey_weight = analysis_spec
+        .and_then(|spec| spec.survey.as_ref())
+        .and_then(|survey| survey.weight.clone());
+    let weight_index = survey_weight
+        .as_ref()
+        .map(|name| require_column(&header_index, name).map(|index| (name.clone(), index)))
+        .transpose()?;
     let predictor_indices = predictors
         .iter()
         .map(|name| require_column(&header_index, name).map(|index| (name.clone(), index)))
@@ -77,13 +87,17 @@ pub(crate) fn cox_csv(
     let mut observations = Vec::new();
     let mut n_excluded_missing = 0usize;
     let mut n_excluded_invalid = 0usize;
+    let mut n_excluded_missing_weight = 0usize;
+    let mut n_excluded_invalid_weight = 0usize;
 
     for record in &records {
         let time_raw = record.get(time_index).unwrap_or_default();
         let event_raw = record.get(event_index).unwrap_or_default();
         let time_trimmed = time_raw.trim();
         let event_trimmed = event_raw.trim();
-        if is_missing_value(time_trimmed) || is_missing_value(event_trimmed) {
+        if is_missing_value_for_column(&args.time, time_trimmed)
+            || is_missing_value_for_column(&args.event, event_trimmed)
+        {
             n_excluded_missing += 1;
             continue;
         }
@@ -121,11 +135,32 @@ pub(crate) fn cox_csv(
         }
 
         match row_state {
-            RowState::Ok => observations.push(CoxObservation {
-                time: time_value,
-                event: event_value >= 0.5,
-                x: row,
-            }),
+            RowState::Ok => {
+                let weight = if let Some((weight_name, weight_index)) = &weight_index {
+                    match parse_positive_weight(
+                        weight_name,
+                        record.get(*weight_index).unwrap_or_default(),
+                    ) {
+                        Ok(Some(value)) => value,
+                        Ok(None) => {
+                            n_excluded_missing_weight += 1;
+                            continue;
+                        }
+                        Err(_) => {
+                            n_excluded_invalid_weight += 1;
+                            continue;
+                        }
+                    }
+                } else {
+                    1.0
+                };
+                observations.push(CoxObservation {
+                    time: time_value,
+                    event: event_value >= 0.5,
+                    x: row,
+                    weight,
+                });
+            }
             RowState::Missing => n_excluded_missing += 1,
             RowState::Invalid => n_excluded_invalid += 1,
         }
@@ -210,6 +245,18 @@ pub(crate) fn cox_csv(
         "Ties are handled with the Breslow approximation.".to_string(),
         format!("Events per parameter: {epv:.2}."),
     ];
+    if let Some(weight) = &survey_weight {
+        notes.push(format!(
+            "Survey weight `{weight}` was applied as an observation weight in the partial likelihood."
+        ));
+        notes.push(
+            "Complex survey design variance, strata, clusters, and replicate weights are not applied to model standard errors."
+                .to_string(),
+        );
+        notes.push(format!(
+            "Excluded {n_excluded_missing_weight} rows with missing `{weight}` and {n_excluded_invalid_weight} rows with invalid/non-positive `{weight}`."
+        ));
+    }
     notes.extend(variable_plans.iter().filter_map(reference_note_for_plan));
     if n_excluded_missing > 0 {
         notes.push(format!(
@@ -232,6 +279,7 @@ pub(crate) fn cox_csv(
         time: args.time.clone(),
         event: args.event.clone(),
         predictors,
+        survey_weight,
         n_total,
         n_used,
         n_excluded_missing,
@@ -367,7 +415,10 @@ pub(crate) fn cox_partial_stats(
             event_position += 1;
         }
 
-        let d = event_indices.len() as f64;
+        let d = event_indices
+            .iter()
+            .map(|index| observations[*index].weight)
+            .sum::<f64>();
         let mut s0 = 0.0_f64;
         let mut s1 = vec![0.0; p];
         let mut s2 = vec![vec![0.0; p]; p];
@@ -386,7 +437,7 @@ pub(crate) fn cox_partial_stats(
         };
         for index in risk_set_indices {
             let observation = &observations[index];
-            let risk_score = (linear_predictors[index] - max_eta).exp();
+            let risk_score = observation.weight * (linear_predictors[index] - max_eta).exp();
             s0 += risk_score;
             for j in 0..p {
                 s1[j] += risk_score * observation.x[j];
@@ -401,9 +452,10 @@ pub(crate) fn cox_partial_stats(
 
         let mut event_sum = vec![0.0; p];
         for index in &event_indices {
-            log_partial_likelihood += linear_predictors[*index];
+            let event_weight = observations[*index].weight;
+            log_partial_likelihood += event_weight * linear_predictors[*index];
             for j in 0..p {
-                event_sum[j] += observations[*index].x[j];
+                event_sum[j] += event_weight * observations[*index].x[j];
             }
         }
         log_partial_likelihood -= d * (max_eta + s0.ln());

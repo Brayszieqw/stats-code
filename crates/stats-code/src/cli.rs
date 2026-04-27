@@ -45,6 +45,14 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Create a demo analysis project from bundled templates.
+    Init(InitArgs),
+    /// Check local Stats Code environment readiness.
+    Doctor(DoctorArgs),
+    /// Preview the declared workflow plan without running statistics.
+    Plan(PlanArgs),
+    /// Validate an analysis.yaml contract without running statistics.
+    Check(CheckArgs),
     Inspect(InspectArgs),
     Tableone(TableOneArgs),
     Rate(RateArgs),
@@ -56,6 +64,10 @@ pub enum Command {
         #[command(subcommand)]
         command: AiCommand,
     },
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommand,
+    },
     Model {
         #[command(subcommand)]
         command: ModelCommand,
@@ -63,6 +75,15 @@ pub enum Command {
     Report {
         #[command(subcommand)]
         command: ReportCommand,
+    },
+    Open {
+        #[command(subcommand)]
+        command: OpenCommand,
+    },
+    /// Run the declared analysis.yaml workflow deterministically.
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommand,
     },
     /// Run a custom Python or R script via the bridge.
     Run {
@@ -91,6 +112,45 @@ pub struct ChatArgs {
 
     #[arg(long)]
     pub new_session: bool,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct InitArgs {
+    pub project_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct DoctorArgs {}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct PlanArgs {
+    pub analysis: PathBuf,
+
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+
+    #[arg(long = "explore-out")]
+    pub explore_out: Option<PathBuf>,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub include_exploratory: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub strict: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_warnings: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_unenforced_survey: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_unenforced_privacy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -145,6 +205,21 @@ pub struct AiAskArgs {
 
     #[arg(required = true, trailing_var_arg = true)]
     pub prompt: Vec<String>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum AuditCommand {
+    Explain(AuditExplainArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AuditExplainArgs {
+    pub artifacts: PathBuf,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct CheckArgs {
+    pub analysis: PathBuf,
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
@@ -274,6 +349,7 @@ pub struct ModelLinearArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum ReportCommand {
     Build(ReportBuildArgs),
+    Verify(ReportVerifyArgs),
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
@@ -285,6 +361,74 @@ pub struct ReportBuildArgs {
 
     #[arg(long)]
     pub artifacts: Option<PathBuf>,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub include_exploratory: bool,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct ReportVerifyArgs {
+    pub artifacts: PathBuf,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub fail_on_warning: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum OpenCommand {
+    Report(OpenReportArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct OpenReportArgs {
+    #[arg(default_value = "stats-code-artifacts")]
+    pub artifacts: PathBuf,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub print_only: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowCommand {
+    Run(WorkflowRunArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct WorkflowRunArgs {
+    pub analysis: PathBuf,
+
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+
+    #[arg(long = "explore-out")]
+    pub explore_out: Option<PathBuf>,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub include_exploratory: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub strict: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_warnings: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_unenforced_survey: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub allow_unenforced_privacy: bool,
+
+    #[arg(long)]
+    #[serde(default)]
+    pub no_chat: bool,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -311,9 +455,11 @@ pub struct RunScriptArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use clap::Parser;
 
-    use super::{Cli, Command};
+    use super::{AuditCommand, Cli, Command, OpenCommand, ReportCommand, WorkflowCommand};
 
     #[test]
     fn allows_no_subcommand_for_interactive_mode() {
@@ -343,6 +489,168 @@ mod tests {
                 assert!(args.new_session);
             }
             other => panic!("expected chat command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_run_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "--model",
+            "gpt-4.1",
+            "workflow",
+            "run",
+            "analysis.yaml",
+            "--out",
+            "formal-artifacts",
+            "--explore-out",
+            "scratch-artifacts",
+            "--no-chat",
+        ]);
+        assert_eq!(cli.model, "gpt-4.1");
+        match cli.command {
+            Some(Command::Workflow {
+                command: WorkflowCommand::Run(args),
+            }) => {
+                assert_eq!(args.analysis, PathBuf::from("analysis.yaml"));
+                assert_eq!(args.out, Some(PathBuf::from("formal-artifacts")));
+                assert_eq!(args.explore_out, Some(PathBuf::from("scratch-artifacts")));
+                assert!(args.no_chat);
+                assert!(!args.strict);
+                assert!(!args.allow_warnings);
+                assert!(!args.allow_unenforced_survey);
+                assert!(!args.allow_unenforced_privacy);
+            }
+            other => panic!("expected workflow run command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_init_command() {
+        let cli = Cli::parse_from(["stats-code", "init", "demo-study"]);
+        match cli.command {
+            Some(Command::Init(args)) => {
+                assert_eq!(args.project_dir, PathBuf::from("demo-study"));
+            }
+            other => panic!("expected init command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_doctor_command() {
+        let cli = Cli::parse_from(["stats-code", "doctor"]);
+        assert!(matches!(cli.command, Some(Command::Doctor(_))));
+    }
+
+    #[test]
+    fn parses_plan_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "plan",
+            "analysis.yaml",
+            "--out",
+            "formal-artifacts",
+            "--strict",
+            "--allow-unenforced-survey",
+        ]);
+        match cli.command {
+            Some(Command::Plan(args)) => {
+                assert_eq!(args.analysis, PathBuf::from("analysis.yaml"));
+                assert_eq!(args.out, Some(PathBuf::from("formal-artifacts")));
+                assert!(args.strict);
+                assert!(args.allow_unenforced_survey);
+                assert!(!args.allow_unenforced_privacy);
+            }
+            other => panic!("expected plan command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_policy_flags() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "workflow",
+            "run",
+            "analysis.yaml",
+            "--strict",
+            "--allow-warnings",
+            "--allow-unenforced-survey",
+            "--allow-unenforced-privacy",
+        ]);
+        match cli.command {
+            Some(Command::Workflow {
+                command: WorkflowCommand::Run(args),
+            }) => {
+                assert!(args.strict);
+                assert!(args.allow_warnings);
+                assert!(args.allow_unenforced_survey);
+                assert!(args.allow_unenforced_privacy);
+            }
+            other => panic!("expected workflow run command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_check_command() {
+        let cli = Cli::parse_from(["stats-code", "check", "analysis.yaml"]);
+        match cli.command {
+            Some(Command::Check(args)) => {
+                assert_eq!(args.analysis, PathBuf::from("analysis.yaml"));
+            }
+            other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_report_verify_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "report",
+            "verify",
+            "stats-code-artifacts",
+            "--fail-on-warning",
+        ]);
+        match cli.command {
+            Some(Command::Report {
+                command: ReportCommand::Verify(args),
+            }) => {
+                assert_eq!(args.artifacts, PathBuf::from("stats-code-artifacts"));
+                assert!(args.fail_on_warning);
+            }
+            other => panic!("expected report verify command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_audit_explain_command() {
+        let cli = Cli::parse_from(["stats-code", "audit", "explain", "stats-code-artifacts"]);
+        match cli.command {
+            Some(Command::Audit {
+                command: AuditCommand::Explain(args),
+            }) => {
+                assert_eq!(args.artifacts, PathBuf::from("stats-code-artifacts"));
+            }
+            other => panic!("expected audit explain command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_open_report_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "open",
+            "report",
+            "stats-code-artifacts",
+            "--print-only",
+        ]);
+        match cli.command {
+            Some(Command::Open {
+                command: OpenCommand::Report(args),
+            }) => {
+                assert_eq!(args.artifacts, PathBuf::from("stats-code-artifacts"));
+                assert!(args.print_only);
+            }
+            other => panic!("expected open report command, got {other:?}"),
         }
     }
 }

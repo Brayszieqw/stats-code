@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use calamine::{open_workbook_auto, Data, Reader};
 use serde_json::Value;
 
-use crate::schema::is_missing_value;
+use crate::schema::{is_missing_value, is_missing_value_for_column};
 
 // ---------------------------------------------------------------------------
 // Data access helpers
@@ -24,10 +24,9 @@ pub(crate) fn require_column(index: &BTreeMap<String, usize>, name: &str) -> Res
         .ok_or_else(|| format!("Column `{name}` was not found in the dataset header."))
 }
 
-/// Normalize a group value, mapping missing sentinels to `<missing>`.
-pub(crate) fn normalize_group_value(value: &str) -> String {
+pub(crate) fn normalize_group_value_for_column(column_name: &str, value: &str) -> String {
     let trimmed = value.trim();
-    if is_missing_value(trimmed) {
+    if is_missing_value_for_column(column_name, trimmed) {
         "<missing>".to_string()
     } else {
         trimmed.to_string()
@@ -44,6 +43,23 @@ pub(crate) fn parse_event_value(raw: &str) -> Option<f64> {
         "true" | "yes" | "y" => Some(1.0),
         "false" | "no" | "n" => Some(0.0),
         _ => trimmed.parse::<f64>().ok(),
+    }
+}
+
+pub(crate) fn parse_positive_weight(column_name: &str, raw: &str) -> Result<Option<f64>, String> {
+    let trimmed = raw.trim();
+    if is_missing_value_for_column(column_name, trimmed) {
+        return Ok(None);
+    }
+    let value = trimmed
+        .parse::<f64>()
+        .map_err(|_| format!("weight `{column_name}` contains non-numeric value `{trimmed}`"))?;
+    if value.is_finite() && value > 0.0 {
+        Ok(Some(value))
+    } else {
+        Err(format!(
+            "weight `{column_name}` must be positive and finite, got `{trimmed}`"
+        ))
     }
 }
 

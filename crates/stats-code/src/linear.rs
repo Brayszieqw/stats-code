@@ -6,13 +6,15 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cli::ModelLinearArgs;
-use crate::helpers::{merge_unique_strings, require_column, stringify_error};
+use crate::helpers::{
+    merge_unique_strings, parse_positive_weight, require_column, stringify_error,
+};
 use crate::logistic::{build_logistic_terms, resolve_logistic_variable_plan};
 use crate::math::{
     f_distribution_p_value, invert_matrix, t_critical_value_95, t_distribution_p_value,
 };
 use crate::modeling::{LogisticTermSpec, RowState};
-use crate::schema::{is_missing_value, AnalysisSpec, LinearCoefficient, LinearResult};
+use crate::schema::{is_missing_value_for_column, AnalysisSpec, LinearCoefficient, LinearResult};
 
 pub(crate) fn linear_csv(
     path: &Path,
@@ -44,6 +46,13 @@ pub(crate) fn linear_csv(
         .map(|(index, name)| (name.clone(), index))
         .collect::<BTreeMap<_, _>>();
     let outcome_index = require_column(&header_index, &args.outcome)?;
+    let survey_weight = analysis_spec
+        .and_then(|spec| spec.survey.as_ref())
+        .and_then(|survey| survey.weight.clone());
+    let weight_index = survey_weight
+        .as_ref()
+        .map(|name| require_column(&header_index, name).map(|index| (name.clone(), index)))
+        .transpose()?;
     let predictor_indices = predictors
         .iter()
         .map(|name| require_column(&header_index, name).map(|index| (name.clone(), index)))
@@ -71,12 +80,15 @@ pub(crate) fn linear_csv(
 
     let mut x = Vec::new();
     let mut y = Vec::new();
+    let mut weights = Vec::new();
     let mut n_excluded_missing = 0usize;
     let mut n_excluded_invalid = 0usize;
+    let mut n_excluded_missing_weight = 0usize;
+    let mut n_excluded_invalid_weight = 0usize;
 
     for record in &records {
         let outcome_raw = record.get(outcome_index).unwrap_or_default().trim();
-        if is_missing_value(outcome_raw) {
+        if is_missing_value_for_column(&args.outcome, outcome_raw) {
             n_excluded_missing += 1;
             continue;
         }
@@ -109,8 +121,27 @@ pub(crate) fn linear_csv(
 
         match row_state {
             RowState::Ok => {
+                let weight = if let Some((weight_name, weight_index)) = &weight_index {
+                    match parse_positive_weight(
+                        weight_name,
+                        record.get(*weight_index).unwrap_or_default(),
+                    ) {
+                        Ok(Some(value)) => value,
+                        Ok(None) => {
+                            n_excluded_missing_weight += 1;
+                            continue;
+                        }
+                        Err(_) => {
+                            n_excluded_invalid_weight += 1;
+                            continue;
+                        }
+                    }
+                } else {
+                    1.0
+                };
                 x.push(row);
                 y.push(outcome_val);
+                weights.push(weight);
             }
             RowState::Missing => n_excluded_missing += 1,
             RowState::Invalid => n_excluded_invalid += 1,
@@ -134,10 +165,11 @@ pub(crate) fn linear_csv(
     let mut xtx = vec![vec![0.0; p]; p];
     let mut xty = vec![0.0; p];
     for i in 0..n_used {
+        let weight = weights[i];
         for j in 0..p {
-            xty[j] += x[i][j] * y[i];
+            xty[j] += x[i][j] * y[i] * weight;
             for k in 0..p {
-                xtx[j][k] += x[i][j] * x[i][k];
+                xtx[j][k] += x[i][j] * x[i][k] * weight;
             }
         }
     }
@@ -150,6 +182,7 @@ pub(crate) fn linear_csv(
             formula: build_linear_formula(&args.outcome, &design_terms),
             outcome: args.outcome.clone(),
             predictors: predictors.clone(),
+            survey_weight: survey_weight.clone(),
             n_total,
             n_used,
             n_excluded_missing,
@@ -183,15 +216,21 @@ pub(crate) fn linear_csv(
     }
 
     // Compute residuals and RSS
-    let y_mean = y.iter().sum::<f64>() / n_used as f64;
+    let weight_total = weights.iter().sum::<f64>();
+    let y_mean = y
+        .iter()
+        .zip(weights.iter())
+        .map(|(value, weight)| value * weight)
+        .sum::<f64>()
+        / weight_total;
     let mut rss = 0.0; // residual sum of squares
     let mut tss = 0.0; // total sum of squares
     for i in 0..n_used {
         let y_hat: f64 = (0..p).map(|j| x[i][j] * beta[j]).sum();
         let residual = y[i] - y_hat;
-        rss += residual * residual;
+        rss += weights[i] * residual * residual;
         let deviation = y[i] - y_mean;
-        tss += deviation * deviation;
+        tss += weights[i] * deviation * deviation;
     }
 
     let r_squared = if tss > 0.0 { 1.0 - rss / tss } else { 0.0 };
@@ -259,6 +298,25 @@ pub(crate) fn linear_csv(
     }
 
     let formula = build_linear_formula(&args.outcome, &design_terms);
+    let mut notes = vec![
+        "Linear regression uses ordinary least squares (OLS).".to_string(),
+        format!(
+            "Degrees of freedom: model={}, residual={df_residual}.",
+            p - 1
+        ),
+    ];
+    if let Some(weight) = &survey_weight {
+        notes.push(format!(
+            "Survey weight `{weight}` was applied as an observation weight in weighted least squares."
+        ));
+        notes.push(
+            "Complex survey design variance, strata, clusters, and replicate weights are not applied to model standard errors."
+                .to_string(),
+        );
+        notes.push(format!(
+            "Excluded {n_excluded_missing_weight} rows with missing `{weight}` and {n_excluded_invalid_weight} rows with invalid/non-positive `{weight}`."
+        ));
+    }
 
     Ok(LinearResult {
         status: "ok".to_string(),
@@ -267,6 +325,7 @@ pub(crate) fn linear_csv(
         formula,
         outcome: args.outcome.clone(),
         predictors: predictors.clone(),
+        survey_weight,
         n_total,
         n_used,
         n_excluded_missing,
@@ -280,13 +339,7 @@ pub(crate) fn linear_csv(
         aic,
         bic,
         coefficients,
-        notes: vec![
-            "Linear regression uses ordinary least squares (OLS).".to_string(),
-            format!(
-                "Degrees of freedom: model={}, residual={df_residual}.",
-                p - 1
-            ),
-        ],
+        notes,
         warnings,
     })
 }

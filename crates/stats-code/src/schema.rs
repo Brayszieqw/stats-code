@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +57,51 @@ pub enum ModelKind {
     Logistic,
     Cox,
     Linear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactRole {
+    Declared,
+    Exploratory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactStatus {
+    Produced,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactMetadata {
+    pub role: ArtifactRole,
+    pub status: ArtifactStatus,
+    #[serde(default)]
+    pub formal_run_id: Option<String>,
+    #[serde(default)]
+    pub analysis_step_index: Option<usize>,
+}
+
+impl ArtifactMetadata {
+    pub fn declared(formal_run_id: &str, analysis_step_index: usize) -> Self {
+        Self {
+            role: ArtifactRole::Declared,
+            status: ArtifactStatus::Produced,
+            formal_run_id: Some(formal_run_id.to_string()),
+            analysis_step_index: Some(analysis_step_index),
+        }
+    }
+
+    pub fn exploratory() -> Self {
+        Self {
+            role: ArtifactRole::Exploratory,
+            status: ArtifactStatus::Produced,
+            formal_run_id: None,
+            analysis_step_index: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +212,8 @@ pub struct PrivacySpec {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisStepSpec {
+    #[serde(default)]
+    pub id: Option<String>,
     pub kind: AnalysisKind,
     #[serde(default)]
     pub model: Option<ModelKind>,
@@ -233,6 +281,39 @@ pub struct AnalysisSpec {
     pub report: Option<ReportSpec>,
     #[serde(default)]
     pub audit: Option<AuditSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisCheckLevel {
+    Ok,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisCheckItem {
+    pub level: AnalysisCheckLevel,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisCheckResult {
+    pub status: String,
+    pub analysis_path: String,
+    pub data_path: String,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub items: Vec<AnalysisCheckItem>,
+    pub notes: Vec<String>,
+}
+
+impl AnalysisCheckResult {
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        self.error_count > 0
+    }
 }
 
 pub fn validate_study_context(spec: &AnalysisSpec) -> Vec<String> {
@@ -395,6 +476,8 @@ pub struct RateResult {
     pub event: String,
     pub person_time: String,
     pub strata: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survey_weight: Option<String>,
     pub rows: Vec<RateRow>,
     pub notes: Vec<String>,
 }
@@ -419,6 +502,16 @@ pub struct TableOneCell {
     pub q1: Option<f64>,
     #[serde(default)]
     pub q3: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weighted_count: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weighted_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weighted_mean: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weighted_sd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight_sum: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -451,6 +544,8 @@ pub struct TableOneResult {
     pub data_path: String,
     pub analysis_path: Option<String>,
     pub by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survey_weight: Option<String>,
     pub group_levels: Vec<String>,
     pub rows: Vec<TableOneRow>,
     pub notes: Vec<String>,
@@ -472,14 +567,68 @@ pub struct LogisticCoefficient {
     pub p_value: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticSeverity {
+    Info,
+    Warning,
+    Blocking,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Diagnostic {
+    pub code: String,
+    pub severity: DiagnosticSeverity,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Value>,
+}
+
+impl Diagnostic {
+    pub fn new(
+        code: impl Into<String>,
+        severity: DiagnosticSeverity,
+        message: impl Into<String>,
+        evidence: Option<Value>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            severity,
+            message: message.into(),
+            evidence,
+        }
+    }
+
+    pub fn blocking(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        evidence: Option<Value>,
+    ) -> Self {
+        Self::new(code, DiagnosticSeverity::Blocking, message, evidence)
+    }
+
+    #[must_use]
+    pub fn is_blocking(&self) -> bool {
+        matches!(
+            self.severity,
+            DiagnosticSeverity::Blocking | DiagnosticSeverity::Error
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogisticResult {
     pub status: String,
+    #[serde(default)]
+    pub validity_status: String,
     pub data_path: String,
     pub analysis_path: Option<String>,
     pub formula: String,
     pub outcome: String,
     pub predictors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survey_weight: Option<String>,
     pub n_total: usize,
     pub n_used: usize,
     pub n_excluded_missing: usize,
@@ -501,6 +650,8 @@ pub struct LogisticResult {
     pub c_statistic: Option<f64>,
     pub coefficients: Vec<LogisticCoefficient>,
     pub notes: Vec<String>,
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
     pub warnings: Vec<String>,
 }
 
@@ -529,6 +680,8 @@ pub struct CoxResult {
     pub time: String,
     pub event: String,
     pub predictors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survey_weight: Option<String>,
     pub n_total: usize,
     pub n_used: usize,
     pub n_excluded_missing: usize,
@@ -570,6 +723,8 @@ pub struct LinearResult {
     pub formula: String,
     pub outcome: String,
     pub predictors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survey_weight: Option<String>,
     pub n_total: usize,
     pub n_used: usize,
     pub n_excluded_missing: usize,
@@ -606,6 +761,108 @@ pub struct ReportBuildResult {
     pub analysis_path: String,
     pub output_dir: String,
     pub written_files: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportVerifyResult {
+    pub status: String,
+    pub artifacts_dir: String,
+    pub accepted_count: usize,
+    pub rejected_count: usize,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub items: Vec<AnalysisCheckItem>,
+    pub notes: Vec<String>,
+}
+
+impl ReportVerifyResult {
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        self.error_count > 0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStepRunResult {
+    pub step_index: usize,
+    pub command: String,
+    pub artifact_dir: String,
+    pub status: String,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowRunResult {
+    pub status: String,
+    pub run_id: String,
+    pub analysis_path: String,
+    pub data_path: String,
+    pub artifacts_dir: String,
+    pub report_output_dir: String,
+    pub steps: Vec<WorkflowStepRunResult>,
+    pub report: ReportBuildResult,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitProjectResult {
+    pub status: String,
+    pub project_dir: String,
+    pub analysis_path: String,
+    pub data_dir: String,
+    pub written_files: Vec<String>,
+    pub next_steps: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorResult {
+    pub status: String,
+    pub version: String,
+    pub current_dir: String,
+    pub executable: String,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub items: Vec<AnalysisCheckItem>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditExplainArtifact {
+    pub command: String,
+    pub status: String,
+    #[serde(default)]
+    pub report_decision: Option<String>,
+    #[serde(default)]
+    pub analysis_step_index: Option<usize>,
+    pub reason: String,
+    #[serde(default)]
+    pub result_path: Option<String>,
+    #[serde(default)]
+    pub context_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditExplainResult {
+    pub status: String,
+    pub artifacts_dir: String,
+    pub evidence_index_path: String,
+    pub accepted_count: usize,
+    pub rejected_count: usize,
+    pub policy_exception_count: usize,
+    pub accepted_artifacts: Vec<AuditExplainArtifact>,
+    pub rejected_artifacts: Vec<AuditExplainArtifact>,
+    pub policy_exceptions: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenReportResult {
+    pub status: String,
+    pub artifacts_dir: String,
+    pub report_path: String,
+    pub opened: bool,
     pub notes: Vec<String>,
 }
 
@@ -706,7 +963,7 @@ impl RunningColumnStats {
 
     pub fn observe(&mut self, raw: &str) {
         let trimmed = raw.trim();
-        if is_missing_value(trimmed) {
+        if is_missing_value_for_column(&self.name, trimmed) {
             self.missing_count += 1;
             return;
         }
@@ -783,7 +1040,8 @@ impl RunningColumnStats {
 
 pub fn load_analysis_spec(path: &Path) -> Result<AnalysisSpec, String> {
     let contents = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_yaml::from_str(&contents).map_err(|error| error.to_string())
+    let contents = contents.strip_prefix('\u{feff}').unwrap_or(&contents);
+    serde_yaml::from_str(contents).map_err(|error| error.to_string())
 }
 
 pub fn detect_data_format(path: &Path) -> DataFormat {
@@ -897,4 +1155,99 @@ pub fn is_missing_value(value: &str) -> bool {
         return true;
     }
     false
+}
+
+pub fn is_missing_value_for_column(column_name: &str, value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if matches!(lower.as_str(), "nd" | "nm") && is_code_like_column(column_name) {
+        return false;
+    }
+    is_missing_value(trimmed)
+}
+
+fn is_code_like_column(column_name: &str) -> bool {
+    let compact = column_name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    matches!(
+        compact.as_str(),
+        "stateabbr" | "stateabbrev" | "statecode" | "geoid" | "locationid" | "countyfips"
+    ) || compact.ends_with("abbr")
+        || compact.ends_with("code")
+        || compact.ends_with("fips")
+        || compact.ends_with("id")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::{
+        is_missing_value, is_missing_value_for_column, load_analysis_spec, RunningColumnStats,
+    };
+
+    #[test]
+    fn contextual_missing_value_preserves_state_codes() {
+        assert!(is_missing_value("ND"));
+        assert!(is_missing_value("NM"));
+        assert!(!is_missing_value_for_column("stateabbr", "ND"));
+        assert!(!is_missing_value_for_column("stateabbr", "NM"));
+        assert!(!is_missing_value_for_column("measureid", "ND"));
+        assert!(is_missing_value_for_column("lab_result", "ND"));
+    }
+
+    #[test]
+    fn running_column_stats_uses_column_context_for_missing_codes() {
+        let mut state_stats = RunningColumnStats::new("stateabbr");
+        state_stats.observe("ND");
+        state_stats.observe("NM");
+        let state_column = state_stats.finish();
+        assert_eq!(state_column.missing_count, 0);
+        assert_eq!(state_column.non_missing_count, 2);
+        assert_eq!(state_column.distinct_count, 2);
+
+        let mut result_stats = RunningColumnStats::new("result");
+        result_stats.observe("ND");
+        let result_column = result_stats.finish();
+        assert_eq!(result_column.missing_count, 1);
+        assert_eq!(result_column.non_missing_count, 0);
+    }
+
+    #[test]
+    fn analysis_yaml_loader_accepts_utf8_bom() {
+        let root = std::env::temp_dir().join(format!(
+            "stats-code-bom-analysis-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("analysis.yaml");
+        let yaml = r"
+study:
+  title: BOM demo
+  design: cohort
+data:
+  path: demo.csv
+  format: csv
+variables: []
+analyses: []
+";
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend_from_slice(yaml.trim_start().as_bytes());
+        fs::write(&path, bytes).expect("write bom yaml");
+
+        let spec = load_analysis_spec(&path).expect("load bom yaml");
+        assert_eq!(spec.study.title, "BOM demo");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 }

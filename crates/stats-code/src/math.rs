@@ -407,6 +407,7 @@ pub(crate) fn compute_cox_concordance(observations: &[CoxObservation], beta: &[f
 // ---------------------------------------------------------------------------
 
 /// Compute Fisher information matrix X' W X.
+#[allow(dead_code)]
 pub(crate) fn fisher_information(x: &[Vec<f64>], probabilities: &[f64]) -> Vec<Vec<f64>> {
     let p = x[0].len();
     let mut info = vec![vec![0.0_f64; p]; p];
@@ -608,6 +609,7 @@ pub(crate) struct CoxObservation {
     pub time: f64,
     pub event: bool,
     pub x: Vec<f64>,
+    pub weight: f64,
 }
 
 #[cfg(test)]
@@ -713,16 +715,19 @@ mod tests {
                 time: 1.0,
                 event: true,
                 x: vec![1.0],
+                weight: 1.0,
             },
             CoxObservation {
                 time: 2.0,
                 event: true,
                 x: vec![0.5],
+                weight: 1.0,
             },
             CoxObservation {
                 time: 3.0,
                 event: false,
                 x: vec![0.0],
+                weight: 1.0,
             },
         ];
         let beta = vec![1.0]; // positive β → higher x = higher risk

@@ -197,8 +197,14 @@ async fn stream_message_normalizes_text_and_multiple_tool_calls() {
 
 #[tokio::test]
 async fn provider_client_dispatches_xai_requests_from_env() {
-    let _lock = env_lock();
-    let _api_key = ScopedEnvVar::set("XAI_API_KEY", "xai-test-key");
+    {
+        let _lock = env_lock();
+        let _api_key = ScopedEnvVar::set("XAI_API_KEY", "xai-test-key");
+
+        let client =
+            ProviderClient::from_model("grok").expect("xAI provider client should be constructed");
+        assert!(matches!(client, ProviderClient::Xai(_)));
+    }
 
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
@@ -210,6 +216,7 @@ async fn provider_client_dispatches_xai_requests_from_env() {
         )],
     )
     .await;
+    let _api_key = ScopedEnvVar::set("XAI_API_KEY", "xai-test-key");
     let _base_url = ScopedEnvVar::set("XAI_BASE_URL", server.base_url());
 
     let client =
@@ -389,7 +396,7 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| StdMutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct ScopedEnvVar {

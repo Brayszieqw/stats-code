@@ -24,3 +24,10 @@ evaluation_report.md
 .codex-backups/
 claw-code/
 codex_tmp/
+
+# Stats Code generated artifact outputs
+/audit/
+/report/
+/tables/
+/stats-code-artifacts/
+/scratch-artifacts/

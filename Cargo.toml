@@ -1,5 +1,8 @@
 [workspace]
-members = ["crates/*"]
+members = [
+    "crates/api",
+    "crates/stats-code",
+]
 resolver = "2"
 
 [workspace.package]

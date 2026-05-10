@@ -2,6 +2,20 @@
 // Cox proportional hazards regression analysis module.
 // ---------------------------------------------------------------------------
 
+//! CSV-backed Cox proportional hazards workflow.
+//!
+//! This module validates time-to-event inputs, reuses the shared predictor
+//! encoding path for categorical and continuous terms, fits a Cox proportional
+//! hazards model, and emits diagnostics that explain exclusions, convergence,
+//! and unstable estimates for downstream reports.
+//!
+//! The fitter maximizes the log partial likelihood with Newton iterations over
+//! observed event times. Risk sets use `exp(X * beta)` with a max-eta shift for
+//! numerical stability; tied failures at the same time are handled with the
+//! Breslow approximation by subtracting `d * log(sum_risk)`. Coefficients are
+//! reported as hazard ratios with Wald intervals from the inverted information
+//! matrix.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 

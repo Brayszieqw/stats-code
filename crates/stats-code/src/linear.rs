@@ -2,6 +2,19 @@
 // Linear regression (OLS) analysis module.
 // ---------------------------------------------------------------------------
 
+//! CSV-backed ordinary least squares workflow.
+//!
+//! This module builds the same encoded predictor matrix used by other model
+//! commands, applies study-context missing-value rules and optional weights,
+//! solves weighted OLS, and returns report-ready estimates, intervals, p-values,
+//! and model diagnostics.
+//!
+//! Estimates are computed from the normal equations `(X'WX)^-1 X'Wy`. Standard
+//! errors use the residual mean square and diagonal of `(X'WX)^-1`; term tests
+//! use t statistics, and the model-level statistic uses the usual regression
+//! mean-square ratio. This keeps the implementation deterministic and suitable
+//! for small to medium CSV analyses without an external statistics runtime.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 

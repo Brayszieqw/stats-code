@@ -11,7 +11,6 @@ mod linear;
 mod logistic;
 mod math;
 mod modeling;
-mod penguin_art;
 mod rate;
 mod render;
 mod report;

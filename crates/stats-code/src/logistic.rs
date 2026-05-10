@@ -2,6 +2,19 @@
 // Logistic regression analysis module.
 // ---------------------------------------------------------------------------
 
+//! CSV-backed logistic regression workflow.
+//!
+//! This module turns CLI/model declarations into an encoded design matrix,
+//! applies study-context missing-value rules and optional survey weights, fits
+//! a binary logistic model, and returns report-ready coefficients, diagnostics,
+//! and fit statistics.
+//!
+//! The fitter uses Newton-Raphson / IRLS on the Bernoulli log likelihood:
+//! `logit(p) = X * beta`, gradient `X' * W * (y - p)`, and Fisher information
+//! `X' * W * diag(p * (1 - p)) * X`. Singular information matrices are retried
+//! with small ridge regularization so collinear clinical covariates fail with a
+//! useful diagnostic instead of a numerical panic.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 

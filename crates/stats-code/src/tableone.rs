@@ -2,13 +2,28 @@
 // Table 1 (baseline characteristics) statistical analysis module.
 // ---------------------------------------------------------------------------
 
+//! Baseline-characteristics table workflow.
+//!
+//! This module produces journal-style Table 1 summaries from CSV data. It
+//! classifies variables through the analysis contract or data inference, applies
+//! study-context missing-value rules, and summarizes continuous variables as
+//! mean (SD) plus median [Q1, Q3] and categorical variables as counts and
+//! percentages.
+//!
+//! Group comparisons use Welch t tests for two-group continuous variables,
+//! Kruskal-Wallis for multi-group continuous variables, and Pearson chi-square
+//! tests for categorical variables. Optional survey weights affect descriptive
+//! counts, percentages, means, and standard deviations; complex survey variance
+//! estimation is reported as a limitation rather than silently implied.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cli::TableOneArgs;
 use crate::helpers::{parse_positive_weight, require_column, stringify_error};
 use crate::math::{
-    chi_square_cdf, kruskal_wallis_test, quantile_sorted, welch_t_pvalue, welch_t_statistic,
+    chi_square_cdf, fisher_exact_2x2, kruskal_wallis_test, quantile_sorted, welch_t_pvalue,
+    welch_t_statistic,
 };
 use crate::schema::{
     infer_variable_kind, is_missing_value_for_column, AnalysisSpec, TableOneCell,
@@ -593,10 +608,12 @@ pub(crate) fn tableone_categorical_test(
         return (None, None);
     }
     let mut chi2 = 0.0_f64;
+    let mut has_sparse_expected_cell = false;
     for (i, row) in observed.iter().enumerate() {
         for (j, &obs) in row.iter().enumerate() {
             let expected = row_totals[i] * col_totals[j] / grand_total;
             if expected > 0.0 {
+                has_sparse_expected_cell |= expected <= 5.0;
                 chi2 += (obs - expected).powi(2) / expected;
             }
         }
@@ -604,6 +621,17 @@ pub(crate) fn tableone_categorical_test(
     let df = ((n_groups - 1) * (n_levels - 1)) as f64;
     if df <= 0.0 {
         return (None, None);
+    }
+    if n_groups == 2 && n_levels == 2 && has_sparse_expected_cell {
+        let p = fisher_exact_2x2(
+            observed[0][0] as usize,
+            observed[0][1] as usize,
+            observed[1][0] as usize,
+            observed[1][1] as usize,
+        );
+        if p.is_finite() {
+            return (Some("Fisher_exact".to_string()), Some(p));
+        }
     }
     let p = 1.0 - chi_square_cdf(chi2, df);
     (Some("Pearson_chi2".to_string()), Some(p))
@@ -843,5 +871,48 @@ impl CategoricalAccumulator {
     fn weight_sum(&self) -> Option<f64> {
         let sum = self.weighted_counts.values().sum::<f64>();
         (sum > 0.0).then_some(sum)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categorical_test_uses_fisher_exact_for_sparse_2x2_table() {
+        let groups = vec!["A".to_string(), "B".to_string()];
+        let mut accumulator = TableOneVariableAccumulator::new(VariableKind::Categorical, &groups);
+
+        for value in std::iter::repeat_n("yes", 1).chain(std::iter::repeat_n("no", 9)) {
+            accumulator.observe("A", "marker", value, 1.0);
+        }
+        for value in std::iter::repeat_n("yes", 11).chain(std::iter::repeat_n("no", 3)) {
+            accumulator.observe("B", "marker", value, 1.0);
+        }
+
+        let (test_name, p_value) = tableone_categorical_test(&accumulator, &groups);
+        assert_eq!(test_name.as_deref(), Some("Fisher_exact"));
+        let p_value = p_value.expect("fisher p-value");
+        assert!(
+            (p_value - 0.002_759_456).abs() < 1e-8,
+            "p-value: got {p_value}"
+        );
+    }
+
+    #[test]
+    fn categorical_test_keeps_pearson_chi_square_for_dense_tables() {
+        let groups = vec!["A".to_string(), "B".to_string()];
+        let mut accumulator = TableOneVariableAccumulator::new(VariableKind::Categorical, &groups);
+
+        for value in std::iter::repeat_n("yes", 30).chain(std::iter::repeat_n("no", 20)) {
+            accumulator.observe("A", "marker", value, 1.0);
+        }
+        for value in std::iter::repeat_n("yes", 20).chain(std::iter::repeat_n("no", 30)) {
+            accumulator.observe("B", "marker", value, 1.0);
+        }
+
+        let (test_name, p_value) = tableone_categorical_test(&accumulator, &groups);
+        assert_eq!(test_name.as_deref(), Some("Pearson_chi2"));
+        assert!(p_value.is_some_and(|value| value.is_finite() && value < 0.05));
     }
 }

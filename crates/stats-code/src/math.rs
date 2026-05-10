@@ -2,6 +2,19 @@
 // Pure mathematical functions used across statistical models.
 // ---------------------------------------------------------------------------
 
+//! Numerical kernels shared by Stats Code models.
+//!
+//! The functions here are intentionally dependency-light and deterministic:
+//! matrix algebra, probability distribution approximations, likelihood helpers,
+//! and model-quality statistics used by logistic, Cox, linear, and table output
+//! paths. Public callers should validate data shape before reaching this layer.
+//!
+//! Probability helpers favor stable closed-form or series approximations used in
+//! standard statistical texts: the normal CDF uses an Abramowitz-Stegun style
+//! approximation, gamma/beta functions use Lanczos and continued-fraction
+//! routines, and matrix inversion uses Gauss-Jordan elimination with explicit
+//! singular-pivot errors.
+
 /// Dot product of two vectors.
 pub(crate) fn dot(left: &[f64], right: &[f64]) -> f64 {
     left.iter()
@@ -153,6 +166,49 @@ pub(crate) fn chi_square_cdf(x: f64, df: f64) -> f64 {
     regularized_lower_gamma(df / 2.0, x / 2.0)
 }
 
+/// Two-sided Fisher exact test p-value for a 2x2 contingency table.
+pub(crate) fn fisher_exact_2x2(a: usize, b: usize, c: usize, d: usize) -> f64 {
+    let row1 = a + b;
+    let row2 = c + d;
+    let col1 = a + c;
+    let total = row1 + row2;
+    if total == 0 {
+        return f64::NAN;
+    }
+
+    let min_a = col1.saturating_sub(row2);
+    let max_a = row1.min(col1);
+    let observed = hypergeometric_2x2_probability(a, row1, row2, col1);
+    if !observed.is_finite() || observed <= 0.0 {
+        return f64::NAN;
+    }
+
+    let mut p_value = 0.0;
+    for candidate_a in min_a..=max_a {
+        let probability = hypergeometric_2x2_probability(candidate_a, row1, row2, col1);
+        if probability <= observed * (1.0 + 1e-12) {
+            p_value += probability;
+        }
+    }
+    p_value.clamp(0.0, 1.0)
+}
+
+fn hypergeometric_2x2_probability(a: usize, row1: usize, row2: usize, col1: usize) -> f64 {
+    if a > row1 || col1 < a || col1 - a > row2 {
+        return 0.0;
+    }
+    (ln_choose(row1, a) + ln_choose(row2, col1 - a) - ln_choose(row1 + row2, col1)).exp()
+}
+
+fn ln_choose(n: usize, k: usize) -> f64 {
+    if k > n {
+        return f64::NEG_INFINITY;
+    }
+    log_gamma_lanczos((n + 1) as f64)
+        - log_gamma_lanczos((k + 1) as f64)
+        - log_gamma_lanczos((n - k + 1) as f64)
+}
+
 /// Lanczos log-gamma with g=7 (higher precision, used by gamma/beta functions).
 pub(crate) fn log_gamma_lanczos(x: f64) -> f64 {
     if x < 0.5 {
@@ -238,8 +294,12 @@ pub(crate) fn regularized_upper_gamma_cf(a: f64, x: f64) -> f64 {
 
 /// Lanczos approximation of ln(Gamma(x)).
 /// Matches Numerical Recipes 2nd edition `gammln()` exactly.
-#[allow(dead_code)]
-pub(crate) fn ln_gamma(x: f64) -> f64 {
+///
+/// Currently used only in tests. The higher-precision [`log_gamma_lanczos`]
+/// (g=7, 9 coefficients) is preferred in production code. This variant is
+/// retained as a reference implementation for numeric parity checks.
+#[cfg(test)]
+fn ln_gamma(x: f64) -> f64 {
     let coefficients = [
         76.180_091_729_471_46,
         -86.505_320_329_416_77,
@@ -406,7 +466,12 @@ pub(crate) fn compute_cox_concordance(observations: &[CoxObservation], beta: &[f
 // Fisher information matrix for logistic regression
 // ---------------------------------------------------------------------------
 
-/// Compute Fisher information matrix X' W X.
+/// Compute Fisher information matrix X' W X (unweighted variant).
+///
+/// The weighted variant [`crate::logistic::fisher_information_weighted`] is
+/// used in production logistic regression. This unweighted version is retained
+/// for future diagnostic tools and unweighted model summaries.
+// NOTE: dead_code allowed — planned for T2 statistical method expansion
 #[allow(dead_code)]
 pub(crate) fn fisher_information(x: &[Vec<f64>], probabilities: &[f64]) -> Vec<Vec<f64>> {
     let p = x[0].len();
@@ -650,6 +715,20 @@ mod tests {
         );
         // R: pchisq(0.0, df=1) = 0.0
         assert!((chi_square_cdf(0.0, 1.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn fisher_exact_2x2_known_values() {
+        // R: fisher.test(matrix(c(1, 9, 11, 3), nrow = 2))$p.value
+        let p = fisher_exact_2x2(1, 9, 11, 3);
+        assert!((p - 0.002_759_456).abs() < 1e-8, "p-value: got {p}");
+
+        // Symmetric balanced table should not reject.
+        let balanced = fisher_exact_2x2(5, 5, 5, 5);
+        assert!(
+            (balanced - 1.0).abs() < 1e-10,
+            "balanced table p-value: got {balanced}"
+        );
     }
 
     #[test]

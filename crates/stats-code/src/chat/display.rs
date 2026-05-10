@@ -52,15 +52,18 @@ pub(crate) fn print_ui_output(
 
 pub(crate) fn truncate_for_display(content: impl AsRef<str>, max_chars: usize) -> String {
     let content = content.as_ref();
-    if content.chars().count() <= max_chars {
-        return content.to_string();
+    if max_chars == 0 {
+        return String::new();
     }
 
-    let mut result = String::new();
-    for ch in content.chars().take(max_chars) {
+    let mut result = String::with_capacity(max_chars.min(content.len()));
+    for (count, ch) in content.chars().enumerate() {
+        if count >= max_chars {
+            result.push_str("\n... [truncated]");
+            return result;
+        }
         result.push(ch);
     }
-    result.push_str("\n... [truncated]");
     result
 }
 
@@ -71,5 +74,33 @@ pub(crate) fn format_token_count(value: u64) -> String {
         format!("{:.1}k", value as f64 / 1_000.0)
     } else {
         value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_for_display;
+
+    #[test]
+    fn truncate_for_display_keeps_short_content() {
+        assert_eq!(truncate_for_display("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_for_display_keeps_exact_limit() {
+        assert_eq!(truncate_for_display("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_for_display_truncates_by_chars() {
+        assert_eq!(
+            truncate_for_display("a\u{00e9}bc", 2),
+            "a\u{00e9}\n... [truncated]"
+        );
+    }
+
+    #[test]
+    fn truncate_for_display_handles_zero_limit() {
+        assert_eq!(truncate_for_display("hello", 0), "");
     }
 }

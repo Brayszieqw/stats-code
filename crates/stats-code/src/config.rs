@@ -10,6 +10,7 @@ use api::{
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{AiAskArgs, AuthDoctorArgs, AuthProvider, AuthSetArgs, ConfigModelArgs};
+use crate::error::StatsCodeResult;
 use crate::helpers::{stringify_error, unix_timestamp_nanos};
 use crate::schema::{
     AiAskResult, AuthDoctorProviderStatus, AuthDoctorResult, AuthSetResult, ConfigResult,
@@ -19,7 +20,7 @@ use crate::schema::{
 // Config handler functions
 // ---------------------------------------------------------------------------
 
-pub(crate) fn handle_config_show() -> Result<ConfigResult, String> {
+pub(crate) fn handle_config_show() -> StatsCodeResult<ConfigResult> {
     let path = stats_code_settings_path();
     let settings = load_stats_code_settings(&path)?;
     let profile_path = stats_code_profile_path();
@@ -42,12 +43,12 @@ pub(crate) fn handle_config_show() -> Result<ConfigResult, String> {
     ))
 }
 
-pub(crate) fn handle_config_default_model(args: &ConfigModelArgs) -> Result<ConfigResult, String> {
+pub(crate) fn handle_config_default_model(args: &ConfigModelArgs) -> StatsCodeResult<ConfigResult> {
     let path = stats_code_settings_path();
     let mut settings = load_stats_code_settings(&path)?;
     let model = args.model.trim();
     if model.is_empty() {
-        return Err("Model cannot be empty.".to_string());
+        return Err("Model cannot be empty.".into());
     }
     settings.default_model = Some(model.to_string());
     push_saved_model(&mut settings.saved_models, model);
@@ -62,12 +63,12 @@ pub(crate) fn handle_config_default_model(args: &ConfigModelArgs) -> Result<Conf
     ))
 }
 
-pub(crate) fn handle_config_add_model(args: &ConfigModelArgs) -> Result<ConfigResult, String> {
+pub(crate) fn handle_config_add_model(args: &ConfigModelArgs) -> StatsCodeResult<ConfigResult> {
     let path = stats_code_settings_path();
     let mut settings = load_stats_code_settings(&path)?;
     let model = args.model.trim();
     if model.is_empty() {
-        return Err("Model cannot be empty.".to_string());
+        return Err("Model cannot be empty.".into());
     }
     let already_present = settings.saved_models.iter().any(|value| value == model);
     push_saved_model(&mut settings.saved_models, model);
@@ -86,12 +87,12 @@ pub(crate) fn handle_config_add_model(args: &ConfigModelArgs) -> Result<ConfigRe
     ))
 }
 
-pub(crate) fn handle_config_remove_model(args: &ConfigModelArgs) -> Result<ConfigResult, String> {
+pub(crate) fn handle_config_remove_model(args: &ConfigModelArgs) -> StatsCodeResult<ConfigResult> {
     let path = stats_code_settings_path();
     let mut settings = load_stats_code_settings(&path)?;
     let model = args.model.trim();
     if model.is_empty() {
-        return Err("Model cannot be empty.".to_string());
+        return Err("Model cannot be empty.".into());
     }
     let before_len = settings.saved_models.len();
     settings.saved_models.retain(|value| value != model);
@@ -157,12 +158,12 @@ pub(crate) fn resolve_requested_model(requested: &str) -> String {
 // Auth handler functions
 // ---------------------------------------------------------------------------
 
-pub(crate) fn handle_auth_set(args: &AuthSetArgs) -> Result<AuthSetResult, String> {
+pub(crate) fn handle_auth_set(args: &AuthSetArgs) -> StatsCodeResult<AuthSetResult> {
     let config_path = stats_code_auth_path();
     let mut store = load_auth_store(&config_path)?;
     let api_key = args.api_key.trim();
     if api_key.is_empty() {
-        return Err("`--api-key` cannot be empty.".to_string());
+        return Err("`--api-key` cannot be empty.".into());
     }
 
     store.providers.insert(
@@ -193,7 +194,7 @@ pub(crate) fn handle_auth_set(args: &AuthSetArgs) -> Result<AuthSetResult, Strin
     })
 }
 
-pub(crate) fn handle_auth_doctor(args: &AuthDoctorArgs) -> Result<AuthDoctorResult, String> {
+pub(crate) fn handle_auth_doctor(args: &AuthDoctorArgs) -> StatsCodeResult<AuthDoctorResult> {
     let config_path = stats_code_auth_path();
     let store = load_auth_store(&config_path)?;
     let providers = args
@@ -225,7 +226,7 @@ pub(crate) fn handle_auth_doctor(args: &AuthDoctorArgs) -> Result<AuthDoctorResu
     })
 }
 
-pub(crate) fn handle_ai_ask(args: &AiAskArgs) -> Result<AiAskResult, String> {
+pub(crate) fn handle_ai_ask(args: &AiAskArgs) -> StatsCodeResult<AiAskResult> {
     let prompt = args
         .prompt
         .iter()
@@ -235,7 +236,7 @@ pub(crate) fn handle_ai_ask(args: &AiAskArgs) -> Result<AiAskResult, String> {
         .trim()
         .to_string();
     if prompt.is_empty() {
-        return Err("Prompt cannot be empty.".to_string());
+        return Err("Prompt cannot be empty.".into());
     }
 
     let requested_model = resolve_requested_model(&args.model);

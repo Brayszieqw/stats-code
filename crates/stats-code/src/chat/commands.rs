@@ -166,8 +166,12 @@ pub(crate) fn handle_chat_command(
         let mut parts = args.split_whitespace();
         match parts.next() {
             None | Some("show") => {
-                writeln!(out, "{}", render_config_text(&handle_config_show()?))
-                    .map_err(stringify_error)?;
+                writeln!(
+                    out,
+                    "{}",
+                    render_config_text(&handle_config_show().map_err(stringify_error)?)
+                )
+                .map_err(stringify_error)?;
             }
             Some("env") => {
                 writeln!(out, "Config paths").map_err(stringify_error)?;
@@ -186,7 +190,8 @@ pub(crate) fn handle_chat_command(
                 };
                 let result = handle_config_default_model(&ConfigModelArgs {
                     model: model.to_string(),
-                })?;
+                })
+                .map_err(stringify_error)?;
                 writeln!(out, "{}", result.message).map_err(stringify_error)?;
             }
             Some("pricing") => {
@@ -356,7 +361,8 @@ pub(crate) fn handle_chat_command(
             provider,
             api_key: api_key.to_string(),
             base_url,
-        })?;
+        })
+        .map_err(stringify_error)?;
         writeln!(out, "{}", render_auth_set_text(&result)).map_err(stringify_error)?;
         return Ok(ChatLoopControl::Continue);
     }
@@ -591,7 +597,8 @@ pub(crate) fn handle_chat_command(
                     let model = parts.next().unwrap_or(&state.model).to_string();
                     let result = handle_config_add_model(&ConfigModelArgs {
                         model: model.clone(),
-                    })?;
+                    })
+                    .map_err(stringify_error)?;
                     writeln!(out, "{}", result.message).map_err(stringify_error)?;
                 }
                 Some("default") => {
@@ -600,7 +607,8 @@ pub(crate) fn handle_chat_command(
                         .map_or_else(|| state.model.clone(), str::to_string);
                     let result = handle_config_default_model(&ConfigModelArgs {
                         model: model.clone(),
-                    })?;
+                    })
+                    .map_err(stringify_error)?;
                     state.model = model;
                     save_chat_session(state)?;
                     writeln!(out, "{}", result.message).map_err(stringify_error)?;
@@ -611,7 +619,8 @@ pub(crate) fn handle_chat_command(
                     };
                     let result = handle_config_remove_model(&ConfigModelArgs {
                         model: model.to_string(),
-                    })?;
+                    })
+                    .map_err(stringify_error)?;
                     writeln!(out, "{}", result.message).map_err(stringify_error)?;
                 }
                 Some(next_model) => {

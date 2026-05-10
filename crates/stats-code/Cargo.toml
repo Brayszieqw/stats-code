@@ -11,13 +11,13 @@ path = "src/main.rs"
 
 [dependencies]
 api = { path = "../api" }
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 csv = "1"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml = "0.9"
 toml = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 colored = "3.1.1"
 rustyline = "15"
 crossterm = "0.28"

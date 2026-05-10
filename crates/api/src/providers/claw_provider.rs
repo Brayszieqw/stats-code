@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use runtime::{
+use crate::auth::{
     load_oauth_credentials, save_oauth_credentials, OAuthConfig, OAuthRefreshRequest,
-    OAuthTokenExchangeRequest,
+    OAuthTokenExchangeRequest, OAuthTokenSet,
 };
 use serde::Deserialize;
 
@@ -88,15 +88,6 @@ impl AuthSource {
         }
         request_builder
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct OAuthTokenSet {
-    pub access_token: String,
-    pub refresh_token: Option<String>,
-    pub expires_at: Option<u64>,
-    #[serde(default)]
-    pub scopes: Vec<String>,
 }
 
 impl From<OAuthTokenSet> for AuthSource {
@@ -465,7 +456,7 @@ fn resolve_saved_oauth_token_set(
         expires_at: refreshed.expires_at,
         scopes: refreshed.scopes,
     };
-    save_oauth_credentials(&runtime::OAuthTokenSet {
+    save_oauth_credentials(&OAuthTokenSet {
         access_token: resolved.access_token.clone(),
         refresh_token: resolved.refresh_token.clone(),
         expires_at: resolved.expires_at,
@@ -485,13 +476,7 @@ where
 }
 
 fn load_saved_oauth_token() -> Result<Option<OAuthTokenSet>, ApiError> {
-    let token_set = load_oauth_credentials().map_err(ApiError::from)?;
-    Ok(token_set.map(|token_set| OAuthTokenSet {
-        access_token: token_set.access_token,
-        refresh_token: token_set.refresh_token,
-        expires_at: token_set.expires_at,
-        scopes: token_set.scopes,
-    }))
+    load_oauth_credentials().map_err(ApiError::from)
 }
 
 fn now_unix_timestamp() -> u64 {
@@ -644,11 +629,12 @@ mod tests {
     use super::{ALT_REQUEST_ID_HEADER, REQUEST_ID_HEADER};
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::{Mutex, OnceLock};
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use runtime::{clear_oauth_credentials, save_oauth_credentials, OAuthConfig};
+    use crate::auth::{
+        clear_oauth_credentials, load_oauth_credentials, save_oauth_credentials, OAuthConfig,
+    };
 
     use super::{
         now_unix_timestamp, oauth_token_is_expired, resolve_saved_oauth_token,
@@ -657,10 +643,7 @@ mod tests {
     use crate::types::{ContentBlockDelta, MessageRequest};
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        crate::test_env_lock()
     }
 
     fn temp_config_home() -> std::path::PathBuf {
@@ -790,7 +773,7 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&OAuthTokenSet {
             access_token: "saved-access-token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(now_unix_timestamp() + 300),
@@ -829,7 +812,7 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),
             expires_at: Some(1),
@@ -844,7 +827,7 @@ mod tests {
             .expect("resolve refreshed token")
             .expect("token set present");
         assert_eq!(resolved.access_token, "refreshed-token");
-        let stored = runtime::load_oauth_credentials()
+        let stored = load_oauth_credentials()
             .expect("load stored credentials")
             .expect("stored token set");
         assert_eq!(stored.access_token, "refreshed-token");
@@ -861,7 +844,7 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&OAuthTokenSet {
             access_token: "saved-access-token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(now_unix_timestamp() + 300),
@@ -885,7 +868,7 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),
             expires_at: Some(1),
@@ -899,7 +882,7 @@ mod tests {
             matches!(error, crate::error::ApiError::Auth(message) if message.contains("runtime OAuth config is missing"))
         );
 
-        let stored = runtime::load_oauth_credentials()
+        let stored = load_oauth_credentials()
             .expect("load stored credentials")
             .expect("stored token set");
         assert_eq!(stored.access_token, "expired-access-token");
@@ -917,7 +900,7 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),
             expires_at: Some(1),
@@ -933,7 +916,7 @@ mod tests {
             .expect("token set present");
         assert_eq!(resolved.access_token, "refreshed-token");
         assert_eq!(resolved.refresh_token.as_deref(), Some("refresh-token"));
-        let stored = runtime::load_oauth_credentials()
+        let stored = load_oauth_credentials()
             .expect("load stored credentials")
             .expect("stored token set");
         assert_eq!(stored.refresh_token.as_deref(), Some("refresh-token"));

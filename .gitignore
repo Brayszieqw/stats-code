@@ -19,6 +19,12 @@ scratch_cdp_check.js
 evaluation_report.md
 fix_antigravity.ps1
 
+# Local planning / evaluation notes
+/cowork_capability_test.md
+/evaluate_report.md
+/implementation_plan.md
+/task.md
+
 # Non-project directories
 .codex-backups/
 claw-code/

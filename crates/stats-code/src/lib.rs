@@ -3,6 +3,7 @@ mod chat;
 mod cli;
 mod config;
 mod cox;
+mod error;
 mod gugugaga_art;
 mod handlers;
 mod helpers;
@@ -26,6 +27,7 @@ pub use cli::{
     PlanArgs, RateArgs, ReportBuildArgs, ReportCommand, ReportVerifyArgs, RunCommand,
     RunScriptArgs, TableOneArgs, WorkflowCommand, WorkflowRunArgs,
 };
+pub use error::{StatsCodeError, StatsCodeResult};
 pub use handlers::{dispatch, run};
 pub use schema::{
     AnalysisCheckResult, AnalysisSpec, DataFormat, ReportVerifyResult, WorkflowRunResult,

@@ -29,6 +29,7 @@ use crate::config::{
     handle_ai_ask, handle_auth_doctor, handle_auth_set, handle_config_add_model,
     handle_config_default_model, handle_config_remove_model, handle_config_show,
 };
+use crate::error::StatsCodeResult;
 use crate::helpers::stringify_error;
 use crate::render::{
     render_ai_ask_text, render_analysis_check_text, render_audit_explain_text,
@@ -48,14 +49,14 @@ use crate::schema::{
     PlannedCommandResult, RateResult, ReportBuildResult, ReportVerifyResult, TableOneResult,
     WorkflowRunResult,
 };
-pub fn run() -> Result<(), String> {
+pub fn run() -> StatsCodeResult<()> {
     let cli = Cli::parse();
     match &cli.command {
         None => {
             let chat_args = ChatArgs::default();
-            run_chat_repl(&cli, &chat_args)
+            Ok(run_chat_repl(&cli, &chat_args)?)
         }
-        Some(Command::Chat(args)) => run_chat_repl(&cli, args),
+        Some(Command::Chat(args)) => Ok(run_chat_repl(&cli, args)?),
         Some(Command::Report {
             command: ReportCommand::Verify(args),
         }) => run_report_verify_command(&cli, args),
@@ -67,7 +68,7 @@ pub fn run() -> Result<(), String> {
     }
 }
 
-fn run_report_verify_command(cli: &Cli, args: &ReportVerifyArgs) -> Result<(), String> {
+fn run_report_verify_command(cli: &Cli, args: &ReportVerifyArgs) -> StatsCodeResult<()> {
     let result = handle_report_verify(args);
     let response = serde_json::to_value(&result).map_err(stringify_error)?;
     if let Some(base_dir) = &cli.artifacts_dir {
@@ -106,19 +107,17 @@ fn report_verify_exit_code(result: &ReportVerifyResult, fail_on_warning: bool) -
     }
 }
 
-pub fn dispatch(cli: &Cli) -> Result<String, String> {
+pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
     let Some(command) = &cli.command else {
         return Err(
             "Interactive chat mode is handled directly by `stats-code` without a subcommand."
-                .to_string(),
+                .into(),
         );
     };
 
     let (name, request, response) = match command {
         Command::Chat(_) => {
-            return Err(
-                "Interactive chat mode is handled directly by `stats-code chat`.".to_string(),
-            )
+            return Err("Interactive chat mode is handled directly by `stats-code chat`.".into())
         }
         Command::Init(args) => {
             let result = handle_init_project(args)?;
@@ -343,7 +342,7 @@ pub fn dispatch(cli: &Cli) -> Result<String, String> {
             }
 
             if cli.json {
-                return serde_json::to_string_pretty(&response_val).map_err(stringify_error);
+                return Ok(serde_json::to_string_pretty(&response_val).map_err(stringify_error)?);
             }
 
             // Human-readable output
@@ -398,7 +397,7 @@ pub fn dispatch(cli: &Cli) -> Result<String, String> {
     }
 
     if cli.json {
-        serde_json::to_string_pretty(&response).map_err(stringify_error)
+        Ok(serde_json::to_string_pretty(&response).map_err(stringify_error)?)
     } else {
         match name {
             "inspect" => {

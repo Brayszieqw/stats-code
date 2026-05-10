@@ -1,12 +1,13 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::render::{build_tables_readme, format_p_value};
+use crate::render::format_p_value;
 use crate::schema::{
     AnalysisKind, AnalysisSpec, CoxResult, LinearResult, LogisticResult, ModelKind, RateResult,
     TableOneResult,
 };
 
+use super::scaffold::build_tables_readme;
 use super::{fs, stringify_error, ReportEvidence};
 pub(super) const MODEL_SCIENTIFIC_NOTATION_ABS: f64 = 1.0e6;
 pub(super) const MODEL_SMALL_SCIENTIFIC_NOTATION_ABS: f64 = 1.0e-4;

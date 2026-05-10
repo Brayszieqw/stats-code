@@ -10,11 +10,6 @@ use crate::helpers::{
     extract_string_field, fingerprint_file, path_matches, resolve_path_for_match,
     resolve_path_str_for_match, stringify_error, unix_timestamp_nanos,
 };
-use crate::render::{
-    build_analysis_manifest, build_assumptions_markdown, build_audit_trail_markdown,
-    build_command_log, build_methods_markdown, build_report_markdown,
-    build_reporting_checklist_markdown, build_study_context_markdown, build_variables_markdown,
-};
 use crate::schema::{
     load_analysis_spec, validate_study_context, AnalysisCheckItem, AnalysisCheckLevel,
     AnalysisSpec, ArtifactMetadata, ArtifactRole, ArtifactStatus, CoxResult, InspectResult,
@@ -24,6 +19,7 @@ use crate::schema::{
 mod artifacts;
 mod evidence;
 mod markdown;
+mod scaffold;
 mod study;
 mod verify;
 
@@ -39,6 +35,11 @@ use markdown::{
     build_cox_markdown, build_linear_markdown, build_logistic_markdown, build_rate_markdown,
     build_report_markdown_from_evidence, build_tableone_markdown,
     build_tables_readme_from_evidence, small_cell_threshold, write_report_file,
+};
+use scaffold::{
+    build_analysis_manifest, build_assumptions_markdown, build_audit_trail_markdown,
+    build_command_log, build_methods_markdown, build_report_markdown,
+    build_reporting_checklist_markdown, build_study_context_markdown, build_variables_markdown,
 };
 
 const ARTIFACT_SCHEMA_VERSION: &str = "1.0";

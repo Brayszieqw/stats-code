@@ -19,6 +19,10 @@ pub(crate) fn format_p_value(p: f64) -> String {
     }
 }
 
+fn format_optional_number(value: Option<f64>) -> String {
+    value.map_or_else(|| "NA".to_string(), |number| format!("{number:.4}"))
+}
+
 pub fn render_inspect_text(result: &InspectResult) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "Inspect");
@@ -200,7 +204,7 @@ pub fn render_diagnostic_roc_text(result: &DiagnosticRocResult) -> String {
         let _ = writeln!(out, "  Threshold metrics");
         let _ = writeln!(
             out,
-            "  - threshold={:.4} TP={} FP={} TN={} FN={} sensitivity={:.4} specificity={:.4} PPV={:.4} NPV={:.4} accuracy={:.4}",
+            "  - threshold={:.4} TP={} FP={} TN={} FN={} sensitivity={:.4} specificity={:.4} PPV={:.4} NPV={:.4} accuracy={:.4} balanced_accuracy={:.4} F1={:.4}",
             metrics.threshold,
             metrics.tp,
             metrics.fp,
@@ -210,7 +214,16 @@ pub fn render_diagnostic_roc_text(result: &DiagnosticRocResult) -> String {
             metrics.specificity,
             metrics.ppv,
             metrics.npv,
-            metrics.accuracy
+            metrics.accuracy,
+            metrics.balanced_accuracy,
+            metrics.f1_score
+        );
+        let _ = writeln!(
+            out,
+            "  - LR+={} LR-={} DOR={}",
+            format_optional_number(metrics.positive_likelihood_ratio),
+            format_optional_number(metrics.negative_likelihood_ratio),
+            format_optional_number(metrics.diagnostic_odds_ratio)
         );
     }
     let _ = writeln!(out, "  ROC points");

@@ -776,6 +776,11 @@ pub struct DiagnosticThresholdMetrics {
     pub ppv: f64,
     pub npv: f64,
     pub accuracy: f64,
+    pub balanced_accuracy: f64,
+    pub f1_score: f64,
+    pub positive_likelihood_ratio: Option<f64>,
+    pub negative_likelihood_ratio: Option<f64>,
+    pub diagnostic_odds_ratio: Option<f64>,
     pub youden_j: f64,
 }
 

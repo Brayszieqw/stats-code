@@ -215,6 +215,13 @@ fn threshold_metrics(records: &[DiagnosticRecord], threshold: f64) -> Diagnostic
     let ppv = ratio(tp, tp + fp);
     let npv = ratio(tn, tn + fn_count);
     let accuracy = ratio(tp + tn, records.len());
+    let balanced_accuracy = f64::midpoint(sensitivity, specificity);
+    let f1_score = ratio(2 * tp, 2 * tp + fp + fn_count);
+    let positive_likelihood_ratio = finite_ratio(sensitivity, 1.0 - specificity);
+    let negative_likelihood_ratio = finite_ratio(1.0 - sensitivity, specificity);
+    let diagnostic_odds_ratio = positive_likelihood_ratio.and_then(|positive| {
+        negative_likelihood_ratio.and_then(|negative| finite_ratio(positive, negative))
+    });
     let youden_j = sensitivity + specificity - 1.0;
 
     DiagnosticThresholdMetrics {
@@ -228,6 +235,11 @@ fn threshold_metrics(records: &[DiagnosticRecord], threshold: f64) -> Diagnostic
         ppv,
         npv,
         accuracy,
+        balanced_accuracy,
+        f1_score,
+        positive_likelihood_ratio,
+        negative_likelihood_ratio,
+        diagnostic_odds_ratio,
         youden_j,
     }
 }
@@ -237,6 +249,15 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
         0.0
     } else {
         numerator as f64 / denominator as f64
+    }
+}
+
+fn finite_ratio(numerator: f64, denominator: f64) -> Option<f64> {
+    if denominator == 0.0 {
+        None
+    } else {
+        let value = numerator / denominator;
+        value.is_finite().then_some(value)
     }
 }
 
@@ -299,6 +320,27 @@ mod tests {
         assert_eq!(threshold_metrics.tp, 2);
         assert_eq!(threshold_metrics.fp, 0);
         assert!((threshold_metrics.accuracy - 1.0).abs() < 1e-12);
+        fs::remove_file(path).expect("cleanup");
+    }
+
+    #[test]
+    fn threshold_metrics_include_likelihood_ratios_and_f1() {
+        let path = temp_csv(
+            "threshold-metrics",
+            "disease,pred_score\n1,0.9\n1,0.7\n1,0.2\n0,0.8\n0,0.4\n0,0.1\n",
+        );
+        let result = diagnostic_roc_csv(&path, None, &roc_args(&path, Some(0.5))).expect("roc");
+        let metrics = result.threshold_metrics.expect("threshold metrics");
+
+        assert_eq!(metrics.tp, 2);
+        assert_eq!(metrics.fp, 1);
+        assert_eq!(metrics.tn, 2);
+        assert_eq!(metrics.fn_count, 1);
+        assert!((metrics.balanced_accuracy - 2.0 / 3.0).abs() < 1e-12);
+        assert!((metrics.f1_score - 2.0 / 3.0).abs() < 1e-12);
+        assert!((metrics.positive_likelihood_ratio.expect("lr+") - 2.0).abs() < 1e-12);
+        assert!((metrics.negative_likelihood_ratio.expect("lr-") - 0.5).abs() < 1e-12);
+        assert!((metrics.diagnostic_odds_ratio.expect("dor") - 4.0).abs() < 1e-12);
         fs::remove_file(path).expect("cleanup");
     }
 

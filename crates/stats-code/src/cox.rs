@@ -29,11 +29,13 @@ use crate::logistic::{
     resolve_logistic_variable_plan,
 };
 use crate::math::{
-    compute_cox_concordance, dot, invert_matrix_with_ridge, matrix_vector_mul, normal_cdf,
-    safe_exp, CoxObservation,
+    chi_square_cdf, compute_cox_concordance, dot, invert_matrix_with_ridge, matrix_vector_mul,
+    normal_cdf, safe_exp, CoxObservation,
 };
 use crate::modeling::{CoxFit, RowState};
-use crate::schema::{is_missing_value_for_column, AnalysisSpec, CoxCoefficient, CoxResult};
+use crate::schema::{
+    is_missing_value_for_column, AnalysisSpec, CoxCoefficient, CoxPhDiagnostic, CoxResult,
+};
 
 type CoxPartialStats = (f64, Vec<f64>, Vec<Vec<f64>>);
 
@@ -284,6 +286,7 @@ pub(crate) fn cox_csv(
     }
 
     let concordance = compute_cox_concordance(&observations, &fit.beta);
+    let ph_diagnostics = cox_ph_diagnostics(&observations, &fit.beta, &coefficients);
 
     Ok(CoxResult {
         status: "ok".to_string(),
@@ -306,6 +309,7 @@ pub(crate) fn cox_csv(
         log_partial_likelihood: fit.log_partial_likelihood,
         concordance: Some(concordance),
         coefficients,
+        ph_diagnostics,
         notes,
         warnings,
     })
@@ -396,6 +400,120 @@ pub(crate) fn count_tied_event_times(observations: &[CoxObservation]) -> usize {
         }
     }
     tied
+}
+
+pub(crate) fn cox_ph_diagnostics(
+    observations: &[CoxObservation],
+    beta: &[f64],
+    coefficients: &[CoxCoefficient],
+) -> Vec<CoxPhDiagnostic> {
+    let p = beta.len();
+    if p == 0 || coefficients.len() != p {
+        return Vec::new();
+    }
+    let linear_predictors = observations
+        .iter()
+        .map(|observation| dot(&observation.x, beta))
+        .collect::<Vec<_>>();
+    let mut event_entries = observations
+        .iter()
+        .enumerate()
+        .filter(|(_, observation)| observation.event && observation.time > 0.0)
+        .map(|(index, observation)| (index, observation.time))
+        .collect::<Vec<_>>();
+    event_entries.sort_by(|left, right| left.1.total_cmp(&right.1));
+
+    let mut log_times_by_term = vec![Vec::<f64>::new(); p];
+    let mut residuals_by_term = vec![Vec::<f64>::new(); p];
+
+    for (event_index, event_time) in event_entries {
+        let risk_set_indices = observations
+            .iter()
+            .enumerate()
+            .filter(|(_, observation)| observation.time >= event_time)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let Some(max_eta) = risk_set_indices
+            .iter()
+            .map(|index| linear_predictors[*index])
+            .max_by(f64::total_cmp)
+        else {
+            continue;
+        };
+        let mut s0 = 0.0_f64;
+        let mut s1 = vec![0.0; p];
+        for index in risk_set_indices {
+            let observation = &observations[index];
+            let risk_score = observation.weight * (linear_predictors[index] - max_eta).exp();
+            s0 += risk_score;
+            for (term_index, value) in observation.x.iter().enumerate().take(p) {
+                s1[term_index] += risk_score * value;
+            }
+        }
+        if s0 <= 0.0 || !s0.is_finite() {
+            continue;
+        }
+        let log_time = event_time.ln();
+        for term_index in 0..p {
+            let expected = s1[term_index] / s0;
+            let residual = observations[event_index].x[term_index] - expected;
+            if residual.is_finite() && log_time.is_finite() {
+                log_times_by_term[term_index].push(log_time);
+                residuals_by_term[term_index].push(residual);
+            }
+        }
+    }
+
+    coefficients
+        .iter()
+        .enumerate()
+        .map(|(term_index, coefficient)| {
+            let correlation = pearson_correlation(
+                &log_times_by_term[term_index],
+                &residuals_by_term[term_index],
+            )
+            .unwrap_or(0.0);
+            let event_count = residuals_by_term[term_index].len();
+            let chi_square = event_count as f64 * correlation * correlation;
+            let p_value = if event_count >= 3 {
+                (1.0 - chi_square_cdf(chi_square, 1.0)).clamp(0.0, 1.0)
+            } else {
+                f64::NAN
+            };
+            CoxPhDiagnostic {
+                term: coefficient.term.clone(),
+                correlation,
+                chi_square,
+                p_value,
+                event_count,
+            }
+        })
+        .collect()
+}
+
+fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
+    if x.len() != y.len() || x.len() < 3 {
+        return None;
+    }
+    let n = x.len() as f64;
+    let mean_x = x.iter().sum::<f64>() / n;
+    let mean_y = y.iter().sum::<f64>() / n;
+    let mut sum_sq_x = 0.0;
+    let mut sum_sq_y = 0.0;
+    let mut sum_cross_product = 0.0;
+    for (x_value, y_value) in x.iter().zip(y.iter()) {
+        let dx = x_value - mean_x;
+        let dy = y_value - mean_y;
+        sum_sq_x += dx * dx;
+        sum_sq_y += dy * dy;
+        sum_cross_product += dx * dy;
+    }
+    let denominator = (sum_sq_x * sum_sq_y).sqrt();
+    if denominator > 0.0 && denominator.is_finite() {
+        Some(sum_cross_product / denominator)
+    } else {
+        None
+    }
 }
 
 #[allow(clippy::needless_range_loop)]

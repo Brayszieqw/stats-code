@@ -727,6 +727,7 @@ fn cox_csv_fits_basic_model_with_time_to_event_data() {
     assert!(rendered.contains("age"));
     assert!(rendered.contains("smoke["));
     assert!(rendered.contains("HR="));
+    assert!(rendered.contains("PH diagnostics"));
 
     fs::remove_dir_all(root).expect("cleanup");
 }

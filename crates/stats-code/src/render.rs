@@ -429,6 +429,23 @@ pub fn render_cox_text(result: &CoxResult) -> String {
             reference
         );
     }
+    if !result.ph_diagnostics.is_empty() {
+        let _ = writeln!(
+            out,
+            "  PH diagnostics   Schoenfeld-style residual correlation with log(time)"
+        );
+        for diagnostic in &result.ph_diagnostics {
+            let _ = writeln!(
+                out,
+                "  - {} corr={:.4} chi_square={:.4} p={} events={}",
+                diagnostic.term,
+                diagnostic.correlation,
+                diagnostic.chi_square,
+                format_p_value(diagnostic.p_value),
+                diagnostic.event_count
+            );
+        }
+    }
     if !result.warnings.is_empty() {
         let _ = writeln!(out, "  Warnings");
         for warning in &result.warnings {

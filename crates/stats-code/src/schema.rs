@@ -656,6 +656,15 @@ pub struct LogisticResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoxPhDiagnostic {
+    pub term: String,
+    pub correlation: f64,
+    pub chi_square: f64,
+    pub p_value: f64,
+    pub event_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoxCoefficient {
     pub term: String,
     pub variable: String,
@@ -695,6 +704,8 @@ pub struct CoxResult {
     #[serde(default)]
     pub concordance: Option<f64>,
     pub coefficients: Vec<CoxCoefficient>,
+    #[serde(default)]
+    pub ph_diagnostics: Vec<CoxPhDiagnostic>,
     pub notes: Vec<String>,
     pub warnings: Vec<String>,
 }

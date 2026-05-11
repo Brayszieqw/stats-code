@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use crate::cli::{
     AuditCommand, AuditExplainArgs, CheckArgs, Command, DoctorArgs, InitArgs, InspectArgs,
     ModelCommand, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, OpenCommand, OpenReportArgs,
-    PlanArgs, RateArgs, SurvivalCommand, SurvivalKmArgs, TableOneArgs, WorkflowCommand,
-    WorkflowRunArgs,
+    PlanArgs, PowerCommand, PowerTwoMeansArgs, RateArgs, SurvivalCommand, SurvivalKmArgs,
+    TableOneArgs, WorkflowCommand, WorkflowRunArgs,
 };
 use crate::schema::{
     detect_data_format, load_analysis_spec, AnalysisSpec, DataFormat, ReportVerifyResult,
@@ -730,6 +730,26 @@ fn cox_csv_fits_basic_model_with_time_to_event_data() {
     assert!(rendered.contains("PH diagnostics"));
 
     fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn power_two_means_calculates_sample_size() {
+    let cli = test_cli(Command::Power {
+        command: PowerCommand::TwoMeans(PowerTwoMeansArgs {
+            mean1: 10.0,
+            mean2: 12.0,
+            sd: 4.0,
+            power: 0.8,
+            alpha: 0.05,
+            allocation_ratio: 1.0,
+        }),
+    });
+
+    let rendered = dispatch(&cli).expect("power should succeed");
+    assert!(rendered.contains("Power / Sample Size"));
+    assert!(rendered.contains("two_independent_means"));
+    assert!(rendered.contains("Total N"));
+    assert!(rendered.contains("Groups"));
 }
 
 #[test]

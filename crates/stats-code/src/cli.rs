@@ -56,6 +56,10 @@ pub enum Command {
     Inspect(InspectArgs),
     Tableone(TableOneArgs),
     Rate(RateArgs),
+    Power {
+        #[command(subcommand)]
+        command: PowerCommand,
+    },
     Survival {
         #[command(subcommand)]
         command: SurvivalCommand,
@@ -264,6 +268,67 @@ pub struct RateArgs {
     #[arg(long, value_delimiter = ',')]
     #[serde(default)]
     pub strata: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Subcommand)]
+pub enum PowerCommand {
+    /// Sample size for one-sample proportion confidence interval precision.
+    OneProportion(PowerOneProportionArgs),
+    /// Sample size per group for two independent proportions.
+    TwoProportions(PowerTwoProportionsArgs),
+    /// Sample size per group for two independent means.
+    TwoMeans(PowerTwoMeansArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct PowerOneProportionArgs {
+    #[arg(long)]
+    pub proportion: f64,
+
+    #[arg(long)]
+    pub margin: f64,
+
+    #[arg(long, default_value_t = 0.05)]
+    pub alpha: f64,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct PowerTwoProportionsArgs {
+    #[arg(long = "p1")]
+    pub p1: f64,
+
+    #[arg(long = "p2")]
+    pub p2: f64,
+
+    #[arg(long, default_value_t = 0.8)]
+    pub power: f64,
+
+    #[arg(long, default_value_t = 0.05)]
+    pub alpha: f64,
+
+    #[arg(long, default_value_t = 1.0)]
+    pub allocation_ratio: f64,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct PowerTwoMeansArgs {
+    #[arg(long)]
+    pub mean1: f64,
+
+    #[arg(long)]
+    pub mean2: f64,
+
+    #[arg(long)]
+    pub sd: f64,
+
+    #[arg(long, default_value_t = 0.8)]
+    pub power: f64,
+
+    #[arg(long, default_value_t = 0.05)]
+    pub alpha: f64,
+
+    #[arg(long, default_value_t = 1.0)]
+    pub allocation_ratio: f64,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -488,7 +553,9 @@ mod tests {
 
     use clap::Parser;
 
-    use super::{AuditCommand, Cli, Command, OpenCommand, ReportCommand, WorkflowCommand};
+    use super::{
+        AuditCommand, Cli, Command, OpenCommand, PowerCommand, ReportCommand, WorkflowCommand,
+    };
 
     #[test]
     fn allows_no_subcommand_for_interactive_mode() {
@@ -518,6 +585,37 @@ mod tests {
                 assert!(args.new_session);
             }
             other => panic!("expected chat command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_power_two_means_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "power",
+            "two-means",
+            "--mean1",
+            "10",
+            "--mean2",
+            "12",
+            "--sd",
+            "4",
+            "--power",
+            "0.9",
+            "--alpha",
+            "0.01",
+        ]);
+        match cli.command {
+            Some(Command::Power {
+                command: PowerCommand::TwoMeans(args),
+            }) => {
+                assert_eq!(args.mean1, 10.0);
+                assert_eq!(args.mean2, 12.0);
+                assert_eq!(args.sd, 4.0);
+                assert_eq!(args.power, 0.9);
+                assert_eq!(args.alpha, 0.01);
+            }
+            other => panic!("expected power two-means command, got {other:?}"),
         }
     }
 

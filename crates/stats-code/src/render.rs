@@ -4,8 +4,8 @@ use crate::schema::{
     format_variable_kind, AiAskResult, AnalysisCheckLevel, AnalysisCheckResult,
     AuditExplainArtifact, AuditExplainResult, AuthDoctorResult, AuthSetResult, ColumnInspection,
     ConfigResult, CoxResult, DoctorResult, InitProjectResult, InspectResult, LinearResult,
-    LogisticResult, OpenReportResult, PlannedCommandResult, RateResult, ReportBuildResult,
-    ReportVerifyResult, SurvivalKmResult, TableOneResult, WorkflowRunResult,
+    LogisticResult, OpenReportResult, PlannedCommandResult, PowerResult, RateResult,
+    ReportBuildResult, ReportVerifyResult, SurvivalKmResult, TableOneResult, WorkflowRunResult,
 };
 
 pub(crate) fn format_p_value(p: f64) -> String {
@@ -156,6 +156,40 @@ pub fn render_tableone_text(result: &TableOneResult) -> String {
         );
         if !group_cells.is_empty() {
             let _ = writeln!(out, "    {group_cells}");
+        }
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_power_text(result: &PowerResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Power / Sample Size");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Method           {}", result.method);
+    let _ = writeln!(out, "  Alpha            {:.4}", result.alpha);
+    if let Some(power) = result.power {
+        let _ = writeln!(out, "  Power            {power:.4}");
+    }
+    if let Some(ratio) = result.allocation_ratio {
+        let _ = writeln!(out, "  Allocation       n2/n1={ratio:.4}");
+    }
+    let _ = writeln!(out, "  Total N          {}", result.total_n);
+    if let (Some(group1), Some(group2)) = (result.group1_n, result.group2_n) {
+        let _ = writeln!(out, "  Groups           n1={group1} n2={group2}");
+    }
+    if let Some(effect_size) = result.effect_size {
+        let _ = writeln!(out, "  Effect size      {effect_size:.4}");
+    }
+    if !result.warnings.is_empty() {
+        let _ = writeln!(out, "  Warnings");
+        for warning in &result.warnings {
+            let _ = writeln!(out, "  - {warning}");
         }
     }
     if !result.notes.is_empty() {

@@ -756,6 +756,26 @@ pub struct LinearResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerResult {
+    pub status: String,
+    pub method: String,
+    pub alpha: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocation_ratio: Option<f64>,
+    pub total_n: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group1_n: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group2_n: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_size: Option<f64>,
+    pub notes: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SurvivalKmStep {
     pub group: String,
     pub time: f64,

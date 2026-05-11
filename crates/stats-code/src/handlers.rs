@@ -6,6 +6,7 @@ mod audit;
 mod common;
 mod data;
 mod model;
+mod power;
 mod project;
 mod run;
 mod survival;
@@ -18,6 +19,7 @@ pub(crate) use workflow::handle_workflow_run;
 
 use analysis::{handle_analysis_check, handle_analysis_plan};
 use audit::{handle_audit_explain, handle_open_report};
+use power::handle_power;
 use project::{handle_doctor, handle_init_project};
 use run::{handle_run_script, render_run_script_text};
 
@@ -36,8 +38,8 @@ use crate::render::{
     render_ai_ask_text, render_analysis_check_text, render_audit_explain_text,
     render_auth_doctor_text, render_auth_set_text, render_config_text, render_cox_text,
     render_doctor_text, render_init_project_text, render_inspect_text, render_linear_text,
-    render_logistic_text, render_open_report_text, render_planned_text, render_rate_text,
-    render_report_build_text, render_report_verify_text, render_survival_km_text,
+    render_logistic_text, render_open_report_text, render_planned_text, render_power_text,
+    render_rate_text, render_report_build_text, render_report_verify_text, render_survival_km_text,
     render_tableone_text, render_workflow_run_text,
 };
 use crate::report::{
@@ -47,8 +49,8 @@ use crate::schema::{
     AiAskResult, AnalysisCheckResult, ArtifactMetadata, ArtifactRole, ArtifactStatus,
     AuditExplainResult, AuthDoctorResult, AuthSetResult, ConfigResult, CoxResult, DoctorResult,
     InitProjectResult, InspectResult, LinearResult, LogisticResult, OpenReportResult,
-    PlannedCommandResult, RateResult, ReportBuildResult, ReportVerifyResult, SurvivalKmResult,
-    TableOneResult, WorkflowRunResult,
+    PlannedCommandResult, PowerResult, RateResult, ReportBuildResult, ReportVerifyResult,
+    SurvivalKmResult, TableOneResult, WorkflowRunResult,
 };
 pub fn run() -> StatsCodeResult<()> {
     let cli = Cli::parse();
@@ -178,6 +180,10 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
         Command::Rate(args) => {
             let result = handle_rate(args)?;
             ("rate", json!(args), serde_json::to_value(result)?)
+        }
+        Command::Power { command } => {
+            let result = handle_power(command)?;
+            ("power", json!(command), serde_json::to_value(result)?)
         }
         Command::Survival { command } => match command {
             SurvivalCommand::Km(args) => {
@@ -332,6 +338,10 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
             "survival_km" => {
                 let value: SurvivalKmResult = serde_json::from_value(response)?;
                 Ok(render_survival_km_text(&value))
+            }
+            "power" => {
+                let value: PowerResult = serde_json::from_value(response)?;
+                Ok(render_power_text(&value))
             }
             "auth_set" => {
                 let value: AuthSetResult = serde_json::from_value(response)?;

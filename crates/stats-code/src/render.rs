@@ -5,7 +5,7 @@ use crate::schema::{
     AuditExplainArtifact, AuditExplainResult, AuthDoctorResult, AuthSetResult, ColumnInspection,
     ConfigResult, CoxResult, DoctorResult, InitProjectResult, InspectResult, LinearResult,
     LogisticResult, OpenReportResult, PlannedCommandResult, RateResult, ReportBuildResult,
-    ReportVerifyResult, TableOneResult, WorkflowRunResult,
+    ReportVerifyResult, SurvivalKmResult, TableOneResult, WorkflowRunResult,
 };
 
 pub(crate) fn format_p_value(p: f64) -> String {
@@ -156,6 +156,67 @@ pub fn render_tableone_text(result: &TableOneResult) -> String {
         );
         if !group_cells.is_empty() {
             let _ = writeln!(out, "    {group_cells}");
+        }
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_survival_km_text(result: &SurvivalKmResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Kaplan-Meier Survival");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Data path        {}", result.data_path);
+    if let Some(path) = &result.analysis_path {
+        let _ = writeln!(out, "  Analysis         {path}");
+    }
+    let _ = writeln!(out, "  Time             {}", result.time);
+    let _ = writeln!(out, "  Event            {}", result.event);
+    let _ = writeln!(
+        out,
+        "  Group            {}",
+        result.group.as_deref().unwrap_or("<overall>")
+    );
+    let _ = writeln!(
+        out,
+        "  Rows             total={} used={} excluded_missing={} excluded_invalid={}",
+        result.n_total, result.n_used, result.n_excluded_missing, result.n_excluded_invalid
+    );
+    let _ = writeln!(out, "  Groups           {}", result.groups.join(", "));
+    if let Some(log_rank) = &result.log_rank {
+        let _ = writeln!(
+            out,
+            "  Log-rank         chi_square={:.4} df={} p={}",
+            log_rank.chi_square,
+            log_rank.degrees_freedom,
+            format_p_value(log_rank.p_value)
+        );
+    }
+    let _ = writeln!(out, "  Steps");
+    for step in &result.steps {
+        let _ = writeln!(
+            out,
+            "  - group={} time={:.4} risk={} events={} censored={} survival={:.4} se={:.4} ci95=[{:.4}, {:.4}]",
+            step.group,
+            step.time,
+            step.n_risk,
+            step.n_event,
+            step.n_censored,
+            step.survival,
+            step.standard_error,
+            step.ci_lower,
+            step.ci_upper
+        );
+    }
+    if !result.warnings.is_empty() {
+        let _ = writeln!(out, "  Warnings");
+        for warning in &result.warnings {
+            let _ = writeln!(out, "  - {warning}");
         }
     }
     if !result.notes.is_empty() {

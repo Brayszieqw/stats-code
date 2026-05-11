@@ -16,6 +16,7 @@ mod rate;
 mod render;
 mod report;
 mod schema;
+mod survival;
 mod tableone;
 mod ui;
 
@@ -23,9 +24,10 @@ pub use bridge::Engine;
 pub use cli::{
     AiAskArgs, AiCommand, AuditCommand, AuditExplainArgs, AuthCommand, AuthDoctorArgs,
     AuthProvider, AuthSetArgs, ChatArgs, CheckArgs, Cli, Command, ConfigCommand, ConfigModelArgs,
-    InspectArgs, ModelCommand, ModelCoxArgs, ModelLogisticArgs, OpenCommand, OpenReportArgs,
-    PlanArgs, RateArgs, ReportBuildArgs, ReportCommand, ReportVerifyArgs, RunCommand,
-    RunScriptArgs, TableOneArgs, WorkflowCommand, WorkflowRunArgs,
+    InspectArgs, ModelCommand, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, OpenCommand,
+    OpenReportArgs, PlanArgs, RateArgs, ReportBuildArgs, ReportCommand, ReportVerifyArgs,
+    RunCommand, RunScriptArgs, SurvivalCommand, SurvivalKmArgs, TableOneArgs, WorkflowCommand,
+    WorkflowRunArgs,
 };
 pub use error::{StatsCodeError, StatsCodeResult};
 pub use handlers::{dispatch, run};

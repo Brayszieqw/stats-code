@@ -745,6 +745,48 @@ pub struct LinearResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurvivalKmStep {
+    pub group: String,
+    pub time: f64,
+    pub n_risk: usize,
+    pub n_event: usize,
+    pub n_censored: usize,
+    pub survival: f64,
+    pub standard_error: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRankResult {
+    pub chi_square: f64,
+    pub degrees_freedom: usize,
+    pub p_value: f64,
+    pub groups: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurvivalKmResult {
+    pub status: String,
+    pub data_path: String,
+    pub analysis_path: Option<String>,
+    pub time: String,
+    pub event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    pub n_total: usize,
+    pub n_used: usize,
+    pub n_excluded_missing: usize,
+    pub n_excluded_invalid: usize,
+    pub groups: Vec<String>,
+    pub steps: Vec<SurvivalKmStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_rank: Option<LogRankResult>,
+    pub notes: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannedCommandResult {
     pub status: String,
     pub command: String,

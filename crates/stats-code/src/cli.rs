@@ -56,6 +56,10 @@ pub enum Command {
     Inspect(InspectArgs),
     Tableone(TableOneArgs),
     Rate(RateArgs),
+    Survival {
+        #[command(subcommand)]
+        command: SurvivalCommand,
+    },
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
@@ -260,6 +264,31 @@ pub struct RateArgs {
     #[arg(long, value_delimiter = ',')]
     #[serde(default)]
     pub strata: Vec<String>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum SurvivalCommand {
+    /// Kaplan-Meier survival analysis with optional log-rank test.
+    Km(SurvivalKmArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct SurvivalKmArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+
+    #[arg(long)]
+    pub time: String,
+
+    #[arg(long)]
+    pub event: String,
+
+    #[arg(long = "by")]
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Subcommand)]

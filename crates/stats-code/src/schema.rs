@@ -756,6 +756,52 @@ pub struct LinearResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RocPoint {
+    pub threshold: f64,
+    pub sensitivity: f64,
+    pub specificity: f64,
+    pub false_positive_rate: f64,
+    pub true_positive_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticThresholdMetrics {
+    pub threshold: f64,
+    pub tp: usize,
+    pub fp: usize,
+    pub tn: usize,
+    pub fn_count: usize,
+    pub sensitivity: f64,
+    pub specificity: f64,
+    pub ppv: f64,
+    pub npv: f64,
+    pub accuracy: f64,
+    pub youden_j: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticRocResult {
+    pub status: String,
+    pub data_path: String,
+    pub analysis_path: Option<String>,
+    pub truth: String,
+    pub score: String,
+    pub n_total: usize,
+    pub n_used: usize,
+    pub n_excluded_missing: usize,
+    pub n_excluded_invalid: usize,
+    pub n_cases: usize,
+    pub n_controls: usize,
+    pub auc: f64,
+    pub roc_points: Vec<RocPoint>,
+    pub youden: DiagnosticThresholdMetrics,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_metrics: Option<DiagnosticThresholdMetrics>,
+    pub notes: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PowerResult {
     pub status: String,
     pub method: String,

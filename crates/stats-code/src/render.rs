@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use crate::schema::{
     format_variable_kind, AiAskResult, AnalysisCheckLevel, AnalysisCheckResult,
     AuditExplainArtifact, AuditExplainResult, AuthDoctorResult, AuthSetResult, ColumnInspection,
-    ConfigResult, CoxResult, DoctorResult, InitProjectResult, InspectResult, LinearResult,
-    LogisticResult, OpenReportResult, PlannedCommandResult, PowerResult, RateResult,
+    ConfigResult, CoxResult, DiagnosticRocResult, DoctorResult, InitProjectResult, InspectResult,
+    LinearResult, LogisticResult, OpenReportResult, PlannedCommandResult, PowerResult, RateResult,
     ReportBuildResult, ReportVerifyResult, SurvivalKmResult, TableOneResult, WorkflowRunResult,
 };
 
@@ -156,6 +156,79 @@ pub fn render_tableone_text(result: &TableOneResult) -> String {
         );
         if !group_cells.is_empty() {
             let _ = writeln!(out, "    {group_cells}");
+        }
+    }
+    if !result.notes.is_empty() {
+        let _ = writeln!(out, "  Notes");
+        for note in &result.notes {
+            let _ = writeln!(out, "  - {note}");
+        }
+    }
+    out
+}
+
+pub fn render_diagnostic_roc_text(result: &DiagnosticRocResult) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Diagnostic ROC");
+    let _ = writeln!(out, "  Status           {}", result.status);
+    let _ = writeln!(out, "  Data path        {}", result.data_path);
+    if let Some(path) = &result.analysis_path {
+        let _ = writeln!(out, "  Analysis         {path}");
+    }
+    let _ = writeln!(out, "  Truth            {}", result.truth);
+    let _ = writeln!(out, "  Score            {}", result.score);
+    let _ = writeln!(
+        out,
+        "  Rows             total={} used={} excluded_missing={} excluded_invalid={}",
+        result.n_total, result.n_used, result.n_excluded_missing, result.n_excluded_invalid
+    );
+    let _ = writeln!(
+        out,
+        "  Classes          cases={} controls={}",
+        result.n_cases, result.n_controls
+    );
+    let _ = writeln!(out, "  AUC              {:.4}", result.auc);
+    let _ = writeln!(
+        out,
+        "  Youden threshold {:.4} J={:.4} sensitivity={:.4} specificity={:.4}",
+        result.youden.threshold,
+        result.youden.youden_j,
+        result.youden.sensitivity,
+        result.youden.specificity
+    );
+    if let Some(metrics) = &result.threshold_metrics {
+        let _ = writeln!(out, "  Threshold metrics");
+        let _ = writeln!(
+            out,
+            "  - threshold={:.4} TP={} FP={} TN={} FN={} sensitivity={:.4} specificity={:.4} PPV={:.4} NPV={:.4} accuracy={:.4}",
+            metrics.threshold,
+            metrics.tp,
+            metrics.fp,
+            metrics.tn,
+            metrics.fn_count,
+            metrics.sensitivity,
+            metrics.specificity,
+            metrics.ppv,
+            metrics.npv,
+            metrics.accuracy
+        );
+    }
+    let _ = writeln!(out, "  ROC points");
+    for point in &result.roc_points {
+        let _ = writeln!(
+            out,
+            "  - threshold={:.4} sensitivity={:.4} specificity={:.4} FPR={:.4} TPR={:.4}",
+            point.threshold,
+            point.sensitivity,
+            point.specificity,
+            point.false_positive_rate,
+            point.true_positive_rate
+        );
+    }
+    if !result.warnings.is_empty() {
+        let _ = writeln!(out, "  Warnings");
+        for warning in &result.warnings {
+            let _ = writeln!(out, "  - {warning}");
         }
     }
     if !result.notes.is_empty() {

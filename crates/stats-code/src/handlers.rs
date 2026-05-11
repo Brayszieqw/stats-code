@@ -5,6 +5,7 @@ mod analysis;
 mod audit;
 mod common;
 mod data;
+mod diagnostic;
 mod model;
 mod power;
 mod project;
@@ -13,6 +14,7 @@ mod survival;
 mod workflow;
 
 pub(crate) use data::{handle_inspect, handle_rate, handle_tableone};
+pub(crate) use diagnostic::handle_diagnostic_roc;
 pub(crate) use model::{handle_model_cox, handle_model_linear, handle_model_logistic};
 pub(crate) use survival::handle_survival_km;
 pub(crate) use workflow::handle_workflow_run;
@@ -26,8 +28,9 @@ use run::{handle_run_script, render_run_script_text};
 use crate::bridge::Engine;
 use crate::chat::run_chat_repl;
 use crate::cli::{
-    AiCommand, AuditCommand, AuthCommand, ChatArgs, Cli, Command, ConfigCommand, ModelCommand,
-    OpenCommand, ReportCommand, ReportVerifyArgs, RunCommand, SurvivalCommand, WorkflowCommand,
+    AiCommand, AuditCommand, AuthCommand, ChatArgs, Cli, Command, ConfigCommand, DiagnosticCommand,
+    ModelCommand, OpenCommand, ReportCommand, ReportVerifyArgs, RunCommand, SurvivalCommand,
+    WorkflowCommand,
 };
 use crate::config::{
     handle_ai_ask, handle_auth_doctor, handle_auth_set, handle_config_add_model,
@@ -37,20 +40,20 @@ use crate::error::StatsCodeResult;
 use crate::render::{
     render_ai_ask_text, render_analysis_check_text, render_audit_explain_text,
     render_auth_doctor_text, render_auth_set_text, render_config_text, render_cox_text,
-    render_doctor_text, render_init_project_text, render_inspect_text, render_linear_text,
-    render_logistic_text, render_open_report_text, render_planned_text, render_power_text,
-    render_rate_text, render_report_build_text, render_report_verify_text, render_survival_km_text,
-    render_tableone_text, render_workflow_run_text,
+    render_diagnostic_roc_text, render_doctor_text, render_init_project_text, render_inspect_text,
+    render_linear_text, render_logistic_text, render_open_report_text, render_planned_text,
+    render_power_text, render_rate_text, render_report_build_text, render_report_verify_text,
+    render_survival_km_text, render_tableone_text, render_workflow_run_text,
 };
 use crate::report::{
     handle_report_build, handle_report_verify, persist_run_artifacts_with_metadata,
 };
 use crate::schema::{
     AiAskResult, AnalysisCheckResult, ArtifactMetadata, ArtifactRole, ArtifactStatus,
-    AuditExplainResult, AuthDoctorResult, AuthSetResult, ConfigResult, CoxResult, DoctorResult,
-    InitProjectResult, InspectResult, LinearResult, LogisticResult, OpenReportResult,
-    PlannedCommandResult, PowerResult, RateResult, ReportBuildResult, ReportVerifyResult,
-    SurvivalKmResult, TableOneResult, WorkflowRunResult,
+    AuditExplainResult, AuthDoctorResult, AuthSetResult, ConfigResult, CoxResult,
+    DiagnosticRocResult, DoctorResult, InitProjectResult, InspectResult, LinearResult,
+    LogisticResult, OpenReportResult, PlannedCommandResult, PowerResult, RateResult,
+    ReportBuildResult, ReportVerifyResult, SurvivalKmResult, TableOneResult, WorkflowRunResult,
 };
 pub fn run() -> StatsCodeResult<()> {
     let cli = Cli::parse();
@@ -185,6 +188,12 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
             let result = handle_power(command)?;
             ("power", json!(command), serde_json::to_value(result)?)
         }
+        Command::Diagnostic { command } => match command {
+            DiagnosticCommand::Roc(args) => {
+                let result = handle_diagnostic_roc(args)?;
+                ("diagnostic_roc", json!(args), serde_json::to_value(result)?)
+            }
+        },
         Command::Survival { command } => match command {
             SurvivalCommand::Km(args) => {
                 let result = handle_survival_km(args)?;
@@ -334,6 +343,10 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
             "rate" => {
                 let value: RateResult = serde_json::from_value(response)?;
                 Ok(render_rate_text(&value))
+            }
+            "diagnostic_roc" => {
+                let value: DiagnosticRocResult = serde_json::from_value(response)?;
+                Ok(render_diagnostic_roc_text(&value))
             }
             "survival_km" => {
                 let value: SurvivalKmResult = serde_json::from_value(response)?;

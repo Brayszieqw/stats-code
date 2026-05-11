@@ -2,10 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::cli::{
-    AuditCommand, AuditExplainArgs, CheckArgs, Command, DoctorArgs, InitArgs, InspectArgs,
-    ModelCommand, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, OpenCommand, OpenReportArgs,
-    PlanArgs, PowerCommand, PowerTwoMeansArgs, RateArgs, SurvivalCommand, SurvivalKmArgs,
-    TableOneArgs, WorkflowCommand, WorkflowRunArgs,
+    AuditCommand, AuditExplainArgs, CheckArgs, Command, DiagnosticCommand, DiagnosticRocArgs,
+    DoctorArgs, InitArgs, InspectArgs, ModelCommand, ModelCoxArgs, ModelLinearArgs,
+    ModelLogisticArgs, OpenCommand, OpenReportArgs, PlanArgs, PowerCommand, PowerTwoMeansArgs,
+    RateArgs, SurvivalCommand, SurvivalKmArgs, TableOneArgs, WorkflowCommand, WorkflowRunArgs,
 };
 use crate::schema::{
     detect_data_format, load_analysis_spec, AnalysisSpec, DataFormat, ReportVerifyResult,
@@ -750,6 +750,37 @@ fn power_two_means_calculates_sample_size() {
     assert!(rendered.contains("two_independent_means"));
     assert!(rendered.contains("Total N"));
     assert!(rendered.contains("Groups"));
+}
+
+#[test]
+fn diagnostic_roc_csv_reports_auc_and_threshold_metrics() {
+    let root = temp_dir("diagnostic-roc");
+    fs::create_dir_all(&root).expect("create root");
+    let csv_path = root.join("diagnostic.csv");
+    fs::write(
+        &csv_path,
+        "disease,pred_score\nno,0.05\n0,0.20\nyes,0.70\n1,0.90\n",
+    )
+    .expect("write csv");
+
+    let cli = test_cli(Command::Diagnostic {
+        command: DiagnosticCommand::Roc(DiagnosticRocArgs {
+            data: Some(csv_path),
+            analysis: None,
+            truth: "disease".to_string(),
+            score: "pred_score".to_string(),
+            threshold: Some(0.5),
+        }),
+    });
+
+    let rendered = dispatch(&cli).expect("diagnostic roc should succeed");
+    assert!(rendered.contains("Diagnostic ROC"));
+    assert!(rendered.contains("AUC              1.0000"));
+    assert!(rendered.contains("Threshold metrics"));
+    assert!(rendered.contains("TP=2 FP=0 TN=2 FN=0"));
+    assert!(rendered.contains("Youden threshold"));
+
+    fs::remove_dir_all(root).expect("cleanup");
 }
 
 #[test]

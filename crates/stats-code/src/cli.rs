@@ -60,6 +60,10 @@ pub enum Command {
         #[command(subcommand)]
         command: PowerCommand,
     },
+    Diagnostic {
+        #[command(subcommand)]
+        command: DiagnosticCommand,
+    },
     Survival {
         #[command(subcommand)]
         command: SurvivalCommand,
@@ -278,6 +282,30 @@ pub enum PowerCommand {
     TwoProportions(PowerTwoProportionsArgs),
     /// Sample size per group for two independent means.
     TwoMeans(PowerTwoMeansArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DiagnosticCommand {
+    /// ROC/AUC and diagnostic test performance from binary truth and continuous score.
+    Roc(DiagnosticRocArgs),
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct DiagnosticRocArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+
+    #[arg(long)]
+    pub truth: String,
+
+    #[arg(long)]
+    pub score: String,
+
+    #[arg(long)]
+    pub threshold: Option<f64>,
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
@@ -554,7 +582,8 @@ mod tests {
     use clap::Parser;
 
     use super::{
-        AuditCommand, Cli, Command, OpenCommand, PowerCommand, ReportCommand, WorkflowCommand,
+        AuditCommand, Cli, Command, DiagnosticCommand, OpenCommand, PowerCommand, ReportCommand,
+        WorkflowCommand,
     };
 
     #[test]
@@ -585,6 +614,34 @@ mod tests {
                 assert!(args.new_session);
             }
             other => panic!("expected chat command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_diagnostic_roc_command() {
+        let cli = Cli::parse_from([
+            "stats-code",
+            "diagnostic",
+            "roc",
+            "--data",
+            "diagnostic.csv",
+            "--truth",
+            "disease",
+            "--score",
+            "risk_score",
+            "--threshold",
+            "0.5",
+        ]);
+        match cli.command {
+            Some(Command::Diagnostic {
+                command: DiagnosticCommand::Roc(args),
+            }) => {
+                assert_eq!(args.data, Some(PathBuf::from("diagnostic.csv")));
+                assert_eq!(args.truth, "disease");
+                assert_eq!(args.score, "risk_score");
+                assert_eq!(args.threshold, Some(0.5));
+            }
+            other => panic!("expected diagnostic roc command, got {other:?}"),
         }
     }
 

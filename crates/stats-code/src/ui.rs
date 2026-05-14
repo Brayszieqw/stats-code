@@ -120,7 +120,7 @@ impl ChatUi {
         out.flush()
     }
 
-    /// 打印对话轮次（无任何边框，纯净类 Claude Code 风格）
+    /// 打印对话轮次（无任何边框，纯净终端对话风格）
     pub fn print_turn(
         &self,
         out: &mut impl Write,
@@ -166,7 +166,7 @@ impl ChatUi {
         out.flush()
     }
 
-    /// 打印输入提示前的状态栏：上下两条横线，内容字在中间（Claude Code 对话框三明治风格）
+    /// 打印输入提示前的状态栏：上下两条横线，内容字在中间（Stats Code 对话框三明治风格）
     ///
     /// 布局：
     ///   ──────────────────────────────  (上线)

@@ -108,9 +108,9 @@ fn command_name_from_relative_path(root: &Path, path: &Path) -> Option<String> {
 // Plugin discovery
 // ---------------------------------------------------------------------------
 
-pub(super) fn nearest_project_claude_dir(cwd: &Path) -> Option<PathBuf> {
+pub(super) fn nearest_project_config_dir(cwd: &Path) -> Option<PathBuf> {
     cwd.ancestors()
-        .map(|ancestor| ancestor.join(".claude"))
+        .map(|ancestor| ancestor.join(".stats-code"))
         .find(|path| path.is_dir())
 }
 
@@ -126,7 +126,7 @@ fn plugin_command_roots(plugins_dir: &Path) -> Result<Vec<(PathBuf, String)>, St
         let plugin_root = if manifest_dir
             .file_name()
             .and_then(|value| value.to_str())
-            .is_some_and(|value| value == ".claude-plugin")
+            .is_some_and(|value| value == ".stats-code-plugin")
         {
             manifest_dir
                 .parent()
@@ -153,7 +153,7 @@ fn plugin_command_roots(plugins_dir: &Path) -> Result<Vec<(PathBuf, String)>, St
 
         for candidate in [
             plugin_root.join("commands"),
-            plugin_root.join(".claude-plugin").join("commands"),
+            plugin_root.join(".stats-code-plugin").join("commands"),
         ] {
             if candidate.is_dir() {
                 roots
@@ -199,8 +199,8 @@ pub(crate) fn discover_slash_command_templates(
 ) -> Result<Vec<SlashCommandTemplate>, String> {
     let mut discovered = BTreeMap::<String, SlashCommandTemplate>::new();
 
-    if let Some(project_claude) = nearest_project_claude_dir(cwd) {
-        let commands_root = project_claude.join("commands");
+    if let Some(project_config) = nearest_project_config_dir(cwd) {
+        let commands_root = project_config.join("commands");
         let mut files = Vec::new();
         collect_markdown_files(&commands_root, &mut files)?;
         for path in files {
@@ -216,13 +216,13 @@ pub(crate) fn discover_slash_command_templates(
                     _description: description,
                     body,
                     path,
-                    source: "project .claude/commands".to_string(),
+                    source: "project .stats-code/commands".to_string(),
                 });
         }
     }
 
     if let Some(home) = home_dir() {
-        let user_commands_root = home.join(".claude").join("commands");
+        let user_commands_root = home.join(".stats-code").join("commands");
         let mut files = Vec::new();
         collect_markdown_files(&user_commands_root, &mut files)?;
         for path in files {
@@ -238,11 +238,11 @@ pub(crate) fn discover_slash_command_templates(
                     _description: description,
                     body,
                     path,
-                    source: "user ~/.claude/commands".to_string(),
+                    source: "user ~/.stats-code/commands".to_string(),
                 });
         }
 
-        let user_plugins_root = home.join(".claude").join("plugins");
+        let user_plugins_root = home.join(".stats-code").join("plugins");
         for (commands_root, plugin_name) in plugin_command_roots(&user_plugins_root)? {
             let mut files = Vec::new();
             collect_markdown_files(&commands_root, &mut files)?;
@@ -265,8 +265,8 @@ pub(crate) fn discover_slash_command_templates(
         }
     }
 
-    if let Some(project_claude) = nearest_project_claude_dir(cwd) {
-        let project_plugins_root = project_claude.join("plugins");
+    if let Some(project_config) = nearest_project_config_dir(cwd) {
+        let project_plugins_root = project_config.join("plugins");
         for (commands_root, plugin_name) in plugin_command_roots(&project_plugins_root)? {
             let mut files = Vec::new();
             collect_markdown_files(&commands_root, &mut files)?;

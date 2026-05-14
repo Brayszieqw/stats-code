@@ -42,7 +42,7 @@ pub(crate) fn save_chat_session(state: &ChatSessionState) -> Result<(), String> 
     }
     fs::write(
         &state.session_path,
-        // P2: Use compact JSON (not pretty-print) for smaller files and faster writes
+        // Compact JSON for smaller files and faster writes
         serde_json::to_string(&saved).map_err(stringify_error)?,
     )
     .map_err(stringify_error)

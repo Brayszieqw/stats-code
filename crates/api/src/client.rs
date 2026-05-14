@@ -1,5 +1,5 @@
 use crate::error::ApiError;
-use crate::providers::claw_provider::{self, AuthSource, ClawApiClient};
+use crate::providers::anthropic_provider::{self, AuthSource, AnthropicClient};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, Provider, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
@@ -26,7 +26,7 @@ pub enum ProviderClient {
     DashScope(OpenAiCompatClient),
     Moonshot(OpenAiCompatClient),
     Xai(OpenAiCompatClient),
-    ClawApi(ClawApiClient),
+    Anthropic(AnthropicClient),
 }
 
 impl ProviderClient {
@@ -58,9 +58,9 @@ impl ProviderClient {
             ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::xai(),
             )?)),
-            ProviderKind::ClawApi => Ok(Self::ClawApi(match default_auth {
-                Some(auth) => ClawApiClient::from_auth(auth),
-                None => ClawApiClient::from_env()?,
+            ProviderKind::Anthropic => Ok(Self::Anthropic(match default_auth {
+                Some(auth) => AnthropicClient::from_auth(auth),
+                None => AnthropicClient::from_env()?,
             })),
         }
     }
@@ -74,7 +74,7 @@ impl ProviderClient {
             Self::DashScope(_) => ProviderKind::DashScope,
             Self::Moonshot(_) => ProviderKind::Moonshot,
             Self::Xai(_) => ProviderKind::Xai,
-            Self::ClawApi(_) => ProviderKind::ClawApi,
+            Self::Anthropic(_) => ProviderKind::Anthropic,
         }
     }
 
@@ -89,7 +89,7 @@ impl ProviderClient {
             | Self::DashScope(client)
             | Self::Moonshot(client)
             | Self::Xai(client) => send_via_provider(client, request).await,
-            Self::ClawApi(client) => send_via_provider(client, request).await,
+            Self::Anthropic(client) => send_via_provider(client, request).await,
         }
     }
 
@@ -106,16 +106,16 @@ impl ProviderClient {
             | Self::Xai(client) => stream_via_provider(client, request)
                 .await
                 .map(MessageStream::OpenAiCompat),
-            Self::ClawApi(client) => stream_via_provider(client, request)
+            Self::Anthropic(client) => stream_via_provider(client, request)
                 .await
-                .map(MessageStream::ClawApi),
+                .map(MessageStream::Anthropic),
         }
     }
 }
 
 #[derive(Debug)]
 pub enum MessageStream {
-    ClawApi(claw_provider::MessageStream),
+    Anthropic(anthropic_provider::MessageStream),
     OpenAiCompat(openai_compat::MessageStream),
 }
 
@@ -123,25 +123,25 @@ impl MessageStream {
     #[must_use]
     pub fn request_id(&self) -> Option<&str> {
         match self {
-            Self::ClawApi(stream) => stream.request_id(),
+            Self::Anthropic(stream) => stream.request_id(),
             Self::OpenAiCompat(stream) => stream.request_id(),
         }
     }
 
     pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
         match self {
-            Self::ClawApi(stream) => stream.next_event().await,
+            Self::Anthropic(stream) => stream.next_event().await,
             Self::OpenAiCompat(stream) => stream.next_event().await,
         }
     }
 }
 
-pub use claw_provider::{
+pub use anthropic_provider::{
     oauth_token_is_expired, resolve_saved_oauth_token, resolve_startup_auth_source,
 };
 #[must_use]
 pub fn read_base_url() -> String {
-    claw_provider::read_base_url()
+    anthropic_provider::read_base_url()
 }
 
 #[must_use]
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(detect_provider_kind("grok-3"), ProviderKind::Xai);
         assert_eq!(
             detect_provider_kind("claude-sonnet-4-6"),
-            ProviderKind::ClawApi
+            ProviderKind::Anthropic
         );
     }
 }

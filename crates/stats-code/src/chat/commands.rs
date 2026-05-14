@@ -5,6 +5,7 @@
 use std::fmt::Write as _;
 use std::io::Write;
 
+#[allow(clippy::wildcard_imports)]
 use super::*;
 
 pub(crate) fn handle_chat_command(
@@ -417,7 +418,7 @@ pub(crate) fn handle_chat_command(
         writeln!(out, "  Version  {}", env!("CARGO_PKG_VERSION")).map_err(stringify_error)?;
         writeln!(out, "  - Expanded REPL slash commands with status, cost, fast, memory, config, review, auth, and diagnostics")
             .map_err(stringify_error)?;
-        writeln!(out, "  - Added custom slash command discovery from project/user `.claude/commands` and plugin command folders")
+        writeln!(out, "  - Added custom slash command discovery from project/user `.stats-code/commands` and plugin command folders")
             .map_err(stringify_error)?;
         writeln!(
             out,
@@ -519,7 +520,6 @@ pub(crate) fn handle_chat_command(
             writeln!(out, "Conversation cleared.").map_err(stringify_error)?;
             Ok(ChatLoopControl::Continue)
         }
-        // A7: Enhanced /session output with message breakdown and model info
         "session" => {
             let user_count = state.messages.iter().filter(|m| m.role == "user").count();
             let asst_count = state
@@ -711,7 +711,6 @@ pub(crate) fn handle_chat_command(
             }
             Ok(ChatLoopControl::Continue)
         }
-        // B1: /compact 闁?AI-powered history compression
         "compact" => {
             if state.messages.is_empty() {
                 writeln!(out, "No messages to compact.").map_err(stringify_error)?;
@@ -818,7 +817,6 @@ pub(crate) fn handle_chat_command(
             .map_err(stringify_error)?;
             Ok(ChatLoopControl::Continue)
         }
-        // B2: /init 闁?generate STATS.md project config file
         "init" => {
             let cwd = env::current_dir().map_err(stringify_error)?;
             writeln!(

@@ -26,6 +26,7 @@ fix_antigravity.ps1
 /task.md
 
 # Non-project directories
+.claude/
 .codex-backups/
 claw-code/
 codex_tmp/

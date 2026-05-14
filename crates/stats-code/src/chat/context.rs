@@ -123,7 +123,7 @@ pub(crate) fn collect_project_context(cwd: &Path) -> Result<ChatProjectContext, 
     })
 }
 
-// A5: Single-pass truncation — avoids O(2n) double char scan
+// Single-pass character count avoids O(2n) double scan overhead
 pub(super) fn truncate_for_prompt(content: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();

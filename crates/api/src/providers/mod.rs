@@ -4,7 +4,7 @@ use std::pin::Pin;
 use crate::error::ApiError;
 use crate::types::{MessageRequest, MessageResponse};
 
-pub mod claw_provider;
+pub mod anthropic_provider;
 pub mod openai_compat;
 
 pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ApiError>> + Send + 'a>>;
@@ -31,7 +31,7 @@ pub enum ProviderKind {
     DashScope,
     Moonshot,
     Xai,
-    ClawApi,
+    Anthropic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,10 +44,10 @@ pub struct ProviderMetadata {
 
 const fn anthropic_metadata() -> ProviderMetadata {
     ProviderMetadata {
-        provider: ProviderKind::ClawApi,
+        provider: ProviderKind::Anthropic,
         auth_env: "ANTHROPIC_API_KEY",
         base_url_env: "ANTHROPIC_BASE_URL",
-        default_base_url: claw_provider::DEFAULT_BASE_URL,
+        default_base_url: anthropic_provider::DEFAULT_BASE_URL,
     }
 }
 
@@ -213,8 +213,8 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if openai_compat::has_api_key("XAI_API_KEY") {
         return ProviderKind::Xai;
     }
-    if claw_provider::has_auth_from_env_or_saved().unwrap_or(false) {
-        return ProviderKind::ClawApi;
+    if anthropic_provider::has_auth_from_env_or_saved().unwrap_or(false) {
+        return ProviderKind::Anthropic;
     }
     ProviderKind::OpenAi
 }
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(detect_provider_kind("grok"), ProviderKind::Xai);
         assert_eq!(
             detect_provider_kind("claude-sonnet-4-6"),
-            ProviderKind::ClawApi
+            ProviderKind::Anthropic
         );
     }
 

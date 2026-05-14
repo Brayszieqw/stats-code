@@ -1,0 +1,14 @@
+# Validation runtime artifacts (current run only — baselines are committed)
+reports/report.json
+reports/report.md
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.hypothesis/
+
+# Virtualenvs
+.venv/
+venv/

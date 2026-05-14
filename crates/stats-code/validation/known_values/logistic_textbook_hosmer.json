@@ -1,0 +1,11 @@
+{
+  "method": "logistic",
+  "source": "Hosmer, D.W. & Lemeshow, S. (2000). Applied Logistic Regression, 2nd ed. Table 1.2 (Low Birth Weight study, N=189)",
+  "license": "Textbook example — values reproduced for validation purposes",
+  "notes": "Logistic regression of low birth weight (low) on age and lwt (mother's weight). Values from Table 2.3.",
+  "expected": {
+    "beta[age]": -0.0271,
+    "beta[lwt]": -0.0152,
+    "log_likelihood": -117.336
+  }
+}

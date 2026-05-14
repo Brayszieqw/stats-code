@@ -11,6 +11,26 @@ use serde_json::Value;
 // ---------------------------------------------------------------------------
 
 /// Execution engine for statistical models.
+///
+/// Determines whether a computation runs natively in Rust or is delegated to
+/// an external interpreter (Python or R).
+///
+/// # Examples
+///
+/// ```no_run
+/// use stats_code::Engine;
+///
+/// let engine = Engine::Rust;
+/// assert_eq!(engine.to_string(), "rust");
+///
+/// // Python engine delegates to a subprocess:
+/// let py = Engine::Python;
+/// assert_eq!(py.to_string(), "python");
+///
+/// // R engine is reserved for future use:
+/// let r = Engine::R;
+/// assert_eq!(r.to_string(), "r");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
@@ -363,6 +383,8 @@ pub fn execute_custom_script(
     if !script_path.is_file() {
         return Err(format!("Script not found: {}", script_path.display()));
     }
+
+    eprintln!("⚠ Executing external script: {}", script_path.display());
 
     let interpreter = discover_engine(engine)?;
 

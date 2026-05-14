@@ -834,3 +834,129 @@ mod tests {
         assert!((p4 - 1.0).abs() < 1e-8, "t(0) p should be 1.0, got {p4}");
     }
 }
+
+#[cfg(test)]
+mod proptest_invariants {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// **Validates: Requirements 5**
+        /// normal_cdf is monotonically increasing: x1 < x2 → cdf(x1) ≤ cdf(x2)
+        #[test]
+        fn normal_cdf_monotonicity(x1 in -6.0f64..6.0, x2 in -6.0f64..6.0) {
+            let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+            prop_assert!(
+                normal_cdf(lo) <= normal_cdf(hi),
+                "normal_cdf({}) = {} > normal_cdf({}) = {}",
+                lo, normal_cdf(lo), hi, normal_cdf(hi)
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// normal_cdf symmetry: cdf(x) + cdf(-x) ≈ 1.0
+        #[test]
+        fn normal_cdf_symmetry(x in -6.0f64..6.0) {
+            let sum = normal_cdf(x) + normal_cdf(-x);
+            prop_assert!(
+                (sum - 1.0).abs() < 1e-10,
+                "normal_cdf({}) + normal_cdf({}) = {} (expected ≈ 1.0)",
+                x, -x, sum
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// normal_cdf range: 0 ≤ cdf(x) ≤ 1
+        #[test]
+        fn normal_cdf_range(x in -10.0f64..10.0) {
+            let cdf = normal_cdf(x);
+            prop_assert!(
+                (0.0..=1.0).contains(&cdf),
+                "normal_cdf({}) = {} out of [0, 1]",
+                x, cdf
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// chi_square_cdf is monotonically increasing for fixed df
+        #[test]
+        fn chi_square_cdf_monotonicity(
+            x1 in 0.01f64..50.0,
+            x2 in 0.01f64..50.0,
+            df in 1.0f64..30.0
+        ) {
+            let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+            prop_assert!(
+                chi_square_cdf(lo, df) <= chi_square_cdf(hi, df),
+                "chi_square_cdf({}, {}) = {} > chi_square_cdf({}, {}) = {}",
+                lo, df, chi_square_cdf(lo, df), hi, df, chi_square_cdf(hi, df)
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// chi_square_cdf range: 0 ≤ result ≤ 1
+        #[test]
+        fn chi_square_cdf_range(x in 0.01f64..50.0, df in 1.0f64..30.0) {
+            let cdf = chi_square_cdf(x, df);
+            prop_assert!(
+                (0.0..=1.0).contains(&cdf),
+                "chi_square_cdf({}, {}) = {} out of [0, 1]",
+                x, df, cdf
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// log_gamma_lanczos recurrence: ln(Γ(x+1)) = ln(x) + ln(Γ(x))
+        #[test]
+        fn log_gamma_lanczos_recurrence(x in 0.5f64..100.0) {
+            let lhs = log_gamma_lanczos(x + 1.0);
+            let rhs = x.ln() + log_gamma_lanczos(x);
+            prop_assert!(
+                (lhs - rhs).abs() < 1e-8,
+                "log_gamma_lanczos({} + 1) = {}, ln({}) + log_gamma_lanczos({}) = {}",
+                x, lhs, x, x, rhs
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// sigmoid range: 0 ≤ sigmoid(x) ≤ 1 (strict in exact math; f64 saturates at extremes)
+        #[test]
+        fn sigmoid_range(x in -500.0f64..500.0) {
+            let s = sigmoid(x);
+            prop_assert!(
+                (0.0..=1.0).contains(&s),
+                "sigmoid({}) = {} out of [0, 1]",
+                x, s
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// sigmoid symmetry: sigmoid(x) + sigmoid(-x) = 1
+        #[test]
+        fn sigmoid_symmetry(x in -500.0f64..500.0) {
+            let sum = sigmoid(x) + sigmoid(-x);
+            prop_assert!(
+                (sum - 1.0).abs() < 1e-10,
+                "sigmoid({}) + sigmoid({}) = {} (expected ≈ 1.0)",
+                x, -x, sum
+            );
+        }
+
+        /// **Validates: Requirements 5**
+        /// quantile_sorted monotonicity: q1 < q2 → quantile(q1) ≤ quantile(q2)
+        #[test]
+        fn quantile_sorted_monotonicity(
+            mut values in proptest::collection::vec(-1000.0f64..1000.0, 2..50),
+            q1 in 0.0f64..1.0,
+            q2 in 0.0f64..1.0
+        ) {
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let (lo_q, hi_q) = if q1 <= q2 { (q1, q2) } else { (q2, q1) };
+            prop_assert!(
+                quantile_sorted(&values, lo_q) <= quantile_sorted(&values, hi_q),
+                "quantile_sorted(_, {}) = {} > quantile_sorted(_, {}) = {}",
+                lo_q, quantile_sorted(&values, lo_q), hi_q, quantile_sorted(&values, hi_q)
+            );
+        }
+    }
+}

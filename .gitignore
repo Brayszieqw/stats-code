@@ -28,6 +28,8 @@ fix_antigravity.ps1
 # Non-project directories
 .claude/
 .codex-backups/
+.kiro/
+.tmp_eval/
 claw-code/
 codex_tmp/
 

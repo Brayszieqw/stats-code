@@ -1,0 +1,12 @@
+# Locked dependencies for the Validation Correctness Framework.
+# Version pins come from .kiro/specs/validation-correctness/design.md —
+# any upgrade must be an explicit PR that re-calibrates tolerance values.
+numpy==1.26.2
+pandas==2.1.4
+scipy==1.11.4
+statsmodels==0.14.1
+lifelines==0.27.8
+scikit-learn==1.3.2
+pytest==7.4.3
+hypothesis==6.92.1
+pyyaml==6.0.1

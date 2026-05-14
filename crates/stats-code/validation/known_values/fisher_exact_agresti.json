@@ -1,0 +1,10 @@
+{
+  "method": "math_core",
+  "source": "Agresti, A. (2002). Categorical Data Analysis, 2nd ed. Table 2.1 (Tea Tasting experiment, N=8)",
+  "license": "Textbook example — values reproduced for validation purposes",
+  "notes": "Fisher exact test for Lady Tasting Tea experiment. 2x2 table: [[3,1],[1,3]]. One-sided p = 0.2429, two-sided p = 0.4857.",
+  "table": [[3, 1], [1, 3]],
+  "expected": {
+    "fisher_exact_pvalue": 0.4857142857142857
+  }
+}

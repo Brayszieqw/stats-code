@@ -27,5 +27,8 @@ icy_sixel = "0.1"
 calamine = "0.34.0"
 tempfile = "3"
 
+[dev-dependencies]
+proptest = "1"
+
 [lints]
 workspace = true

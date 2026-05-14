@@ -697,3 +697,138 @@ pub(crate) fn reference_note_for_plan(plan: &LogisticVariablePlan) -> Option<Str
         _ => None,
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test IRLS gradient direction: for a simple dataset where outcome=1 is
+    /// associated with higher x values, the fitted beta for x should be positive.
+    #[test]
+    fn irls_gradient_direction_positive_association() {
+        // Design matrix: intercept + one continuous predictor
+        // Overlapping data so IRLS converges (not perfectly separated)
+        let x = vec![
+            vec![1.0, 1.0],
+            vec![1.0, 1.5],
+            vec![1.0, 2.0],
+            vec![1.0, 2.5],
+            vec![1.0, 3.0],
+            vec![1.0, 3.5],
+            vec![1.0, 4.0],
+            vec![1.0, 4.5],
+            vec![1.0, 5.0],
+            vec![1.0, 5.5],
+        ];
+        // Higher x → more likely outcome=1, but with overlap at x=3.0
+        let y = vec![0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let weights = vec![1.0; 10];
+
+        let fit = fit_logistic_newton(&x, &y, &weights).unwrap();
+
+        // The coefficient for x (beta[1]) should be positive since higher x → outcome 1
+        assert!(
+            fit.beta[1] > 0.0,
+            "Expected positive beta for predictor associated with outcome=1, got {}",
+            fit.beta[1]
+        );
+        assert!(fit.converged, "IRLS should converge for overlapping data");
+    }
+
+    /// Test complete separation detection: when data is perfectly separated,
+    /// the model should detect extreme fitted probabilities or large betas.
+    #[test]
+    fn complete_separation_detection() {
+        // Perfect separation: x < 3 → y=0, x >= 3 → y=1
+        let x = vec![
+            vec![1.0, 0.0],
+            vec![1.0, 1.0],
+            vec![1.0, 2.0],
+            vec![1.0, 3.0],
+            vec![1.0, 4.0],
+            vec![1.0, 5.0],
+        ];
+        let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let weights = vec![1.0; 6];
+
+        let fit = fit_logistic_newton(&x, &y, &weights).unwrap();
+
+        // With perfect separation, IRLS will produce extreme fitted probabilities
+        // (very close to 0 or 1) or large absolute beta values.
+        let has_extreme_probabilities = fit
+            .fitted_probabilities
+            .iter()
+            .any(|p| *p <= 0.01 || *p >= 0.99);
+        let has_large_beta = fit.beta.iter().any(|b| b.abs() >= 8.0);
+
+        assert!(
+            has_extreme_probabilities || has_large_beta,
+            "Complete separation should produce extreme probabilities or large betas.\n\
+             Fitted probs: {:?}\n\
+             Betas: {:?}",
+            fit.fitted_probabilities,
+            fit.beta
+        );
+    }
+
+    /// Test known small-sample result: a 2×2 table with known odds ratio.
+    /// For a 2×2 table:
+    ///   | x=0 | x=1
+    /// y=0 |  a  |  b
+    /// y=1 |  c  |  d
+    /// The MLE odds ratio = (a*d) / (b*c) = `exp(beta_x)`.
+    ///
+    /// Using: a=10, b=5, c=5, d=10 → OR = (10*10)/(5*5) = 4.0
+    #[test]
+    fn known_small_sample_odds_ratio_2x2() {
+        // Construct design matrix from 2×2 table:
+        // 10 observations with x=0, y=0
+        // 5 observations with x=1, y=0
+        // 5 observations with x=0, y=1
+        // 10 observations with x=1, y=1
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+
+        // a=10: x=0, y=0
+        for _ in 0..10 {
+            x.push(vec![1.0, 0.0]);
+            y.push(0.0);
+        }
+        // b=5: x=1, y=0
+        for _ in 0..5 {
+            x.push(vec![1.0, 1.0]);
+            y.push(0.0);
+        }
+        // c=5: x=0, y=1
+        for _ in 0..5 {
+            x.push(vec![1.0, 0.0]);
+            y.push(1.0);
+        }
+        // d=10: x=1, y=1
+        for _ in 0..10 {
+            x.push(vec![1.0, 1.0]);
+            y.push(1.0);
+        }
+
+        let weights = vec![1.0; x.len()];
+        let fit = fit_logistic_newton(&x, &y, &weights).unwrap();
+
+        // Expected OR = exp(beta[1]) = 4.0, so beta[1] ≈ ln(4) ≈ 1.386
+        let expected_log_or = 4.0_f64.ln();
+        let actual_log_or = fit.beta[1];
+
+        assert!(
+            (actual_log_or - expected_log_or).abs() < 0.05,
+            "Expected log(OR) ≈ {expected_log_or:.4}, got {actual_log_or:.4}"
+        );
+        assert!(fit.converged, "Model should converge for this simple 2×2 table");
+
+        // Verify the odds ratio itself
+        let odds_ratio = actual_log_or.exp();
+        assert!(
+            (odds_ratio - 4.0).abs() < 0.2,
+            "Expected OR ≈ 4.0, got {odds_ratio:.4}"
+        );
+    }
+}

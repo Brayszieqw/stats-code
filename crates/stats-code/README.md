@@ -128,13 +128,13 @@ Useful slash commands there:
 
 Custom slash commands are also discovered from:
 
-- project `.claude/commands/**/*.md`
-- user `~/.claude/commands/**/*.md`
-- plugin command folders such as `.claude/plugins/**/.claude-plugin/commands/**/*.md`
+- project `.stats-code/commands/**/*.md`
+- user `~/.stats-code/commands/**/*.md`
+- plugin command folders such as `.stats-code/plugins/**/.stats-code-plugin/commands/**/*.md`
 
 Use `! <shell command>` inside the chat REPL to run a shell command inline. Stdout/stderr is printed and the result is also stored back into the active session context.
 
-The interactive chat UI now redraws as a lightweight Claude Code style terminal page with a top status header, a conversation pane, and a bottom input area.
+The interactive chat UI now redraws as a lightweight Stats Code terminal page with a top status header, a conversation pane, and a bottom input area.
 
 Typing `/` at the start of a new REPL line now opens the slash-command menu immediately. You can keep typing to filter it, use `Up` and `Down` to move the selection, and press `Tab` to accept the highlighted command. Typing `/` and pressing Enter is still treated as a shortcut for `/help`.
 

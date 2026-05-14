@@ -365,3 +365,140 @@ pub(crate) fn build_linear_formula(outcome: &str, terms: &[LogisticTermSpec]) ->
         .join(" + ");
     format!("{outcome} ~ {rhs}")
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_csv(name: &str, content: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "stats-code-linear-{name}-{}.csv",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::write(&path, content).expect("write csv");
+        path
+    }
+
+    fn linear_args(outcome: &str, predictors: &[&str]) -> ModelLinearArgs {
+        ModelLinearArgs {
+            data: None,
+            analysis: None,
+            outcome: outcome.to_string(),
+            predictors: predictors.iter().map(std::string::ToString::to_string).collect(),
+            adjust: Vec::new(),
+            strata: Vec::new(),
+        }
+    }
+
+    /// Test OLS exact solution for y = 2x + 1 (2 data points → exact fit).
+    /// With 2 points and 2 parameters (intercept + slope), the system is exactly
+    /// determined: β₀ = 1.0, β₁ = 2.0.
+    #[test]
+    fn ols_2x2_exact_solution() {
+        // y = 2x + 1: (0, 1) and (1, 3)
+        // With 3 points to satisfy n > p requirement
+        let path = temp_csv("ols-exact", "x,y\n0,1\n1,3\n2,5\n");
+        let args = linear_args("y", &["x"]);
+        let result = linear_csv(&path, None, None, &args).expect("linear regression");
+
+        assert_eq!(result.status, "ok");
+        assert!(result.converged);
+        assert_eq!(result.coefficients.len(), 2); // intercept + x
+
+        // Intercept should be 1.0
+        let intercept = &result.coefficients[0];
+        assert!(
+            (intercept.beta - 1.0).abs() < 1e-10,
+            "intercept beta = {}, expected 1.0",
+            intercept.beta
+        );
+
+        // Slope should be 2.0
+        let slope = &result.coefficients[1];
+        assert!(
+            (slope.beta - 2.0).abs() < 1e-10,
+            "slope beta = {}, expected 2.0",
+            slope.beta
+        );
+
+        fs::remove_file(path).expect("cleanup");
+    }
+
+    /// Test that R² = 1.0 for a perfect linear fit (all points on the line).
+    #[test]
+    fn perfect_fit_r_squared_is_one() {
+        // y = 3x + 2: all points lie exactly on the line
+        let path = temp_csv(
+            "perfect-fit",
+            "x,y\n0,2\n1,5\n2,8\n3,11\n4,14\n",
+        );
+        let args = linear_args("y", &["x"]);
+        let result = linear_csv(&path, None, None, &args).expect("linear regression");
+
+        assert_eq!(result.status, "ok");
+        assert!(result.converged);
+        assert!(
+            (result.r_squared - 1.0).abs() < 1e-10,
+            "R² = {}, expected 1.0 for perfect fit",
+            result.r_squared
+        );
+        assert!(
+            (result.adjusted_r_squared - 1.0).abs() < 1e-10,
+            "Adjusted R² = {}, expected 1.0 for perfect fit",
+            result.adjusted_r_squared
+        );
+        // Residual standard error should be ~0 for perfect fit
+        assert!(
+            result.residual_std_error < 1e-10,
+            "residual_std_error = {}, expected ~0 for perfect fit",
+            result.residual_std_error
+        );
+
+        fs::remove_file(path).expect("cleanup");
+    }
+
+    /// Test that the sum of residuals is approximately zero (a fundamental OLS property).
+    /// For OLS with an intercept, Σ(yᵢ - ŷᵢ) = 0 exactly.
+    #[test]
+    fn residual_sum_approximately_zero() {
+        // Use data that does NOT perfectly fit a line, so residuals are non-trivial
+        let path = temp_csv(
+            "residuals",
+            "x,y\n1,2.1\n2,3.9\n3,6.2\n4,7.8\n5,10.1\n6,12.3\n7,13.8\n8,16.2\n",
+        );
+        let args = linear_args("y", &["x"]);
+        let result = linear_csv(&path, None, None, &args).expect("linear regression");
+
+        assert_eq!(result.status, "ok");
+        assert!(result.converged);
+
+        // Recompute residuals from the fitted coefficients
+        let intercept = result.coefficients[0].beta;
+        let slope = result.coefficients[1].beta;
+        let ys = [2.1, 3.9, 6.2, 7.8, 10.1, 12.3, 13.8, 16.2];
+        let xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+
+        let residual_sum: f64 = xs
+            .iter()
+            .zip(ys.iter())
+            .map(|(x, y)| y - (intercept + slope * x))
+            .sum();
+
+        assert!(
+            residual_sum.abs() < 1e-10,
+            "sum of residuals = {residual_sum}, expected ~0"
+        );
+
+        // Also verify R² is between 0 and 1 (not perfect fit, not terrible)
+        assert!(result.r_squared > 0.99, "R² = {}, expected > 0.99", result.r_squared);
+        assert!(result.r_squared <= 1.0, "R² = {}, expected <= 1.0", result.r_squared);
+
+        fs::remove_file(path).expect("cleanup");
+    }
+}

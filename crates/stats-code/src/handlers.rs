@@ -10,6 +10,7 @@ mod model;
 mod power;
 mod project;
 mod run;
+mod stats;
 mod survival;
 mod workflow;
 
@@ -24,6 +25,7 @@ use audit::{handle_audit_explain, handle_open_report};
 use power::handle_power;
 use project::{handle_doctor, handle_init_project};
 use run::{handle_run_script, render_run_script_text};
+use stats::handle_stats;
 
 use crate::bridge::Engine;
 use crate::chat::run_chat_repl;
@@ -266,6 +268,12 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
                 ("workflow_run", json!(args), serde_json::to_value(result)?)
             }
         },
+        Command::Stats { command } => {
+            // handle_stats returns Err("not yet implemented for <method>") for every leaf
+            // until individual method implementations replace these arms.
+            let result = handle_stats(cli, command)?;
+            ("stats", json!({}), serde_json::to_value(result)?)
+        }
         Command::Run { command } => {
             let (engine, args) = match command {
                 RunCommand::Python(args) => (Engine::Python, args),

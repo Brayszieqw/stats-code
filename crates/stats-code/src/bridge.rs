@@ -163,6 +163,15 @@ fn resolve_python_script(name: &str) -> Result<String, String> {
         "model_logistic.py" => Ok(include_str!("../scripts/python/model_logistic.py").to_string()),
         "model_linear.py" => Ok(include_str!("../scripts/python/model_linear.py").to_string()),
         "model_cox.py" => Ok(include_str!("../scripts/python/model_cox.py").to_string()),
+        "ordinal_logit.py" => Ok(include_str!("../scripts/python/ordinal_logit.py").to_string()),
+        "multinomial_logit.py" => {
+            Ok(include_str!("../scripts/python/multinomial_logit.py").to_string())
+        }
+        "lda.py" => Ok(include_str!("../scripts/python/lda.py").to_string()),
+        "mixed_effects.py" => Ok(include_str!("../scripts/python/mixed_effects.py").to_string()),
+        "competing_risks.py" => {
+            Ok(include_str!("../scripts/python/competing_risks.py").to_string())
+        }
         _ => Err(format!("Unknown built-in script: {name}")),
     }
 }
@@ -332,7 +341,10 @@ impl BridgeRequest {
 // Result converters
 // ---------------------------------------------------------------------------
 
-use crate::schema::{CoxResult, LinearResult, LogisticResult};
+use crate::schema::{
+    CompetingRisksResult, CoxResult, LdaResult, LinearResult, LogisticResult, MixedLmmResult,
+    MultinomialLogitResult, OrdinalLogitResult,
+};
 
 /// Convert a bridge response into a `LogisticResult`.
 pub fn bridge_to_logistic(response: &BridgeResponse) -> Result<LogisticResult, String> {
@@ -350,6 +362,40 @@ pub fn bridge_to_linear(response: &BridgeResponse) -> Result<LinearResult, Strin
 pub fn bridge_to_cox(response: &BridgeResponse) -> Result<CoxResult, String> {
     serde_json::from_value(response.result.clone())
         .map_err(|e| format!("Failed to convert bridge result to CoxResult: {e}"))
+}
+
+/// Convert a bridge response into an `OrdinalLogitResult`.
+pub fn bridge_to_ordinal_logit(response: &BridgeResponse) -> Result<OrdinalLogitResult, String> {
+    serde_json::from_value(response.result.clone())
+        .map_err(|e| format!("Failed to convert bridge result to OrdinalLogitResult: {e}"))
+}
+
+/// Convert a bridge response into a `MultinomialLogitResult`.
+pub fn bridge_to_multinomial_logit(
+    response: &BridgeResponse,
+) -> Result<MultinomialLogitResult, String> {
+    serde_json::from_value(response.result.clone())
+        .map_err(|e| format!("Failed to convert bridge result to MultinomialLogitResult: {e}"))
+}
+
+/// Convert a bridge response into an `LdaResult`.
+pub fn bridge_to_lda(response: &BridgeResponse) -> Result<LdaResult, String> {
+    serde_json::from_value(response.result.clone())
+        .map_err(|e| format!("Failed to convert bridge result to LdaResult: {e}"))
+}
+
+/// Convert a bridge response into a `MixedLmmResult`.
+pub fn bridge_to_mixed_lmm(response: &BridgeResponse) -> Result<MixedLmmResult, String> {
+    serde_json::from_value(response.result.clone())
+        .map_err(|e| format!("Failed to convert bridge result to MixedLmmResult: {e}"))
+}
+
+/// Convert a bridge response into a `CompetingRisksResult`.
+pub fn bridge_to_competing_risks(
+    response: &BridgeResponse,
+) -> Result<CompetingRisksResult, String> {
+    serde_json::from_value(response.result.clone())
+        .map_err(|e| format!("Failed to convert bridge result to CompetingRisksResult: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +523,9 @@ mod tests {
 
         let logistic = resolve_python_script("model_logistic.py");
         assert!(logistic.is_ok(), "model_logistic.py should be built-in");
+
+        let ordinal = resolve_python_script("ordinal_logit.py");
+        assert!(ordinal.is_ok(), "ordinal_logit.py should be built-in");
     }
 
     #[test]

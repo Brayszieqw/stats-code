@@ -129,6 +129,7 @@ pub(crate) fn handle_analysis_plan(args: &PlanArgs) -> Result<PlannedCommandResu
         formula: None,
         expected_outputs,
         notes,
+        result: None,
     })
 }
 

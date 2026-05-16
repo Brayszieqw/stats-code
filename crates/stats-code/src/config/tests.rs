@@ -28,6 +28,8 @@ fn test_cli(command: Command) -> Cli {
         system: None,
         max_tokens: None,
         engine: crate::bridge::Engine::Rust,
+        alpha: 0.05,
+        na_strategy: crate::cli::NaStrategy::Drop,
         command: Some(command),
     }
 }

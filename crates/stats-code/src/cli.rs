@@ -5,6 +5,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::bridge::Engine;
 
+/// Strategy for handling missing values in statistical analyses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum NaStrategy {
+    /// Exclude rows with any missing value in required columns (default).
+    #[default]
+    Drop,
+    /// Return a descriptive error if any required column has missing values.
+    Error,
+}
+
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "stats-code",
@@ -33,6 +44,14 @@ pub struct Cli {
     /// Execution engine: rust (default), python, or r.
     #[arg(long, global = true, default_value = "rust")]
     pub engine: Engine,
+
+    /// Significance level / confidence level control (default 0.05 → 95% CI).
+    #[arg(long, global = true, default_value_t = 0.05)]
+    pub alpha: f64,
+
+    /// Missing-value handling strategy: drop (default) or error.
+    #[arg(long = "na-strategy", global = true, default_value = "drop")]
+    pub na_strategy: NaStrategy,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -101,6 +120,11 @@ pub enum Command {
     Run {
         #[command(subcommand)]
         command: RunCommand,
+    },
+    /// Statistical and epidemiological analysis methods.
+    Stats {
+        #[command(subcommand)]
+        command: StatsCommand,
     },
 }
 
@@ -573,6 +597,643 @@ pub struct RunScriptArgs {
     /// JSON string with additional parameters.
     #[arg(long)]
     pub params: Option<String>,
+}
+
+// ─── Stats subcommand tree ────────────────────────────────────────────────────
+
+/// Top-level subcommands for the `stats` group.
+#[derive(Debug, Clone, Subcommand)]
+pub enum StatsCommand {
+    /// Paired and one-sample t-tests.
+    Ttest {
+        #[command(subcommand)]
+        command: TtestCommand,
+    },
+    /// One-way, randomized-block, repeated-measures ANOVA, and post-hoc tests.
+    Anova {
+        #[command(subcommand)]
+        command: AnovaCommand,
+    },
+    /// Nonparametric tests (McNemar, Wilcoxon signed-rank, Mann-Whitney U,
+    /// Cochran-Armitage trend).
+    Nonparam {
+        #[command(subcommand)]
+        command: NonparamCommand,
+    },
+    /// Normality and homogeneity-of-variance diagnostic tests.
+    Diagnostic {
+        #[command(subcommand)]
+        command: DiagnosticStatsCommand,
+    },
+    /// Epidemiological measures (OR/RR, standardization, attributable risk,
+    /// dose-response).
+    Epi {
+        #[command(subcommand)]
+        command: EpiStatsCommand,
+    },
+    /// Inter-rater agreement (kappa, Bland-Altman).
+    Agreement {
+        #[command(subcommand)]
+        command: AgreementCommand,
+    },
+    /// Multivariate methods (PCA, LDA, cluster analysis).
+    Multivariate {
+        #[command(subcommand)]
+        command: MultivariateCommand,
+    },
+    /// Sample-size calculators.
+    SampleSize {
+        #[command(subcommand)]
+        command: SampleSizeCommand,
+    },
+    /// Survival analysis extensions (life table, competing risks).
+    Survival {
+        #[command(subcommand)]
+        command: StatsSurvivalCommand,
+    },
+    /// Regression models (Poisson, ordinal logistic, multinomial logistic).
+    Model {
+        #[command(subcommand)]
+        command: StatsModelCommand,
+    },
+    /// Pearson r and Spearman ρ correlation analysis.
+    Correlation(StatsCorrelationArgs),
+    /// Fixed-effect and random-effects meta-analysis.
+    Meta(StatsMetaArgs),
+    /// Linear mixed-effects models (REML).
+    Mixed(StatsMixedArgs),
+    /// Propensity score matching.
+    Psm(StatsPsmArgs),
+}
+
+/// T-test subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TtestCommand {
+    /// Paired t-test (before/after measurements).
+    Paired(TtestPairedArgs),
+    /// One-sample t-test against a known population mean.
+    OneSample(TtestOneSampleArgs),
+}
+
+/// ANOVA subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum AnovaCommand {
+    /// One-way (CRD) or randomized-block (RBD) ANOVA.
+    Oneway(AnovaOnewayArgs),
+    /// Repeated-measures ANOVA.
+    Repeated(AnovaRepeatedArgs),
+    /// Post-hoc pairwise comparisons (Bonferroni or Tukey HSD).
+    Posthoc(AnovaPosthocArgs),
+}
+
+/// Nonparametric test subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum NonparamCommand {
+    /// McNemar test for paired binary outcomes.
+    Mcnemar(NonparamMcnemarArgs),
+    /// Wilcoxon signed-rank test.
+    Wilcoxon(NonparamWilcoxonArgs),
+    /// Mann-Whitney U test for two independent groups.
+    Mannwhitney(NonparamMannwhitneyArgs),
+    /// Cochran-Armitage trend test.
+    CochranArmitage(NonparamCochranArmitageArgs),
+}
+
+/// Diagnostic (normality / variance) subcommands — distinct from the existing
+/// `DiagnosticCommand` (ROC) to avoid name collision.
+#[derive(Debug, Clone, Subcommand)]
+pub enum DiagnosticStatsCommand {
+    /// Shapiro-Wilk and Lilliefors K-S normality tests.
+    Normality(DiagnosticNormalityArgs),
+    /// Levene and Bartlett homogeneity-of-variance tests.
+    Variance(DiagnosticVarianceArgs),
+}
+
+/// Epidemiology subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum EpiStatsCommand {
+    /// Odds ratio and relative risk with optional Mantel-Haenszel stratification.
+    OrRr(EpiOrRrArgs),
+    /// Direct and indirect (SMR) rate standardization.
+    Standardize(EpiStandardizeArgs),
+    /// Attributable risk measures (AR, AR%, PAR, PAR%).
+    Attributable(EpiAttributableArgs),
+    /// Dose-response analysis (log-linear trend via Poisson GLM).
+    DoseResponse(EpiDoseResponseArgs),
+}
+
+/// Agreement subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum AgreementCommand {
+    /// Cohen's kappa and weighted kappa.
+    Kappa(AgreementKappaArgs),
+    /// Bland-Altman method-comparison analysis.
+    BlandAltman(AgreementBlandAltmanArgs),
+}
+
+/// Multivariate subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum MultivariateCommand {
+    /// Principal component analysis.
+    Pca(MultivariatePcaArgs),
+    /// Linear discriminant analysis.
+    Lda(MultivariateLdaArgs),
+    /// K-means and Ward hierarchical cluster analysis.
+    Cluster(MultivariateClusterArgs),
+}
+
+/// Sample-size subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum SampleSizeCommand {
+    /// Schoenfeld log-rank sample-size calculator.
+    LogRank(SampleSizeLogRankArgs),
+}
+
+/// Survival-analysis subcommands (stats group extension).
+#[derive(Debug, Clone, Subcommand)]
+pub enum StatsSurvivalCommand {
+    /// Actuarial life-table survival analysis.
+    Lifetable(StatsSurvivalLifetableArgs),
+    /// Competing-risks analysis (cause-specific Cox + CIF).
+    Competing(StatsSurvivalCompetingArgs),
+}
+
+/// Regression-model subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum StatsModelCommand {
+    /// Poisson regression with offset for person-time.
+    Poisson(StatsModelPoissonArgs),
+    /// Ordinal logistic regression (proportional odds).
+    Ordinal(StatsModelOrdinalArgs),
+    /// Multinomial logistic regression.
+    Multinomial(StatsModelMultinomialArgs),
+}
+
+// ─── Placeholder Args structs (filled per-method in later tasks) ──────────────
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct TtestPairedArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub before: String,
+    #[arg(long)]
+    pub after: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct TtestOneSampleArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    /// Hypothesized population mean.
+    #[arg(long)]
+    pub mu: f64,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AnovaOnewayArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    #[arg(long)]
+    pub group: String,
+    #[arg(long)]
+    pub block: Option<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AnovaRepeatedArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    #[arg(long)]
+    pub subject: String,
+    #[arg(long)]
+    pub time: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AnovaPosthocArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    #[arg(long)]
+    pub group: String,
+    #[arg(long, default_value = "bonferroni")]
+    pub method: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct NonparamMcnemarArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var1: String,
+    #[arg(long)]
+    pub var2: String,
+    #[arg(long, default_value_t = 25)]
+    pub exact_threshold: usize,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct NonparamWilcoxonArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var1: String,
+    #[arg(long)]
+    pub var2: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct NonparamMannwhitneyArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    #[arg(long)]
+    pub group: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct NonparamCochranArmitageArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub exposure: String,
+    #[arg(long)]
+    pub outcome: String,
+    /// Comma-separated integer scores for ordered categories.
+    #[arg(long, value_delimiter = ',')]
+    #[serde(default)]
+    pub scores: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct DiagnosticNormalityArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct DiagnosticVarianceArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub var: String,
+    #[arg(long)]
+    pub group: String,
+    #[arg(long, default_value = "median")]
+    pub center: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct EpiOrRrArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub exposure: String,
+    #[arg(long)]
+    pub outcome: String,
+    #[arg(long, value_delimiter = ',')]
+    #[serde(default)]
+    pub strata: Vec<String>,
+    #[arg(long)]
+    pub exposure_event: Option<String>,
+    #[arg(long)]
+    pub outcome_event: Option<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct EpiStandardizeArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long, default_value = "direct")]
+    pub method: String,
+    #[arg(long)]
+    pub event: String,
+    #[arg(long)]
+    pub person_time: String,
+    #[arg(long)]
+    pub age_group: String,
+    /// Built-in name (who_world_2000, china_census_2010, segi_world) or path to CSV.
+    #[arg(long)]
+    pub standard_pop: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct EpiAttributableArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub exposure: String,
+    #[arg(long)]
+    pub outcome: String,
+    #[arg(long)]
+    pub person_time: Option<String>,
+    #[arg(long)]
+    pub exposure_prevalence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct EpiDoseResponseArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub exposure: String,
+    #[arg(long)]
+    pub outcome: String,
+    #[arg(long)]
+    pub person_time: String,
+    #[arg(long, value_delimiter = ',')]
+    #[serde(default)]
+    pub scores: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AgreementKappaArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub rater1: String,
+    #[arg(long)]
+    pub rater2: String,
+    /// Weight scheme: none, linear, or quadratic.
+    #[arg(long, default_value = "none")]
+    pub weights: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct AgreementBlandAltmanArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub method1: String,
+    #[arg(long)]
+    pub method2: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct MultivariatePcaArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long, value_delimiter = ',')]
+    pub vars: Vec<String>,
+    #[arg(long)]
+    pub n_components: Option<usize>,
+    /// Matrix type: correlation (default) or covariance.
+    #[arg(long, default_value = "correlation")]
+    pub matrix: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct MultivariateLdaArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub group: String,
+    #[arg(long, value_delimiter = ',')]
+    pub vars: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct MultivariateClusterArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long, value_delimiter = ',')]
+    pub vars: Vec<String>,
+    #[arg(long)]
+    pub k: usize,
+    /// Clustering method: kmeans (default) or hierarchical.
+    #[arg(long, default_value = "kmeans")]
+    pub method: String,
+    #[arg(long)]
+    pub seed: Option<u64>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct SampleSizeLogRankArgs {
+    #[arg(long)]
+    pub median1: f64,
+    #[arg(long)]
+    pub median2: f64,
+    #[arg(long)]
+    pub accrual: f64,
+    #[arg(long)]
+    pub followup: f64,
+    #[arg(long, default_value_t = 0.8)]
+    pub power: f64,
+    #[arg(long, default_value_t = 1.0)]
+    pub allocation_ratio: f64,
+    #[arg(long)]
+    pub dropout_rate: Option<f64>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsSurvivalLifetableArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub intervals: String,
+    #[arg(long)]
+    pub events: Option<String>,
+    #[arg(long)]
+    pub withdrawals: Option<String>,
+    #[arg(long)]
+    pub entering: Option<String>,
+    #[arg(long)]
+    pub time: Option<String>,
+    #[arg(long)]
+    pub status: Option<String>,
+    /// Input format: grouped (default) or individual.
+    #[arg(long, default_value = "grouped")]
+    pub input_format: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsSurvivalCompetingArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub time: String,
+    #[arg(long)]
+    pub event_type: String,
+    #[arg(long)]
+    pub cause: String,
+    #[arg(long, value_delimiter = ',')]
+    pub x: Vec<String>,
+    #[arg(long)]
+    #[serde(default)]
+    pub point_estimate_only: bool,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsModelPoissonArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long = "y")]
+    #[serde(alias = "y")]
+    pub outcome: String,
+    #[arg(long = "x", value_delimiter = ',')]
+    #[serde(alias = "x")]
+    pub predictors: Vec<String>,
+    /// Offset column (already on log scale).
+    #[arg(long)]
+    pub offset: Option<String>,
+    /// Exposure column (raw; internally log-transformed).
+    #[arg(long)]
+    pub exposure: Option<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsModelOrdinalArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long = "y")]
+    #[serde(alias = "y")]
+    pub outcome: String,
+    #[arg(long = "x", value_delimiter = ',')]
+    #[serde(alias = "x")]
+    pub predictors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsModelMultinomialArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long = "y")]
+    #[serde(alias = "y")]
+    pub outcome: String,
+    #[arg(long = "x", value_delimiter = ',')]
+    #[serde(alias = "x")]
+    pub predictors: Vec<String>,
+    #[arg(long)]
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsCorrelationArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub x: String,
+    #[arg(long)]
+    pub y: String,
+    /// Correlation method: pearson, spearman, or both.
+    #[arg(long, default_value = "both")]
+    pub method: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsMetaArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub effect: String,
+    #[arg(long)]
+    pub se: String,
+    #[arg(long)]
+    pub study_label: Option<String>,
+    /// Model: fixed, random, or both (default).
+    #[arg(long, default_value = "both")]
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsMixedArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long = "y")]
+    #[serde(alias = "y")]
+    pub outcome: String,
+    #[arg(long = "x", value_delimiter = ',')]
+    #[serde(alias = "x")]
+    pub predictors: Vec<String>,
+    #[arg(long)]
+    pub random: String,
+}
+
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct StatsPsmArgs {
+    #[arg(long)]
+    pub data: Option<PathBuf>,
+    #[arg(long)]
+    pub analysis: Option<PathBuf>,
+    #[arg(long)]
+    pub treatment: String,
+    #[arg(long, value_delimiter = ',')]
+    pub covariates: Vec<String>,
+    #[arg(long, default_value_t = 0.2)]
+    pub caliper: f64,
+    #[arg(long, default_value_t = 1)]
+    pub ratio: usize,
+    #[arg(long)]
+    pub seed: Option<u64>,
+    #[arg(long)]
+    pub output: Option<PathBuf>,
 }
 
 #[cfg(test)]

@@ -1,8 +1,46 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::contract::AnalysisCheckItem;
 use super::types::{DataFormat, VariableKind};
+
+// ---------------------------------------------------------------------------
+// result_prelude! — injects the standard header fields shared by every new
+// statistical *Result struct (Requirements G1.5).
+//
+// Usage:
+//   result_prelude!(MyResult {
+//       pub extra_field: f64,
+//   });
+//
+// Expands to a public struct with:
+//   status, data_path, analysis_path, n_total, n_used, n_excluded_missing,
+//   notes, warnings  — plus whatever extra fields are listed.
+// ---------------------------------------------------------------------------
+macro_rules! result_prelude {
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident {
+            $(pub $field:ident : $ty:ty,)*
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct $name {
+            pub status: String,
+            pub data_path: String,
+            pub analysis_path: Option<String>,
+            pub n_total: usize,
+            pub n_used: usize,
+            pub n_excluded_missing: usize,
+            pub notes: Vec<String>,
+            pub warnings: Vec<String>,
+            $(pub $field: $ty,)*
+        }
+    };
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NumericSummary {
@@ -459,6 +497,8 @@ pub struct PlannedCommandResult {
     pub formula: Option<String>,
     pub expected_outputs: Vec<String>,
     pub notes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -655,4 +695,685 @@ pub struct ConfigResult {
     pub saved_models: Vec<String>,
     pub message: String,
     pub notes: Vec<String>,
+}
+
+// ============================================================================
+// New statistical-methods result structs (Requirements G1.5, task 3.1)
+// ============================================================================
+
+// --- T-Tests (Req 1, 2) -----------------------------------------------------
+
+result_prelude! {
+    pub struct TtestPairedResult {
+        pub method: String,
+        pub before_variable: String,
+        pub after_variable: String,
+        pub n_pairs: usize,
+        pub mean_diff: f64,
+        pub sd_diff: f64,
+        pub se_diff: f64,
+        pub t_statistic: f64,
+        pub df: f64,
+        pub p_value: f64,
+        pub ci_lower: f64,
+        pub ci_upper: f64,
+        pub alpha: f64,
+    }
+}
+
+result_prelude! {
+    pub struct TtestOneSampleResult {
+        pub method: String,
+        pub variable: String,
+        pub hypothesized_mean: f64,
+        pub n: usize,
+        pub sample_mean: f64,
+        pub sample_sd: f64,
+        pub se: f64,
+        pub t_statistic: f64,
+        pub df: f64,
+        pub p_value: f64,
+        pub ci_lower: f64,
+        pub ci_upper: f64,
+        pub alpha: f64,
+    }
+}
+
+// --- ANOVA Family (Req 3, 11, 12) -------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnovaGroupSummary {
+    pub group: String,
+    pub n: usize,
+    pub mean: f64,
+    pub sd: f64,
+}
+
+result_prelude! {
+    pub struct OneWayAnovaResult {
+        pub variable: String,
+        pub group: String,
+        pub overall_mean: f64,
+        pub groups: Vec<AnovaGroupSummary>,
+        pub ss_between: f64,
+        pub ss_within: f64,
+        pub ss_total: f64,
+        pub df_between: usize,
+        pub df_within: usize,
+        pub ms_between: f64,
+        pub ms_within: f64,
+        pub f_statistic: f64,
+        pub p_value: f64,
+    }
+}
+
+result_prelude! {
+    pub struct RbdAnovaResult {
+        pub variable: String,
+        pub group: String,
+        pub block: String,
+        pub treatment_f: f64,
+        pub treatment_df1: usize,
+        pub treatment_df2: usize,
+        pub treatment_p: f64,
+        pub block_f: f64,
+        pub block_df1: usize,
+        pub block_df2: usize,
+        pub block_p: f64,
+        pub error_ms: f64,
+    }
+}
+
+result_prelude! {
+    pub struct RepeatedAnovaResult {
+        pub variable: String,
+        pub subject: String,
+        pub time: String,
+        pub n_subjects: usize,
+        pub n_timepoints: usize,
+        pub time_f: f64,
+        pub time_df1: usize,
+        pub time_df2: usize,
+        pub time_p: f64,
+        pub mauchly_w: Option<f64>,
+        pub mauchly_p: Option<f64>,
+        pub gg_epsilon: Option<f64>,
+        pub gg_df1: Option<f64>,
+        pub gg_df2: Option<f64>,
+        pub gg_p: Option<f64>,
+        pub hf_epsilon: Option<f64>,
+        pub hf_df1: Option<f64>,
+        pub hf_df2: Option<f64>,
+        pub hf_p: Option<f64>,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PosthocPair {
+    pub group_a: String,
+    pub group_b: String,
+    pub mean_difference: f64,
+    pub standard_error: f64,
+    pub test_statistic: f64,
+    pub adjusted_p_value: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
+}
+
+result_prelude! {
+    pub struct PosthocResult {
+        pub variable: String,
+        pub group: String,
+        pub method: String,
+        pub pairs: Vec<PosthocPair>,
+    }
+}
+
+// --- Nonparametric Tests (Req 5, 6, 7) --------------------------------------
+
+result_prelude! {
+    pub struct McNemarResult {
+        pub var1: String,
+        pub var2: String,
+        pub b: usize,
+        pub c: usize,
+        pub n_concordant: usize,
+        pub chi_square: f64,
+        pub continuity_correction_used: bool,
+        pub p_value: f64,
+        pub exact_p_value: Option<f64>,
+    }
+}
+
+result_prelude! {
+    pub struct WilcoxonSignedRankResult {
+        pub var1: String,
+        pub var2: String,
+        pub w_plus: f64,
+        pub expected_w: f64,
+        pub variance_w: f64,
+        pub z_statistic: f64,
+        pub p_value: f64,
+        pub n_zero_pairs_excluded: usize,
+        pub n_ties_corrected: usize,
+    }
+}
+
+result_prelude! {
+    pub struct MannWhitneyResult {
+        pub variable: String,
+        pub group: String,
+        pub group_a_label: String,
+        pub group_b_label: String,
+        pub n_a: usize,
+        pub n_b: usize,
+        pub median_a: f64,
+        pub median_b: f64,
+        pub u_statistic: f64,
+        pub z_statistic: f64,
+        pub p_value: f64,
+    }
+}
+
+// --- Trend (Req 4) ----------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryProportion {
+    pub category: String,
+    pub score: f64,
+    pub n: usize,
+    pub events: usize,
+    pub proportion: f64,
+}
+
+result_prelude! {
+    pub struct CochranArmitageResult {
+        pub exposure: String,
+        pub outcome: String,
+        pub categories: Vec<CategoryProportion>,
+        pub trend_statistic: f64,
+        pub p_value: f64,
+    }
+}
+
+// --- Correlation (Req 8) ----------------------------------------------------
+
+result_prelude! {
+    pub struct CorrelationResult {
+        pub method: String,
+        pub x_variable: String,
+        pub y_variable: String,
+        pub n_pairs: usize,
+        pub r: f64,
+        pub r_squared: f64,
+        pub se_fisher_z: f64,
+        pub ci_lower: f64,
+        pub ci_upper: f64,
+        pub t_statistic: f64,
+        pub df: f64,
+        pub p_value: f64,
+        pub alpha: f64,
+        pub spearman_rho: Option<f64>,
+        pub spearman_p_value: Option<f64>,
+    }
+}
+
+// --- Normality (Req 16) -----------------------------------------------------
+
+result_prelude! {
+    pub struct NormalityResult {
+        pub variable: String,
+        pub n: usize,
+        pub skewness: f64,
+        pub kurtosis: f64,
+        pub shapiro_w: Option<f64>,
+        pub shapiro_p: Option<f64>,
+        pub shapiro_p_unreliable: bool,
+        pub ks_d: f64,
+        pub ks_p: f64,
+        pub lilliefors_used: bool,
+    }
+}
+
+// --- Variance Homogeneity (Req 17) ------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupVarianceSummary {
+    pub group: String,
+    pub n: usize,
+    pub variance: f64,
+    pub sd: f64,
+}
+
+result_prelude! {
+    pub struct VarianceHomogeneityResult {
+        pub variable: String,
+        pub group: String,
+        pub groups: Vec<GroupVarianceSummary>,
+        pub levene_statistic: f64,
+        pub levene_p: f64,
+        pub bartlett_statistic: f64,
+        pub bartlett_p: f64,
+    }
+}
+
+// --- Epidemiology (Req 9, 10, 19, 20) ---------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwoByTwoCells {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MhStratum {
+    pub label: String,
+    pub cells: TwoByTwoCells,
+    pub or_stratum: f64,
+}
+
+result_prelude! {
+    pub struct OrRrResult {
+        pub exposure: String,
+        pub outcome: String,
+        pub cells: TwoByTwoCells,
+        pub continuity_correction: bool,
+        pub odds_ratio: f64,
+        pub or_ci_lower: f64,
+        pub or_ci_upper: f64,
+        pub relative_risk: f64,
+        pub rr_ci_lower: f64,
+        pub rr_ci_upper: f64,
+        pub chi_square: f64,
+        pub chi_p_value: f64,
+        pub mh_or: Option<f64>,
+        pub mh_or_ci_lower: Option<f64>,
+        pub mh_or_ci_upper: Option<f64>,
+        pub mh_strata: Vec<MhStratum>,
+        pub homogeneity_p: Option<f64>,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StandardizationStratum {
+    pub age_group: String,
+    pub observed: f64,
+    pub expected: f64,
+    pub weight: f64,
+    pub stratum_rate: f64,
+}
+
+result_prelude! {
+    pub struct StandardizationResult {
+        pub method: String,
+        pub strata: Vec<StandardizationStratum>,
+        pub standardized_rate: Option<f64>,
+        pub direct_ci_lower: Option<f64>,
+        pub direct_ci_upper: Option<f64>,
+        pub smr: Option<f64>,
+        pub smr_ci_lower: Option<f64>,
+        pub smr_ci_upper: Option<f64>,
+    }
+}
+
+result_prelude! {
+    pub struct AttributableRiskResult {
+        pub exposure: String,
+        pub outcome: String,
+        pub rate_exposed: f64,
+        pub rate_unexposed: f64,
+        pub ar: f64,
+        pub ar_ci_lower: f64,
+        pub ar_ci_upper: f64,
+        pub ar_percent: f64,
+        pub par: Option<f64>,
+        pub par_ci_lower: Option<f64>,
+        pub par_ci_upper: Option<f64>,
+        pub par_percent: Option<f64>,
+        pub exposure_prevalence: Option<f64>,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoseResponseCategory {
+    pub category: String,
+    pub score: f64,
+    pub events: usize,
+    pub person_time: f64,
+    pub rate: f64,
+    pub rate_ratio: f64,
+    pub rr_ci_lower: f64,
+    pub rr_ci_upper: f64,
+}
+
+result_prelude! {
+    pub struct DoseResponseResult {
+        pub exposure: String,
+        pub outcome: String,
+        pub categories: Vec<DoseResponseCategory>,
+        pub trend_beta: f64,
+        pub trend_se: f64,
+        pub trend_ci_lower: f64,
+        pub trend_ci_upper: f64,
+        pub trend_p_value: f64,
+        pub linearity_p_value: f64,
+    }
+}
+
+// --- GLMs (Req 13, 14, 15) --------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoissonCoefficient {
+    pub term: String,
+    pub variable: String,
+    pub beta: f64,
+    pub standard_error: f64,
+    pub irr: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
+    pub p_value: f64,
+}
+
+result_prelude! {
+    pub struct PoissonResult {
+        pub outcome: String,
+        pub predictors: Vec<String>,
+        pub offset: Option<String>,
+        pub offset_kind: String,
+        pub iterations: usize,
+        pub converged: bool,
+        pub log_likelihood: f64,
+        pub deviance: f64,
+        pub pearson_chi_square: f64,
+        pub aic: f64,
+        pub coefficients: Vec<PoissonCoefficient>,
+    }
+}
+
+result_prelude! {
+    pub struct OrdinalLogitResult {
+        pub outcome: String,
+        pub predictors: Vec<String>,
+        pub thresholds: Vec<f64>,
+        pub coefficients: Vec<LogisticCoefficient>,
+        pub brant_chi_square: Option<f64>,
+        pub brant_p: Option<f64>,
+        pub log_likelihood: f64,
+        pub aic: f64,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultinomialCoefficientGroup {
+    pub category: String,
+    pub coefficients: Vec<LogisticCoefficient>,
+}
+
+result_prelude! {
+    pub struct MultinomialLogitResult {
+        pub outcome: String,
+        pub predictors: Vec<String>,
+        pub reference: String,
+        pub categories: Vec<String>,
+        pub coefficients_per_category: Vec<MultinomialCoefficientGroup>,
+        pub log_likelihood: f64,
+        pub aic: f64,
+        pub pseudo_r2: f64,
+    }
+}
+
+// --- Mixed Effects (Req 27) -------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MixedFixedEffect {
+    pub term: String,
+    pub estimate: f64,
+    pub standard_error: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
+    pub p_value: f64,
+}
+
+result_prelude! {
+    pub struct MixedLmmResult {
+        pub outcome: String,
+        pub predictors: Vec<String>,
+        pub random_group: String,
+        pub n_groups: usize,
+        pub iterations: usize,
+        pub converged: bool,
+        pub fixed_effects: Vec<MixedFixedEffect>,
+        pub random_intercept_variance: f64,
+        pub residual_variance: f64,
+        pub icc: f64,
+        pub log_likelihood: f64,
+        pub aic: f64,
+        pub bic: f64,
+    }
+}
+
+// --- Survival Extensions (Req 18, 29) ---------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeTableRow {
+    pub interval_index: usize,
+    pub start: f64,
+    pub end: f64,
+    pub entering: usize,
+    pub withdrawals: usize,
+    pub events: usize,
+    pub effective_at_risk: f64,
+    pub conditional_survival: f64,
+    pub cumulative_survival: f64,
+    pub se_cumulative: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
+    pub hazard_rate: f64,
+    pub cumulative_hazard: f64,
+}
+
+result_prelude! {
+    pub struct LifeTableResult {
+        pub time: String,
+        pub intervals: Vec<LifeTableRow>,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompetingRisksCauseFit {
+    pub cause: String,
+    pub coefficients: Vec<CoxCoefficient>,
+    pub log_partial_likelihood: f64,
+    pub n_events: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompetingRisksCif {
+    pub time: f64,
+    pub cif: f64,
+    pub se: f64,
+}
+
+result_prelude! {
+    pub struct CompetingRisksResult {
+        pub time: String,
+        pub event_type: String,
+        pub causes: Vec<String>,
+        pub cause_fits: Vec<CompetingRisksCauseFit>,
+        pub cif_curves: BTreeMap<String, Vec<CompetingRisksCif>>,
+        pub gray_chi_square: Option<f64>,
+        pub gray_df: Option<usize>,
+        pub gray_p: Option<f64>,
+    }
+}
+
+// --- Power / Sample Size (Req 30) -------------------------------------------
+// Reuses existing PowerResult; PowerLogRankResult is a type alias for clarity.
+pub type PowerLogRankResult = PowerResult;
+
+// --- Meta-Analysis (Req 21) -------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaStudy {
+    pub label: String,
+    pub effect: f64,
+    pub se: f64,
+    pub weight_fixed: f64,
+    pub weight_random: f64,
+}
+
+result_prelude! {
+    pub struct MetaAnalysisResult {
+        pub studies: Vec<MetaStudy>,
+        pub fixed_effect: f64,
+        pub fixed_ci_lower: f64,
+        pub fixed_ci_upper: f64,
+        pub fixed_z: f64,
+        pub fixed_p: f64,
+        pub random_effect: f64,
+        pub random_ci_lower: f64,
+        pub random_ci_upper: f64,
+        pub random_z: f64,
+        pub random_p: f64,
+        pub q_statistic: f64,
+        pub q_df: usize,
+        pub q_p: f64,
+        pub i_squared: f64,
+        pub tau_squared: f64,
+    }
+}
+
+// --- Agreement (Req 22, 23) -------------------------------------------------
+
+result_prelude! {
+    pub struct KappaResult {
+        pub rater1: String,
+        pub rater2: String,
+        pub categories: Vec<String>,
+        pub agreement_matrix: Vec<Vec<usize>>,
+        pub observed_agreement: f64,
+        pub expected_agreement: f64,
+        pub kappa: f64,
+        pub kappa_se: f64,
+        pub kappa_ci_lower: f64,
+        pub kappa_ci_upper: f64,
+        pub weighted_kappa: Option<f64>,
+        pub weights_kind: String,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlandAltmanPoint {
+    pub mean: f64,
+    pub diff: f64,
+}
+
+result_prelude! {
+    pub struct BlandAltmanResult {
+        pub method1: String,
+        pub method2: String,
+        pub n: usize,
+        pub bias: f64,
+        pub bias_ci_lower: f64,
+        pub bias_ci_upper: f64,
+        pub sd_difference: f64,
+        pub loa_lower: f64,
+        pub loa_upper: f64,
+        pub loa_lower_ci_lower: f64,
+        pub loa_lower_ci_upper: f64,
+        pub loa_upper_ci_lower: f64,
+        pub loa_upper_ci_upper: f64,
+        pub n_outside_loa: usize,
+        pub points: Vec<BlandAltmanPoint>,
+    }
+}
+
+// --- Multivariate (Req 24, 25, 26) ------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PcaComponent {
+    pub component: usize,
+    pub eigenvalue: f64,
+    pub variance_explained: f64,
+    pub cumulative_variance: f64,
+}
+
+result_prelude! {
+    pub struct PcaResult {
+        pub variables: Vec<String>,
+        pub components: Vec<PcaComponent>,
+        pub loadings: Vec<Vec<f64>>,
+        pub kmo: f64,
+        pub bartlett_chi_square: f64,
+        pub bartlett_df: usize,
+        pub bartlett_p: f64,
+        pub excluded_variables: Vec<String>,
+    }
+}
+
+result_prelude! {
+    pub struct LdaResult {
+        pub group: String,
+        pub groups: Vec<String>,
+        pub variables: Vec<String>,
+        pub wilks_lambda: f64,
+        pub wilks_chi_square: f64,
+        pub wilks_p: f64,
+        pub function_coefficients: Vec<Vec<f64>>,
+        pub standardized_coefficients: Vec<Vec<f64>>,
+        pub centroids: Vec<Vec<f64>>,
+        pub confusion_matrix: Vec<Vec<usize>>,
+        pub correct_rate_per_group: Vec<f64>,
+        pub overall_correct_rate: f64,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterAssignment {
+    pub row_index: usize,
+    pub cluster: usize,
+    pub silhouette: f64,
+}
+
+result_prelude! {
+    pub struct ClusterResult {
+        pub method: String,
+        pub k: usize,
+        pub variables: Vec<String>,
+        pub assignments: Vec<usize>,
+        pub centroids: Vec<Vec<f64>>,
+        pub within_cluster_ss: Vec<f64>,
+        pub total_within_ss: f64,
+        pub silhouette_per_observation: Vec<f64>,
+        pub silhouette_avg: f64,
+        pub merge_distances: Vec<f64>,
+        pub excluded_variables: Vec<String>,
+    }
+}
+
+// --- Propensity Score Matching (Req 28) -------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PsmCovariateSmd {
+    pub covariate: String,
+    pub smd_before: f64,
+    pub smd_after: f64,
+}
+
+result_prelude! {
+    pub struct PsmResult {
+        pub treatment: String,
+        pub covariates: Vec<String>,
+        pub caliper: f64,
+        pub ratio: usize,
+        pub n_treated: usize,
+        pub n_control: usize,
+        pub n_matched_pairs: usize,
+        pub n_unmatched_treated: usize,
+        pub n_unmatched_control: usize,
+        pub balance: Vec<PsmCovariateSmd>,
+        pub matched_dataset_path: String,
+    }
 }

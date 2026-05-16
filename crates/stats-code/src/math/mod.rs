@@ -1,4 +1,4 @@
-// ---------------------------------------------------------------------------
+﻿// ---------------------------------------------------------------------------
 // Pure mathematical functions used across statistical models.
 // ---------------------------------------------------------------------------
 
@@ -14,6 +14,8 @@
 //! approximation, gamma/beta functions use Lanczos and continued-fraction
 //! routines, and matrix inversion uses Gauss-Jordan elimination with explicit
 //! singular-pivot errors.
+
+pub(crate) mod glm;
 
 /// Dot product of two vectors.
 pub(crate) fn dot(left: &[f64], right: &[f64]) -> f64 {
@@ -236,7 +238,7 @@ pub(crate) fn log_gamma_lanczos(x: f64) -> f64 {
     }
 }
 
-/// Regularized lower incomplete gamma function P(a, x) = γ(a,x)/Γ(a).
+/// Regularized lower incomplete gamma function P(a, x) = 纬(a,x)/螕(a).
 pub(crate) fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
     if x <= 0.0 {
         return 0.0;
@@ -365,7 +367,7 @@ pub(crate) fn compute_null_log_likelihood(n_events: usize, n_total: usize) -> f6
     n_events as f64 * p.ln() + (n_total - n_events) as f64 * (1.0 - p).ln()
 }
 
-/// Nagelkerke pseudo-R² = (1 - exp(-2/n * (LL - LL0))) / (1 - exp(2/n * LL0))
+/// Nagelkerke pseudo-R虏 = (1 - exp(-2/n * (LL - LL0))) / (1 - exp(2/n * LL0))
 pub(crate) fn compute_nagelkerke_r2(
     log_likelihood: f64,
     null_log_likelihood: f64,
@@ -471,7 +473,7 @@ pub(crate) fn compute_cox_concordance(observations: &[CoxObservation], beta: &[f
 /// The weighted variant [`crate::logistic::fisher_information_weighted`] is
 /// used in production logistic regression. This unweighted version is retained
 /// for future diagnostic tools and unweighted model summaries.
-// NOTE: dead_code allowed — planned for T2 statistical method expansion
+// NOTE: dead_code allowed 鈥?planned for T2 statistical method expansion
 #[allow(dead_code)]
 pub(crate) fn fisher_information(x: &[Vec<f64>], probabilities: &[f64]) -> Vec<Vec<f64>> {
     let p = x[0].len();
@@ -507,7 +509,7 @@ pub(crate) fn f_distribution_p_value(f: f64, df1: f64, df2: f64) -> f64 {
     (1.0 - p).clamp(0.0, 1.0)
 }
 
-/// Regularized incomplete beta function `I_x(a, b)` — delegates to [`regularized_incomplete_beta`].
+/// Regularized incomplete beta function `I_x(a, b)` 鈥?delegates to [`regularized_incomplete_beta`].
 ///
 /// This is an alias with a different parameter order `(x, a, b)` vs `(a, b, x)`.
 pub(crate) fn regularized_beta_incomplete(x: f64, a: f64, b: f64) -> f64 {
@@ -522,6 +524,42 @@ pub(crate) fn t_distribution_p_value(t: f64, df: f64) -> f64 {
     let x = df / (df + t * t);
     let p = regularized_beta_incomplete(x, df / 2.0, 0.5);
     p.clamp(0.0, 1.0)
+}
+
+/// Critical value for the t distribution at a given two-sided alpha.
+///
+/// Finds `t_crit` such that `P(|T| > t_crit) = alpha` for `T ~ t(df)`.
+/// Uses bisection on [`t_distribution_p_value`].
+pub(crate) fn t_distribution_critical_value(alpha: f64, df: f64) -> f64 {
+    if alpha <= 0.0 || alpha >= 1.0 {
+        return f64::NAN;
+    }
+    if df <= 0.0 {
+        return f64::NAN;
+    }
+    let target_p = alpha;
+    let mut lo = 0.0;
+    let mut hi = 50.0;
+    // Expand hi until we bracket the root
+    while t_distribution_p_value(hi, df) > target_p {
+        hi *= 2.0;
+        if hi > 1e5 {
+            return hi;
+        }
+    }
+    for _ in 0..120 {
+        let mid = (lo + hi) / 2.0;
+        let p = t_distribution_p_value(mid, df);
+        if p < target_p {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+        if hi - lo < 1e-12 {
+            break;
+        }
+    }
+    (lo + hi) / 2.0
 }
 
 /// Approximate critical value for t distribution at 97.5% (two-sided 95% CI).
@@ -689,25 +727,25 @@ mod tests {
             "pnorm(0): got {}",
             normal_cdf(0.0)
         );
-        // R: pnorm(1.96) ≈ 0.97500210
+        // R: pnorm(1.96) 鈮?0.97500210
         assert!((normal_cdf(1.96) - 0.975_002_10).abs() < 1e-6);
-        // R: pnorm(-1.96) ≈ 0.02499790
+        // R: pnorm(-1.96) 鈮?0.02499790
         assert!((normal_cdf(-1.96) - 0.024_997_90).abs() < 1e-6);
-        // R: pnorm(3.0) ≈ 0.9986501
+        // R: pnorm(3.0) 鈮?0.9986501
         assert!((normal_cdf(3.0) - 0.998_650_1).abs() < 1e-5);
-        // R: pnorm(-3.0) ≈ 0.001349898
+        // R: pnorm(-3.0) 鈮?0.001349898
         assert!((normal_cdf(-3.0) - 0.001_349_898).abs() < 1e-5);
     }
 
     #[test]
     fn chi_square_cdf_known_values() {
-        // R: pchisq(3.841, df=1) ≈ 0.95 (critical value for p=0.05)
+        // R: pchisq(3.841, df=1) 鈮?0.95 (critical value for p=0.05)
         let cdf = chi_square_cdf(3.841, 1.0);
         assert!(
             (cdf - 0.95).abs() < 0.005,
             "chi2 CDF at 3.841, df=1: got {cdf}"
         );
-        // R: pchisq(5.991, df=2) ≈ 0.95
+        // R: pchisq(5.991, df=2) 鈮?0.95
         let cdf2 = chi_square_cdf(5.991, 2.0);
         assert!(
             (cdf2 - 0.95).abs() < 0.005,
@@ -733,20 +771,20 @@ mod tests {
 
     #[test]
     fn ln_gamma_known_values() {
-        // Γ(1) = 1, ln(1) = 0
+        // 螕(1) = 1, ln(1) = 0
         assert!(ln_gamma(1.0).abs() < 1e-10);
-        // Γ(2) = 1, ln(1) = 0
+        // 螕(2) = 1, ln(1) = 0
         assert!(ln_gamma(2.0).abs() < 1e-10);
-        // Γ(5) = 24, ln(24) ≈ 3.178054
+        // 螕(5) = 24, ln(24) 鈮?3.178054
         assert!((ln_gamma(5.0) - 3.178_054).abs() < 1e-4);
-        // Γ(0.5) = √π ≈ 1.7724539, ln(√π) ≈ 0.5723649
+        // 螕(0.5) = 鈭毾€ 鈮?1.7724539, ln(鈭毾€) 鈮?0.5723649
         assert!((ln_gamma(0.5) - 0.572_364_9).abs() < 1e-4);
     }
 
     #[test]
     fn welch_t_test_known_result() {
         // Two groups: a=[1,2,3,4,5], b=[3,4,5,6,7]
-        // R: t.test(a, b) → t = -2.0, df = 8, p = 0.08058
+        // R: t.test(a, b) 鈫?t = -2.0, df = 8, p = 0.08058
         let a = [1.0, 2.0, 3.0, 4.0, 5.0];
         let b = [3.0, 4.0, 5.0, 6.0, 7.0];
         let (t, df) = welch_t_statistic(&a, &b);
@@ -760,12 +798,12 @@ mod tests {
     fn nagelkerke_r2_bounds() {
         // With 50 events out of 100
         let null_ll = compute_null_log_likelihood(50, 100);
-        // R: 50*log(0.5) + 50*log(0.5) ≈ -69.31
+        // R: 50*log(0.5) + 50*log(0.5) 鈮?-69.31
         assert!((null_ll - (-69.31)).abs() < 0.1, "null LL: got {null_ll}");
-        // Perfect model has LL = 0 → R² should be close to 1
+        // Perfect model has LL = 0 鈫?R虏 should be close to 1
         let r2_perfect = compute_nagelkerke_r2(0.0, null_ll, 100);
         assert!(r2_perfect > 0.95, "perfect R2: got {r2_perfect}");
-        // Null model → R² = 0
+        // Null model 鈫?R虏 = 0
         let r2_null = compute_nagelkerke_r2(null_ll, null_ll, 100);
         assert!(r2_null.abs() < 1e-10, "null R2: got {r2_null}");
     }
@@ -809,9 +847,9 @@ mod tests {
                 weight: 1.0,
             },
         ];
-        let beta = vec![1.0]; // positive β → higher x = higher risk
+        let beta = vec![1.0]; // positive 尾 鈫?higher x = higher risk
         let c = compute_cox_concordance(&obs, &beta);
-        // All concordant → C = 1.0
+        // All concordant 鈫?C = 1.0
         assert!((c - 1.0).abs() < 1e-10, "perfect cox c: got {c}");
     }
 
@@ -821,15 +859,15 @@ mod tests {
         let p = f_distribution_p_value(10.0, 2.0, 100.0);
         assert!(p < 0.001, "F(10,2,100) p should be <0.001, got {p}");
 
-        // F(0, 1, 1) → p=1
+        // F(0, 1, 1) 鈫?p=1
         let p2 = f_distribution_p_value(0.0, 1.0, 1.0);
         assert!((p2 - 1.0).abs() < 1e-10, "F(0) p should be 1.0, got {p2}");
 
-        // Test t-distribution: large |t| → small p
+        // Test t-distribution: large |t| 鈫?small p
         let p3 = t_distribution_p_value(5.0, 20.0);
         assert!(p3 < 0.001, "t(5,20) p should be <0.001, got {p3}");
 
-        // t=0 → p=1
+        // t=0 鈫?p=1
         let p4 = t_distribution_p_value(0.0, 20.0);
         assert!((p4 - 1.0).abs() < 1e-8, "t(0) p should be 1.0, got {p4}");
     }
@@ -842,7 +880,7 @@ mod proptest_invariants {
 
     proptest! {
         /// **Validates: Requirements 5**
-        /// normal_cdf is monotonically increasing: x1 < x2 → cdf(x1) ≤ cdf(x2)
+        /// normal_cdf is monotonically increasing: x1 < x2 鈫?cdf(x1) 鈮?cdf(x2)
         #[test]
         fn normal_cdf_monotonicity(x1 in -6.0f64..6.0, x2 in -6.0f64..6.0) {
             let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
@@ -854,19 +892,19 @@ mod proptest_invariants {
         }
 
         /// **Validates: Requirements 5**
-        /// normal_cdf symmetry: cdf(x) + cdf(-x) ≈ 1.0
+        /// normal_cdf symmetry: cdf(x) + cdf(-x) 鈮?1.0
         #[test]
         fn normal_cdf_symmetry(x in -6.0f64..6.0) {
             let sum = normal_cdf(x) + normal_cdf(-x);
             prop_assert!(
                 (sum - 1.0).abs() < 1e-10,
-                "normal_cdf({}) + normal_cdf({}) = {} (expected ≈ 1.0)",
+                "normal_cdf({}) + normal_cdf({}) = {} (expected 鈮?1.0)",
                 x, -x, sum
             );
         }
 
         /// **Validates: Requirements 5**
-        /// normal_cdf range: 0 ≤ cdf(x) ≤ 1
+        /// normal_cdf range: 0 鈮?cdf(x) 鈮?1
         #[test]
         fn normal_cdf_range(x in -10.0f64..10.0) {
             let cdf = normal_cdf(x);
@@ -894,7 +932,7 @@ mod proptest_invariants {
         }
 
         /// **Validates: Requirements 5**
-        /// chi_square_cdf range: 0 ≤ result ≤ 1
+        /// chi_square_cdf range: 0 鈮?result 鈮?1
         #[test]
         fn chi_square_cdf_range(x in 0.01f64..50.0, df in 1.0f64..30.0) {
             let cdf = chi_square_cdf(x, df);
@@ -906,7 +944,7 @@ mod proptest_invariants {
         }
 
         /// **Validates: Requirements 5**
-        /// log_gamma_lanczos recurrence: ln(Γ(x+1)) = ln(x) + ln(Γ(x))
+        /// log_gamma_lanczos recurrence: ln(螕(x+1)) = ln(x) + ln(螕(x))
         #[test]
         fn log_gamma_lanczos_recurrence(x in 0.5f64..100.0) {
             let lhs = log_gamma_lanczos(x + 1.0);
@@ -919,7 +957,7 @@ mod proptest_invariants {
         }
 
         /// **Validates: Requirements 5**
-        /// sigmoid range: 0 ≤ sigmoid(x) ≤ 1 (strict in exact math; f64 saturates at extremes)
+        /// sigmoid range: 0 鈮?sigmoid(x) 鈮?1 (strict in exact math; f64 saturates at extremes)
         #[test]
         fn sigmoid_range(x in -500.0f64..500.0) {
             let s = sigmoid(x);
@@ -937,13 +975,13 @@ mod proptest_invariants {
             let sum = sigmoid(x) + sigmoid(-x);
             prop_assert!(
                 (sum - 1.0).abs() < 1e-10,
-                "sigmoid({}) + sigmoid({}) = {} (expected ≈ 1.0)",
+                "sigmoid({}) + sigmoid({}) = {} (expected 鈮?1.0)",
                 x, -x, sum
             );
         }
 
         /// **Validates: Requirements 5**
-        /// quantile_sorted monotonicity: q1 < q2 → quantile(q1) ≤ quantile(q2)
+        /// quantile_sorted monotonicity: q1 < q2 鈫?quantile(q1) 鈮?quantile(q2)
         #[test]
         fn quantile_sorted_monotonicity(
             mut values in proptest::collection::vec(-1000.0f64..1000.0, 2..50),

@@ -2,7 +2,7 @@
 // Shared helper functions used across multiple handler modules.
 // ---------------------------------------------------------------------------
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,6 +22,138 @@ pub(crate) fn require_column(index: &BTreeMap<String, usize>, name: &str) -> Res
         .get(name)
         .copied()
         .ok_or_else(|| format!("Column `{name}` was not found in the dataset header."))
+}
+
+/// Per-column missing-code dictionary used by shared row filtering helpers.
+///
+/// Keys are column names or `"*"` for global codes. Values are compared
+/// case-insensitively after trimming.
+#[allow(dead_code)]
+pub(crate) type MissingValueDictionary = BTreeMap<String, BTreeSet<String>>;
+
+/// Look up multiple required columns from a CSV header, preserving input order.
+#[allow(dead_code)]
+pub(crate) fn require_columns(
+    headers: &csv::StringRecord,
+    names: &[String],
+) -> Result<Vec<usize>, String> {
+    let index = headers
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.to_string(), i))
+        .collect::<BTreeMap<_, _>>();
+    names
+        .iter()
+        .map(|name| require_column(&index, name))
+        .collect()
+}
+
+/// Drop rows with missing values in any required column.
+///
+/// The dictionary can contain `"*"` global missing codes or index-string keys
+/// such as `"0"` when a caller only has column indices available.
+#[allow(dead_code)]
+pub(crate) fn drop_missing_rows_for_columns(
+    rows: &[csv::StringRecord],
+    col_indices: &[usize],
+    dictionary: Option<&MissingValueDictionary>,
+) -> (Vec<csv::StringRecord>, usize) {
+    let mut kept = Vec::new();
+    let mut excluded = 0usize;
+    for row in rows {
+        let has_missing = col_indices.iter().any(|idx| {
+            let raw = row.get(*idx).unwrap_or("");
+            is_missing_with_dictionary(&idx.to_string(), raw, dictionary)
+        });
+        if has_missing {
+            excluded += 1;
+        } else {
+            kept.push(row.clone());
+        }
+    }
+    (kept, excluded)
+}
+
+/// Parse a binary event column after dropping missing values.
+#[allow(dead_code)]
+pub(crate) fn parse_binary_event_column(
+    values: &[String],
+    dictionary: Option<&MissingValueDictionary>,
+    column_name: &str,
+    override_event: Option<&str>,
+) -> Result<Vec<bool>, String> {
+    let override_event = override_event.map(|value| value.trim().to_ascii_lowercase());
+    let mut parsed = Vec::new();
+    for raw in values {
+        let trimmed = raw.trim();
+        if is_missing_with_dictionary(column_name, trimmed, dictionary) {
+            continue;
+        }
+        if let Some(event_value) = &override_event {
+            parsed.push(trimmed.to_ascii_lowercase() == *event_value);
+            continue;
+        }
+        match parse_event_value(trimmed) {
+            Some(value) if (value - 0.0).abs() < f64::EPSILON => parsed.push(false),
+            Some(value) if (value - 1.0).abs() < f64::EPSILON => parsed.push(true),
+            Some(value) => {
+                return Err(format!(
+                    "Column `{column_name}` contains non-binary event value `{value}`."
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "Column `{column_name}` contains unparseable event value `{trimmed}`."
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+/// Parse a numeric column after dropping missing values.
+#[allow(dead_code)]
+pub(crate) fn parse_numeric_column(
+    values: &[String],
+    dictionary: Option<&MissingValueDictionary>,
+    column_name: &str,
+) -> Result<Vec<f64>, String> {
+    let mut parsed = Vec::new();
+    for raw in values {
+        let trimmed = raw.trim();
+        if is_missing_with_dictionary(column_name, trimmed, dictionary) {
+            continue;
+        }
+        let value = trimmed.parse::<f64>().map_err(|_| {
+            format!("Column `{column_name}` contains non-numeric value `{trimmed}`.")
+        })?;
+        if !value.is_finite() {
+            return Err(format!(
+                "Column `{column_name}` contains non-finite value `{trimmed}`."
+            ));
+        }
+        parsed.push(value);
+    }
+    Ok(parsed)
+}
+
+fn is_missing_with_dictionary(
+    column_name: &str,
+    raw: &str,
+    dictionary: Option<&MissingValueDictionary>,
+) -> bool {
+    let trimmed = raw.trim();
+    if is_missing_value_for_column(column_name, trimmed) {
+        return true;
+    }
+    let Some(dictionary) = dictionary else {
+        return false;
+    };
+    let key = trimmed.to_ascii_lowercase();
+    dictionary
+        .get(column_name)
+        .or_else(|| dictionary.get("*"))
+        .is_some_and(|codes| codes.contains(&key))
 }
 
 pub(crate) fn normalize_group_value_for_column(column_name: &str, value: &str) -> String {
@@ -260,5 +392,55 @@ pub(crate) fn excel_cell_to_string(cell: &Data) -> String {
         }
         Data::Error(e) => format!("{e:?}"),
         Data::DateTime(f) => f.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(values: &[&str]) -> csv::StringRecord {
+        csv::StringRecord::from(values.to_vec())
+    }
+
+    #[test]
+    fn require_columns_preserves_order() {
+        let headers = record(&["id", "x", "y"]);
+        let names = vec!["y".to_string(), "id".to_string()];
+        assert_eq!(require_columns(&headers, &names).unwrap(), vec![2, 0]);
+    }
+
+    #[test]
+    fn drop_missing_rows_for_columns_uses_global_and_index_codes() {
+        let rows = vec![
+            record(&["1", "2"]),
+            record(&["NA", "2"]),
+            record(&["1", "MISSING_X"]),
+            record(&["3", "4"]),
+        ];
+        let mut dictionary = MissingValueDictionary::new();
+        dictionary.insert("1".to_string(), BTreeSet::from(["missing_x".to_string()]));
+        let (kept, excluded) = drop_missing_rows_for_columns(&rows, &[0, 1], Some(&dictionary));
+        assert_eq!(excluded, 2);
+        assert_eq!(kept, vec![record(&["1", "2"]), record(&["3", "4"])]);
+    }
+
+    #[test]
+    fn parse_binary_event_column_supports_override_and_missing_codes() {
+        let values = vec![
+            "case".to_string(),
+            "control".to_string(),
+            "missing".to_string(),
+            "case".to_string(),
+        ];
+        let parsed = parse_binary_event_column(&values, None, "outcome", Some("case")).unwrap();
+        assert_eq!(parsed, vec![true, false, true]);
+    }
+
+    #[test]
+    fn parse_numeric_column_rejects_non_finite_values() {
+        let values = vec!["1.5".to_string(), "1e309".to_string()];
+        let err = parse_numeric_column(&values, None, "score").unwrap_err();
+        assert!(err.contains("non-finite"));
     }
 }

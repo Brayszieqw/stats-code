@@ -29,26 +29,26 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Register the new file via `mod stats;` in `handlers.rs`
     - _Requirements: G1.1, G1.6_
 
-- [ ] 2. Build shared math, helper, and schema foundations
-  - [ ] 2.1 Refactor `math.rs` into a `math/` module and add missing distribution primitives
+- [x] 2. Build shared math, helper, and schema foundations
+  - [x] 2.1 Refactor `math.rs` into a `math/` module and add missing distribution primitives
     - Move existing `math.rs` content into `crates/stats-code/src/math/mod.rs` with `pub use` re-exports for back-compat
     - Add `math/distributions.rs`: `student_t_two_sided`, `student_t_inv`, `f_distribution_p`, `chi_square_p`, `studentized_range_p`, `lilliefors_p`, normal/inverse-normal already exist or extend
     - Add `math/linalg.rs`: matrix multiply, `invert_with_ridge`, `jacobi_eigh` (symmetric eigen-decomposition for PCA)
     - _Requirements: foundational dependency for Req 1–4, 11, 16, 24_
 
-  - [ ] 2.2 Add the shared IRLS engine in `math/glm.rs`
+  - [x] 2.2 Add the shared IRLS engine in `math/glm.rs`
     - Generic `irls_fit<F: Family>(x, y, offset, max_iter, tol) -> IrlsFit { beta, vcov, iterations, converged, deviance, pearson_chi_square, log_likelihood }`
     - Implement `Family::Poisson` (log link) so Req 13 and Req 20 share one IRLS implementation
     - _Requirements: 13.1, 13.4, 20.1_
 
-  - [ ] 2.3 Extend `helpers.rs` with multi-column primitives
+  - [x] 2.3 Extend `helpers.rs` with multi-column primitives
     - Add `require_columns(headers, names) -> Result<Vec<usize>, String>`
     - Add `drop_missing_rows_for_columns(rows, col_indices, dictionary) -> (Vec<StringRecord>, /*excluded*/ usize)` honoring the new global `na_strategy`
     - Add `parse_binary_event_column(values, dictionary, column_name, override_event) -> Result<Vec<bool>, String>`
     - Add `parse_numeric_column(values, dictionary, column_name) -> Result<Vec<f64>, String>`
     - _Requirements: G2.1, G2.2, G2.4_
 
-  - [ ]* 2.4 Property test for missing-value handling (proptest invariant from G4.3)
+  - [x]* 2.4 Property test for missing-value handling (proptest invariant from G4.3)
     - Generate `Vec<Vec<Option<f64>>>` and a permutation; assert `drop_missing_rows_for_columns` returns the same surviving rows (as a multiset) before and after permutation
     - File: `crates/stats-code/tests/proptest/missing_props.rs`
     - _Requirements: G4.3 (row-permutation invariance), G2.1, G2.4_
@@ -74,7 +74,7 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Cross-check sampled cases against SciPy fixtures under `tests/fixtures/python/ttest_*.json`
     - _Requirements: G4.1, G5.1, G5.3_
 
-  - [ ]* 4.3 Property test: paired t symmetry under sign flip and df = n-1
+  - [x]* 4.3 Property test: paired t symmetry under sign flip and df = n-1
     - **Property: paired-t sign flip symmetry — flipping the sign of all paired differences negates `t_statistic` and preserves `|t|`, `p_value`, `degrees_freedom == n - 1`**
     - File: `crates/stats-code/tests/proptest/ttest_props.rs`
     - _Requirements: G4.3, 1.1, 1.2_

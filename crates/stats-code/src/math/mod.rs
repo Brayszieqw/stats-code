@@ -15,7 +15,11 @@
 //! routines, and matrix inversion uses Gauss-Jordan elimination with explicit
 //! singular-pivot errors.
 
+pub(crate) mod distributions;
 pub(crate) mod glm;
+pub(crate) mod linalg;
+
+pub(crate) use linalg::jacobi_eigh;
 
 /// Dot product of two vectors.
 pub(crate) fn dot(left: &[f64], right: &[f64]) -> f64 {

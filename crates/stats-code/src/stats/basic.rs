@@ -5,7 +5,7 @@ use crate::cli::AgreementKappaArgs;
 use crate::cli::NaStrategy;
 use crate::helpers::{parse_event_value, require_column};
 use crate::math::{
-    chi_square_cdf, f_distribution_p_value, normal_cdf, quantile_sorted,
+    chi_square_cdf, f_distribution_p_value, jacobi_eigh, normal_cdf, quantile_sorted,
     t_distribution_critical_value, t_distribution_p_value,
 };
 use crate::schema::{
@@ -2290,69 +2290,6 @@ fn covariance_or_correlation(
         }
     }
     (matrix, kept_vars, excluded)
-}
-
-fn jacobi_eigh(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let n = a.len();
-    let mut v = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        v[i][i] = 1.0;
-    }
-    for _ in 0..100 {
-        let mut p = 0usize;
-        let mut q = 1usize.min(n.saturating_sub(1));
-        let mut max = 0.0;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if a[i][j].abs() > max {
-                    max = a[i][j].abs();
-                    p = i;
-                    q = j;
-                }
-            }
-        }
-        if max < 1e-10 || n < 2 {
-            break;
-        }
-        let theta = 0.5 * (a[q][q] - a[p][p]).atan2(2.0 * a[p][q]);
-        let c = theta.cos();
-        let s = theta.sin();
-        for i in 0..n {
-            let aip = a[i][p];
-            let aiq = a[i][q];
-            a[i][p] = c * aip - s * aiq;
-            a[i][q] = s * aip + c * aiq;
-        }
-        for j in 0..n {
-            let apj = a[p][j];
-            let aqj = a[q][j];
-            a[p][j] = c * apj - s * aqj;
-            a[q][j] = s * apj + c * aqj;
-        }
-        for i in 0..n {
-            let vip = v[i][p];
-            let viq = v[i][q];
-            v[i][p] = c * vip - s * viq;
-            v[i][q] = s * vip + c * viq;
-        }
-    }
-    let mut pairs: Vec<(f64, Vec<f64>)> = (0..n)
-        .map(|i| {
-            (
-                a[i][i].max(0.0),
-                v.iter().map(|row| row[i]).collect::<Vec<_>>(),
-            )
-        })
-        .collect();
-    pairs.sort_by(|left, right| right.0.total_cmp(&left.0));
-    let eigenvalues = pairs.iter().map(|(value, _)| *value).collect::<Vec<_>>();
-    let mut eigenvectors = vec![vec![0.0; n]; n];
-    for (col, (_, vector)) in pairs.iter().enumerate() {
-        for row in 0..n {
-            eigenvectors[row][col] = vector[row];
-        }
-    }
-    (eigenvalues, eigenvectors)
 }
 
 pub(crate) fn cluster_csv(

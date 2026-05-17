@@ -1,0 +1,25 @@
+{
+  "source": "R wilcox.test(value ~ group, exact = FALSE, correct = FALSE) / Mann-Whitney U normal approximation",
+  "columns": ["group", "value"],
+  "rows": [
+    { "group": "A", "value": 12 },
+    { "group": "A", "value": 14 },
+    { "group": "A", "value": 15 },
+    { "group": "A", "value": 16 },
+    { "group": "B", "value": 20 },
+    { "group": "B", "value": 21 },
+    { "group": "B", "value": 23 },
+    { "group": "B", "value": 22 }
+  ],
+  "expected": {
+    "group_a_label": "A",
+    "group_b_label": "B",
+    "n_a": 4,
+    "n_b": 4,
+    "median_a": 14.5,
+    "median_b": 21.5,
+    "u_statistic": 0.0,
+    "z_statistic": -2.3094010767585034,
+    "p_value": 0.020921335337794014
+  }
+}

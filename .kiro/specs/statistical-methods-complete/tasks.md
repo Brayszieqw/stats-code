@@ -62,14 +62,14 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
 
 ### Phase 1 — HIGH-Priority Methods (Req 1–10, 16–19)
 
-- [ ] 4. Implement t-test family (Req 1, 2)
+- [x] 4. Implement t-test family (Req 1, 2)
   - [x] 4.1 Implement paired and one-sample t-tests
     - File: `crates/stats-code/src/stats/ttest.rs`
     - `paired_ttest_csv(...) -> Result<TtestPairedResult, String>` and `one_sample_ttest_csv(...) -> Result<TtestOneSampleResult, String>` per `design.md` §Components→T-Tests
     - Wire `TtestPairedArgs` / `TtestOneSampleArgs` into `cli.rs::TtestCommand` and `handlers/stats.rs`
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4_
 
-  - [ ] 4.2 Add gold-reference fixture and unit tests for t-tests
+  - [x] 4.2 Add gold-reference fixture and unit tests for t-tests
     - Place R-generated JSON fixtures under `crates/stats-code/tests/fixtures/r/ttest_*.json`
     - Cross-check sampled cases against SciPy fixtures under `tests/fixtures/python/ttest_*.json`
     - _Requirements: G4.1, G5.1, G5.3_
@@ -79,11 +79,11 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - File: `crates/stats-code/tests/proptest/ttest_props.rs`
     - _Requirements: G4.3, 1.1, 1.2_
 
-  - [ ]* 4.4 CLI integration test (snapshot JSON shape)
+  - [x]* 4.4 CLI integration test (snapshot JSON shape)
     - File: `crates/stats-code/tests/stats_ttest_cli.rs`
     - _Requirements: G4.2_
 
-- [ ] 5. Implement ANOVA family — one-way and randomized block (Req 3)
+- [x] 5. Implement ANOVA family — one-way and randomized block (Req 3)
   - [x] 5.1 Implement one-way ANOVA and RBD ANOVA
     - File: `crates/stats-code/src/stats/anova.rs`
     - `oneway_anova_csv(...)` partitions SS_total = SS_between + SS_within; switches to `rbd_anova_csv(...)` when `--block` is given
@@ -91,31 +91,31 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `AnovaCommand::Oneway` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [ ] 5.2 R gold-reference fixtures and unit tests for ANOVA
+  - [x] 5.2 R gold-reference fixtures and unit tests for ANOVA
     - One CRD example, one RBD example, one sparse-group failure case
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 5.3 Property test: SS decomposition identity
+  - [x]* 5.3 Property test: SS decomposition identity
     - **Property: SS_total = SS_between + SS_within (exact, modulo f64 epsilon)**
     - File: `crates/stats-code/tests/proptest/anova_props.rs`
     - _Requirements: G4.3, 3.1_
 
-  - [ ]* 5.4 CLI integration test for ANOVA
+  - [x]* 5.4 CLI integration test for ANOVA
     - _Requirements: G4.2_
 
-- [ ] 6. Implement Cochran-Armitage trend test (Req 4)
+- [x] 6. Implement Cochran-Armitage trend test (Req 4)
   - [x] 6.1 Implement Cochran-Armitage in `stats/nonparam.rs`
     - Default scores 0..k-1 unless `--scores` overrides; reject when fewer than 2 ordered categories carry events
     - Wire `NonparamCommand::CochranArmitage` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 6.2 R gold-reference fixtures and unit tests
+  - [x] 6.2 R gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 6.3 CLI integration test
+  - [x]* 6.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 7. Implement McNemar, Wilcoxon signed-rank, and Mann-Whitney U (Req 5, 6, 7)
+- [x] 7. Implement McNemar, Wilcoxon signed-rank, and Mann-Whitney U (Req 5, 6, 7)
   - [x] 7.1 Implement McNemar (with continuity correction and exact binomial fallback for b+c < 25)
     - Append to `stats/nonparam.rs`
     - Wire `NonparamCommand::Mcnemar` into `cli.rs` and `handlers/stats.rs`
@@ -131,49 +131,49 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `NonparamCommand::Mannwhitney`; reject when grouping variable does not have exactly 2 levels
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
 
-  - [ ] 7.4 R gold-reference fixtures and unit tests for nonparam tests
+  - [x] 7.4 R gold-reference fixtures and unit tests for nonparam tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 7.5 CLI integration tests for nonparam tests
+  - [x]* 7.5 CLI integration tests for nonparam tests
     - _Requirements: G4.2_
 
-- [ ] 8. Implement correlation analysis (Req 8)
+- [x] 8. Implement correlation analysis (Req 8)
   - [x] 8.1 Implement Pearson r and Spearman ρ in `stats/correlation.rs`
     - Pearson via Fisher z transform for CI, t-distribution for p-value
     - Spearman via average ranks then Pearson on ranks; refuse when n < 3 complete pairs
     - Wire `StatsCommand::Correlation(CorrelationArgs)` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-  - [ ] 8.2 R + SciPy cross-checked fixtures and unit tests
+  - [x] 8.2 R + SciPy cross-checked fixtures and unit tests
     - _Requirements: G4.1, G5.1, G5.3_
 
-  - [ ]* 8.3 CLI integration test
+  - [x]* 8.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 9. Implement OR/RR with Mantel-Haenszel stratification (Req 9)
+- [x] 9. Implement OR/RR with Mantel-Haenszel stratification (Req 9)
   - [x] 9.1 Implement crude OR/RR + 2×2 chi-square in `stats/epi/effect.rs`
     - Apply 0.5 continuity correction when any cell is zero; emit warning
     - Wire `EpiStatsCommand::OrRr` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-  - [ ] 9.2 Add Mantel-Haenszel stratified pooling and Breslow-Day homogeneity
+  - [x] 9.2 Add Mantel-Haenszel stratified pooling and Breslow-Day homogeneity
     - Activated when `--strata` is provided
     - _Requirements: 9.5_
 
-  - [ ] 9.3 R + SciPy cross-checked fixtures and unit tests
+  - [x] 9.3 R + SciPy cross-checked fixtures and unit tests
     - Cover at least: zero-cell, zero-stratum, single-row stratum
     - _Requirements: G4.1, G5.1, G5.3_
 
-  - [ ]* 9.4 Property tests: 2×2 edge cases and continuity-correction safety
+  - [x]* 9.4 Property tests: 2×2 edge cases and continuity-correction safety
     - **Property: continuity-corrected OR and RR are always finite (never NaN/Inf) for any non-negative integer 2×2 table**
     - **Property: zero-cell and single-row inputs do not panic and emit the expected warning string**
     - File: `crates/stats-code/tests/proptest/effect_props.rs` and `tests/proptest/two_by_two_props.rs`
     - _Requirements: G4.3, 9.1, 9.2, 9.4_
 
-  - [ ]* 9.5 CLI integration test
+  - [x]* 9.5 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 10. Implement rate standardization — direct and SMR (Req 10)
+- [x] 10. Implement rate standardization — direct and SMR (Req 10)
   - [x] 10.1 Implement direct standardization and SMR with Byar CI in `stats/epi/standardize.rs`
     - Built-in standard populations: `who_world_2000`, `china_census_2010`, `segi_world`
     - Resolve user CSV path data-relative if `--standard-pop` is not a built-in name
@@ -181,25 +181,25 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `EpiStatsCommand::Standardize` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-  - [ ] 10.2 R gold-reference fixtures and unit tests
+  - [x] 10.2 R gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 10.3 CLI integration test
+  - [x]* 10.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 11. Implement attributable risk measures — AR, AR%, PAR, PAR% (Req 19)
+- [x] 11. Implement attributable risk measures — AR, AR%, PAR, PAR% (Req 19)
   - [x] 11.1 Implement AR/AR%/PAR/PAR% in `stats/epi/attributable.rs`
     - Variance via delta method; emit "protective association detected" warning when R_u > R_e
     - Wire `EpiStatsCommand::Attributable` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5_
 
-  - [ ] 11.2 R gold-reference fixtures and unit tests
+  - [x] 11.2 R gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 11.3 CLI integration test
+  - [x]* 11.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 12. Implement normality tests — Shapiro-Wilk + Lilliefors KS (Req 16)
+- [x] 12. Implement normality tests — Shapiro-Wilk + Lilliefors KS (Req 16)
   - [x] 12.1 Implement Lilliefors-corrected K-S, skewness/kurtosis in `stats/diagnostic/normality.rs`
     - _Requirements: 16.2, 16.3, 16.5_
 
@@ -208,25 +208,25 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `DiagnosticCommand::Normality` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 16.1, 16.4_
 
-  - [ ] 12.3 SciPy cross-check fixtures and unit tests
+  - [x] 12.3 SciPy cross-check fixtures and unit tests
     - _Requirements: G4.1, G5.2_
 
-  - [ ]* 12.4 CLI integration test
+  - [x]* 12.4 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 13. Implement homogeneity-of-variance tests — Levene + Bartlett (Req 17)
+- [x] 13. Implement homogeneity-of-variance tests — Levene + Bartlett (Req 17)
   - [x] 13.1 Implement Levene (median form / Brown-Forsythe) and Bartlett in `stats/diagnostic/variance.rs`
     - Reject when any group has n < 2
     - Wire `DiagnosticCommand::Variance` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5_
 
-  - [ ] 13.2 R gold-reference fixtures and unit tests
+  - [x] 13.2 R gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 13.3 CLI integration test
+  - [x]* 13.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 14. Implement actuarial life-table survival (Req 18)
+- [x] 14. Implement actuarial life-table survival (Req 18)
   - [x] 14.1 Implement `life_table_csv(...)` in `stats/survival/lifetable.rs`
     - Support `--input-format individual` (with `--time`, `--status`, `--intervals` spec like `0,1,2,5,10` or `width=1`) and `--input-format grouped` (with `--entering`, `--events`, `--withdrawals`)
     - Pre-binning logic in `bin_individuals`
@@ -234,26 +234,26 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `StatsSurvivalCommand::Lifetable` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 18.1, 18.2, 18.3, 18.4_
 
-  - [ ] 14.2 R gold-reference fixtures and unit tests (compare with `survival::survfit` actuarial)
+  - [x] 14.2 R gold-reference fixtures and unit tests (compare with `survival::survfit` actuarial)
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 14.3 CLI integration test
+  - [x]* 14.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 15. Wire Phase 1 dispatch, renderers, and `analysis.yaml` step registration
-  - [ ] 15.1 Add text renderers for every Phase 1 result in `render/stats.rs`
+- [x] 15. Wire Phase 1 dispatch, renderers, and `analysis.yaml` step registration
+  - [x] 15.1 Add text renderers for every Phase 1 result in `render/stats.rs`
     - One `render_*_text` function per `*Result`; JSON output remains via `serde_json::to_string_pretty`
     - _Requirements: G1.4_
 
-  - [ ] 15.2 Register HIGH-tier step names in `schema/contract.rs`
+  - [x] 15.2 Register HIGH-tier step names in `schema/contract.rs`
     - Add: `ttest.paired`, `ttest.one_sample`, `anova.oneway`, `nonparam.cochran_armitage`, `nonparam.mcnemar`, `nonparam.wilcoxon`, `nonparam.mannwhitney`, `correlation`, `epi.or_rr`, `epi.standardize`, `epi.attributable`, `diagnostic.normality`, `diagnostic.variance`, `survival.lifetable`
     - _Requirements: G3.1, G3.2_
 
-  - [ ] 15.3 Add HIGH-tier `examples/` CSVs and `analysis.example.yaml` snippets
+  - [x] 15.3 Add HIGH-tier `examples/` CSVs and `analysis.example.yaml` snippets
     - One CSV + one analysis-step snippet per HIGH method per requirements §G6
     - _Requirements: G6_
 
-- [ ] 16. **Checkpoint — Phase 1 complete**
+- [x] 16. **Checkpoint — Phase 1 complete**
   - Ensure all tests pass, ask the user if questions arise.
 
 ### Phase 2 — MEDIUM-Priority Methods (Req 11, 12, 13, 20, 21, 22, 23, 24, 30)

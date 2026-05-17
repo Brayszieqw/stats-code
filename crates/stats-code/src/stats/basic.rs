@@ -1140,26 +1140,52 @@ pub(crate) fn or_rr_csv(
         );
     }
     let mut mh_strata = Vec::new();
-    let mut sum_ad_over_n = 0.0;
-    let mut sum_bc_over_n = 0.0;
+    let mut mh_cells = Vec::new();
+    let mut any_stratum_corrected = false;
     for (label, raw_cells) in &by_stratum {
-        let (scells, _) = corrected_cells(*raw_cells);
-        let sn = scells.a + scells.b + scells.c + scells.d;
-        sum_ad_over_n += scells.a * scells.d / sn.max(EPS);
-        sum_bc_over_n += scells.b * scells.c / sn.max(EPS);
+        let (scells, stratum_corrected) = corrected_cells(*raw_cells);
+        any_stratum_corrected |= stratum_corrected;
         mh_strata.push(MhStratum {
             label: label.clone(),
             cells: scells.clone(),
-            or_stratum: scells.a * scells.d / (scells.b * scells.c).max(EPS),
+            or_stratum: odds_ratio_for_cells(&scells),
+            rr_stratum: risk_ratio_for_cells(&scells),
         });
+        mh_cells.push(scells);
+    }
+    if any_stratum_corrected && !corrected {
+        warnings.push(
+            "0.5 continuity correction applied within at least one stratum because a 2x2 cell is zero."
+                .to_string(),
+        );
     }
     let mh_or = if strata_cols.is_empty() {
         None
     } else {
-        Some(sum_ad_over_n / sum_bc_over_n.max(EPS))
+        mantel_haenszel_or(&mh_cells)
     };
-    let mh_or_ci_lower = mh_or.map(|or| (or.ln() - z * se_or).exp());
-    let mh_or_ci_upper = mh_or.map(|or| (or.ln() + z * se_or).exp());
+    let mh_or_se = if strata_cols.is_empty() {
+        None
+    } else {
+        mantel_haenszel_log_or_se(&mh_cells)
+    };
+    let mh_or_ci_lower = mh_or.zip(mh_or_se).map(|(or, se)| (or.ln() - z * se).exp());
+    let mh_or_ci_upper = mh_or.zip(mh_or_se).map(|(or, se)| (or.ln() + z * se).exp());
+    let mh_rr_with_se = if strata_cols.is_empty() {
+        None
+    } else {
+        mantel_haenszel_rr_and_se(&mh_cells)
+    };
+    let mh_rr = mh_rr_with_se.map(|(rr, _)| rr);
+    let mh_rr_ci_lower = mh_rr_with_se.map(|(rr, se)| (rr.ln() - z * se).exp());
+    let mh_rr_ci_upper = mh_rr_with_se.map(|(rr, se)| (rr.ln() + z * se).exp());
+    let (homogeneity_chi_square, homogeneity_p) = if strata_cols.is_empty() {
+        (None, None)
+    } else {
+        mh_or
+            .and_then(|or| breslow_day_test(&mh_cells, or))
+            .map_or((None, None), |(stat, p)| (Some(stat), Some(p)))
+    };
     Ok(OrRrResult {
         status: "ok".to_string(),
         data_path: String::new(),
@@ -1172,7 +1198,6 @@ pub(crate) fn or_rr_csv(
         exposure: exposure_col.to_string(),
         outcome: outcome_col.to_string(),
         cells,
-        continuity_correction: corrected,
         odds_ratio,
         or_ci_lower,
         or_ci_upper,
@@ -1181,11 +1206,16 @@ pub(crate) fn or_rr_csv(
         rr_ci_upper,
         chi_square,
         chi_p_value: chi_square_p_value(chi_square, 1.0),
+        continuity_correction: corrected || any_stratum_corrected,
         mh_or,
         mh_or_ci_lower,
         mh_or_ci_upper,
+        mh_rr,
+        mh_rr_ci_lower,
+        mh_rr_ci_upper,
         mh_strata,
-        homogeneity_p: None,
+        homogeneity_chi_square,
+        homogeneity_p,
     })
 }
 
@@ -1201,6 +1231,175 @@ fn corrected_cells(raw: [usize; 4]) -> (TwoByTwoCells, bool) {
         },
         corrected,
     )
+}
+
+fn odds_ratio_for_cells(cells: &TwoByTwoCells) -> f64 {
+    cells.a * cells.d / (cells.b * cells.c).max(EPS)
+}
+
+fn risk_ratio_for_cells(cells: &TwoByTwoCells) -> f64 {
+    let exposed_risk = cells.a / (cells.a + cells.b).max(EPS);
+    let unexposed_risk = cells.c / (cells.c + cells.d).max(EPS);
+    exposed_risk / unexposed_risk.max(EPS)
+}
+
+fn mantel_haenszel_or(strata: &[TwoByTwoCells]) -> Option<f64> {
+    let mut sum_ad_over_n = 0.0;
+    let mut sum_bc_over_n = 0.0;
+    for cells in strata {
+        let n = cells.a + cells.b + cells.c + cells.d;
+        if n <= EPS {
+            continue;
+        }
+        sum_ad_over_n += cells.a * cells.d / n;
+        sum_bc_over_n += cells.b * cells.c / n;
+    }
+    if sum_ad_over_n > 0.0 && sum_bc_over_n > 0.0 {
+        Some(sum_ad_over_n / sum_bc_over_n)
+    } else {
+        None
+    }
+}
+
+fn mantel_haenszel_log_or_se(strata: &[TwoByTwoCells]) -> Option<f64> {
+    let mut r = 0.0;
+    let mut s = 0.0;
+    let mut term1 = 0.0;
+    let mut term2 = 0.0;
+    let mut term3 = 0.0;
+    for cells in strata {
+        let n = cells.a + cells.b + cells.c + cells.d;
+        if n <= EPS {
+            continue;
+        }
+        let ri = cells.a * cells.d / n;
+        let si = cells.b * cells.c / n;
+        let p = (cells.a + cells.d) / n;
+        let q = (cells.b + cells.c) / n;
+        r += ri;
+        s += si;
+        term1 += p * ri;
+        term2 += p * si + q * ri;
+        term3 += q * si;
+    }
+    if r <= EPS || s <= EPS {
+        return None;
+    }
+    let variance = 0.5 * (term1 / r.powi(2) + term2 / (r * s) + term3 / s.powi(2));
+    variance.is_finite().then_some(variance.max(0.0).sqrt())
+}
+
+fn mantel_haenszel_rr_and_se(strata: &[TwoByTwoCells]) -> Option<(f64, f64)> {
+    let mut numerator = 0.0;
+    let mut denominator = 0.0;
+    let mut var_num = 0.0;
+    let mut var_den = 0.0;
+    for cells in strata {
+        let exposed_n = cells.a + cells.b;
+        let unexposed_n = cells.c + cells.d;
+        let n = exposed_n + unexposed_n;
+        if exposed_n <= EPS || unexposed_n <= EPS || n <= EPS {
+            continue;
+        }
+        numerator += cells.a * unexposed_n / n;
+        denominator += cells.c * exposed_n / n;
+        var_num += (unexposed_n / n).powi(2) * cells.a * cells.b / exposed_n;
+        var_den += (exposed_n / n).powi(2) * cells.c * cells.d / unexposed_n;
+    }
+    if numerator <= EPS || denominator <= EPS {
+        return None;
+    }
+    let rr = numerator / denominator;
+    let variance = var_num / numerator.powi(2) + var_den / denominator.powi(2);
+    if rr.is_finite() && variance.is_finite() {
+        Some((rr, variance.max(0.0).sqrt()))
+    } else {
+        None
+    }
+}
+
+fn breslow_day_test(strata: &[TwoByTwoCells], common_or: f64) -> Option<(f64, f64)> {
+    if strata.len() < 2 || !common_or.is_finite() || common_or <= 0.0 {
+        return None;
+    }
+    let mut statistic = 0.0;
+    let mut usable = 0usize;
+    for cells in strata {
+        let expected_a = expected_a_under_common_or(cells, common_or)?;
+        let exposed_n = cells.a + cells.b;
+        let unexposed_n = cells.c + cells.d;
+        let events_n = cells.a + cells.c;
+        let expected_b = exposed_n - expected_a;
+        let expected_c = events_n - expected_a;
+        let expected_d = unexposed_n - expected_c;
+        let variance_inv = 1.0 / expected_a.max(EPS)
+            + 1.0 / expected_b.max(EPS)
+            + 1.0 / expected_c.max(EPS)
+            + 1.0 / expected_d.max(EPS);
+        let variance = 1.0 / variance_inv.max(EPS);
+        if variance > EPS && variance.is_finite() {
+            statistic += (cells.a - expected_a).powi(2) / variance;
+            usable += 1;
+        }
+    }
+    if usable < 2 {
+        return None;
+    }
+    let df = usable as f64 - 1.0;
+    Some((statistic, chi_square_p_value(statistic, df)))
+}
+
+fn expected_a_under_common_or(cells: &TwoByTwoCells, common_or: f64) -> Option<f64> {
+    let exposed_n = cells.a + cells.b;
+    let unexposed_n = cells.c + cells.d;
+    let events_n = cells.a + cells.c;
+    let non_events_n = cells.b + cells.d;
+    let n = exposed_n + unexposed_n;
+    if n <= EPS {
+        return None;
+    }
+    if (common_or - 1.0).abs() < 1e-10 {
+        return Some(exposed_n * events_n / n);
+    }
+    let qa = 1.0 - common_or;
+    let qb = non_events_n - exposed_n + common_or * (exposed_n + events_n);
+    let qc = -common_or * exposed_n * events_n;
+    let disc = (qb * qb - 4.0 * qa * qc).max(0.0);
+    let sqrt_disc = disc.sqrt();
+    let lower = (events_n - unexposed_n).max(0.0);
+    let upper = exposed_n.min(events_n);
+    let roots = [
+        (-qb + sqrt_disc) / (2.0 * qa),
+        (-qb - sqrt_disc) / (2.0 * qa),
+    ];
+    roots
+        .iter()
+        .copied()
+        .find(|root| *root >= lower - 1e-8 && *root <= upper + 1e-8)
+        .or_else(|| {
+            roots
+                .iter()
+                .copied()
+                .filter(|root| root.is_finite())
+                .min_by(|a, b| {
+                    let da = if *a < lower {
+                        lower - *a
+                    } else if *a > upper {
+                        *a - upper
+                    } else {
+                        0.0
+                    };
+                    let db = if *b < lower {
+                        lower - *b
+                    } else if *b > upper {
+                        *b - upper
+                    } else {
+                        0.0
+                    };
+                    da.total_cmp(&db)
+                })
+                .map(|root| root.clamp(lower, upper))
+        })
 }
 
 pub(crate) fn standardize_csv(
@@ -1260,7 +1459,6 @@ pub(crate) fn standardize_csv(
         std_rate += weight * rate;
         var_direct += weight.powi(2) * events.max(1.0) / pt.powi(2);
         observed += events;
-        expected += pt * std_rate.max(EPS);
         strata.push(StandardizationStratum {
             age_group: age.clone(),
             observed: *events,
@@ -1268,6 +1466,14 @@ pub(crate) fn standardize_csv(
             weight,
             stratum_rate: rate,
         });
+    }
+    for stratum in &mut strata {
+        let pt = agg
+            .get(&stratum.age_group)
+            .map(|(_, person_time)| *person_time)
+            .unwrap_or(0.0);
+        stratum.expected = pt * std_rate.max(EPS);
+        expected += stratum.expected;
     }
     if method.eq_ignore_ascii_case("indirect") {
         let smr = observed / expected.max(EPS);
@@ -1478,6 +1684,11 @@ pub(crate) fn attributable_csv(
     alpha: f64,
     strategy: NaStrategy,
 ) -> Result<AttributableRiskResult, String> {
+    if let Some(prevalence) = exposure_prevalence {
+        if !(0.0..=1.0).contains(&prevalence) {
+            return Err("--exposure-prevalence must be between 0 and 1.".to_string());
+        }
+    }
     let index = column_index(headers);
     let ie = require_column(&index, exposure_col)?;
     let io = require_column(&index, outcome_col)?;
@@ -1541,8 +1752,12 @@ pub(crate) fn attributable_csv(
             None
         }
     });
-    let overall_rate = (exp_events + unexp_events) / (exp_pt + unexp_pt).max(EPS);
-    let par = prevalence.map(|_| overall_rate - rate_unexposed);
+    let par = prevalence.map(|p| {
+        let value = p * ar;
+        let se = p.abs() * se_ar;
+        let target_rate = rate_unexposed + value;
+        (value, se, target_rate)
+    });
     let mut warnings = Vec::new();
     if rate_unexposed > rate_exposed {
         warnings.push("protective association detected".to_string());
@@ -1568,10 +1783,10 @@ pub(crate) fn attributable_csv(
         } else {
             f64::NAN
         },
-        par,
-        par_ci_lower: par.map(|p| p - z * se_ar),
-        par_ci_upper: par.map(|p| p + z * se_ar),
-        par_percent: par.map(|p| p / overall_rate.max(EPS) * 100.0),
+        par: par.map(|(value, _, _)| value),
+        par_ci_lower: par.map(|(value, se, _)| value - z * se),
+        par_ci_upper: par.map(|(value, se, _)| value + z * se),
+        par_percent: par.map(|(value, _, target_rate)| value / target_rate.max(EPS) * 100.0),
         exposure_prevalence: prevalence,
     })
 }
@@ -3063,4 +3278,974 @@ pub(crate) fn logrank_sample_size(
         ],
         warnings: vec![],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn approx(actual: f64, expected: f64, tol: f64) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn load_fixture(relative_path: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        serde_json::from_str(&text)
+            .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+    }
+
+    fn expected_f64(fixture: &Value, key: &str) -> f64 {
+        fixture["expected"][key]
+            .as_f64()
+            .unwrap_or_else(|| panic!("missing expected.{key}"))
+    }
+
+    fn expected_usize(fixture: &Value, key: &str) -> usize {
+        fixture["expected"][key]
+            .as_u64()
+            .unwrap_or_else(|| panic!("missing expected.{key}")) as usize
+    }
+
+    fn rows_from_fixture(
+        fixture: &Value,
+        columns: &[&str],
+    ) -> (Vec<csv::StringRecord>, csv::StringRecord) {
+        let rows = fixture["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let fields = columns
+                    .iter()
+                    .map(|column| match &row[*column] {
+                        Value::String(value) => value.clone(),
+                        Value::Number(value) => value.to_string(),
+                        other => panic!("unsupported fixture cell for {column}: {other}"),
+                    })
+                    .collect::<Vec<_>>();
+                csv::StringRecord::from(fields)
+            })
+            .collect();
+        (rows, csv::StringRecord::from(columns.to_vec()))
+    }
+
+    fn cochran_rows_from_fixture(
+        fixture: &Value,
+    ) -> (Vec<csv::StringRecord>, csv::StringRecord, Vec<f64>) {
+        let mut rows = Vec::new();
+        let mut scores = Vec::new();
+        for summary in fixture["rows_summary"].as_array().unwrap() {
+            let exposure = summary["exposure"].as_str().unwrap();
+            let score = summary["score"].as_f64().unwrap();
+            let n = summary["n"].as_u64().unwrap() as usize;
+            let events = summary["events"].as_u64().unwrap() as usize;
+            scores.push(score);
+            for i in 0..n {
+                let outcome = if i < events { "1" } else { "0" };
+                rows.push(csv::StringRecord::from(vec![
+                    exposure.to_string(),
+                    outcome.to_string(),
+                ]));
+            }
+        }
+        (
+            rows,
+            csv::StringRecord::from(vec!["exposure", "outcome"]),
+            scores,
+        )
+    }
+
+    fn push_2x2_rows(
+        rows: &mut Vec<csv::StringRecord>,
+        stratum: &str,
+        exposed: &str,
+        outcome: &str,
+        n: usize,
+    ) {
+        for _ in 0..n {
+            rows.push(csv::StringRecord::from(vec![exposed, outcome, stratum]));
+        }
+    }
+
+    fn or_rr_rows_from_fixture(
+        fixture: &Value,
+    ) -> (Vec<csv::StringRecord>, csv::StringRecord, Vec<String>) {
+        let summaries = fixture["rows_summary"].as_array().unwrap();
+        let has_stratum = summaries
+            .iter()
+            .any(|summary| summary.get("stratum").is_some());
+        let mut rows = Vec::new();
+        for summary in summaries {
+            let exposure = summary["exposure"].as_str().unwrap();
+            let outcome = summary["outcome"].as_str().unwrap();
+            let n = summary["n"].as_u64().unwrap() as usize;
+            let stratum = summary
+                .get("stratum")
+                .and_then(Value::as_str)
+                .unwrap_or("__crude__");
+            for _ in 0..n {
+                if has_stratum {
+                    rows.push(csv::StringRecord::from(vec![exposure, outcome, stratum]));
+                } else {
+                    rows.push(csv::StringRecord::from(vec![exposure, outcome]));
+                }
+            }
+        }
+        if has_stratum {
+            (
+                rows,
+                csv::StringRecord::from(vec!["exposure", "outcome", "stratum"]),
+                vec!["stratum".to_string()],
+            )
+        } else {
+            (
+                rows,
+                csv::StringRecord::from(vec!["exposure", "outcome"]),
+                vec![],
+            )
+        }
+    }
+
+    fn assert_cells(actual: &TwoByTwoCells, expected: &Value) {
+        approx(actual.a, expected["a"].as_f64().unwrap(), 1e-12);
+        approx(actual.b, expected["b"].as_f64().unwrap(), 1e-12);
+        approx(actual.c, expected["c"].as_f64().unwrap(), 1e-12);
+        approx(actual.d, expected["d"].as_f64().unwrap(), 1e-12);
+    }
+
+    #[test]
+    fn oneway_anova_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/anova_oneway.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["group", "value"]);
+
+        let result = oneway_anova_csv(&rows, &headers, "value", "group", NaStrategy::Drop).unwrap();
+
+        assert_eq!(result.df_between, expected_usize(&fixture, "df_between"));
+        assert_eq!(result.df_within, expected_usize(&fixture, "df_within"));
+        approx(
+            result.overall_mean,
+            expected_f64(&fixture, "overall_mean"),
+            1e-12,
+        );
+        approx(
+            result.ss_between,
+            expected_f64(&fixture, "ss_between"),
+            1e-12,
+        );
+        approx(result.ss_within, expected_f64(&fixture, "ss_within"), 1e-12);
+        approx(result.ss_total, expected_f64(&fixture, "ss_total"), 1e-12);
+        approx(
+            result.ms_between,
+            expected_f64(&fixture, "ms_between"),
+            1e-12,
+        );
+        approx(result.ms_within, expected_f64(&fixture, "ms_within"), 1e-12);
+        approx(
+            result.f_statistic,
+            expected_f64(&fixture, "f_statistic"),
+            1e-10,
+        );
+        approx(result.p_value, expected_f64(&fixture, "p_value"), 1e-10);
+
+        let expected_groups = fixture["expected"]["groups"].as_array().unwrap();
+        assert_eq!(result.groups.len(), expected_groups.len());
+        for expected in expected_groups {
+            let label = expected["group"].as_str().unwrap();
+            let actual = result
+                .groups
+                .iter()
+                .find(|group| group.group == label)
+                .unwrap_or_else(|| panic!("missing group {label}"));
+            assert_eq!(actual.n, expected["n"].as_u64().unwrap() as usize);
+            approx(actual.mean, expected["mean"].as_f64().unwrap(), 1e-12);
+            approx(actual.sd, expected["sd"].as_f64().unwrap(), 1e-12);
+        }
+    }
+
+    #[test]
+    fn rbd_anova_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/anova_rbd.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["group", "block", "value"]);
+
+        let result =
+            rbd_anova_csv(&rows, &headers, "value", "group", "block", NaStrategy::Drop).unwrap();
+
+        assert_eq!(
+            result.treatment_df1,
+            expected_usize(&fixture, "treatment_df1")
+        );
+        assert_eq!(
+            result.treatment_df2,
+            expected_usize(&fixture, "treatment_df2")
+        );
+        assert_eq!(result.block_df1, expected_usize(&fixture, "block_df1"));
+        assert_eq!(result.block_df2, expected_usize(&fixture, "block_df2"));
+        approx(
+            result.treatment_f,
+            expected_f64(&fixture, "treatment_f"),
+            1e-8,
+        );
+        approx(
+            result.treatment_p,
+            expected_f64(&fixture, "treatment_p"),
+            1e-10,
+        );
+        approx(result.block_f, expected_f64(&fixture, "block_f"), 1e-8);
+        approx(result.block_p, expected_f64(&fixture, "block_p"), 1e-10);
+        approx(result.error_ms, expected_f64(&fixture, "error_ms"), 1e-12);
+    }
+
+    #[test]
+    fn oneway_anova_sparse_group_reports_group_label() {
+        let headers = csv::StringRecord::from(vec!["group", "value"]);
+        let rows = vec![
+            csv::StringRecord::from(vec!["A", "12"]),
+            csv::StringRecord::from(vec!["A", "14"]),
+            csv::StringRecord::from(vec!["B", "18"]),
+        ];
+
+        let err =
+            oneway_anova_csv(&rows, &headers, "value", "group", NaStrategy::Drop).unwrap_err();
+        assert!(err.contains("group `B` has 1"), "err={err}");
+    }
+
+    #[test]
+    fn cochran_armitage_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/trend_cochran_armitage.json");
+        let (rows, headers, scores) = cochran_rows_from_fixture(&fixture);
+
+        let result = cochran_armitage_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            &scores,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        approx(
+            result.trend_statistic,
+            expected_f64(&fixture, "trend_statistic"),
+            1e-12,
+        );
+        approx(result.p_value, expected_f64(&fixture, "p_value"), 2e-7);
+
+        let expected_categories = fixture["expected"]["categories"].as_array().unwrap();
+        assert_eq!(result.categories.len(), expected_categories.len());
+        for expected in expected_categories {
+            let category = expected["category"].as_str().unwrap();
+            let actual = result
+                .categories
+                .iter()
+                .find(|item| item.category == category)
+                .unwrap_or_else(|| panic!("missing category {category}"));
+            assert_eq!(actual.n, expected["n"].as_u64().unwrap() as usize);
+            assert_eq!(actual.events, expected["events"].as_u64().unwrap() as usize);
+            approx(actual.score, expected["score"].as_f64().unwrap(), 1e-12);
+            approx(
+                actual.proportion,
+                expected["proportion"].as_f64().unwrap(),
+                1e-12,
+            );
+        }
+    }
+
+    #[test]
+    fn mcnemar_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/nonparam_mcnemar.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["var1", "var2"]);
+
+        let result = mcnemar_csv(&rows, &headers, "var1", "var2", 25, NaStrategy::Drop).unwrap();
+
+        assert_eq!(result.b, expected_usize(&fixture, "b"));
+        assert_eq!(result.c, expected_usize(&fixture, "c"));
+        assert_eq!(
+            result.n_concordant,
+            expected_usize(&fixture, "n_concordant")
+        );
+        approx(
+            result.chi_square,
+            expected_f64(&fixture, "chi_square"),
+            1e-12,
+        );
+        approx(result.p_value, expected_f64(&fixture, "p_value"), 2e-7);
+        approx(
+            result.exact_p_value.unwrap(),
+            expected_f64(&fixture, "exact_p_value"),
+            1e-12,
+        );
+    }
+
+    #[test]
+    fn wilcoxon_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/nonparam_wilcoxon.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["before", "after"]);
+
+        let result = wilcoxon_csv(&rows, &headers, "before", "after", NaStrategy::Drop).unwrap();
+
+        approx(result.w_plus, expected_f64(&fixture, "w_plus"), 1e-12);
+        approx(
+            result.expected_w,
+            expected_f64(&fixture, "expected_w"),
+            1e-12,
+        );
+        approx(
+            result.variance_w,
+            expected_f64(&fixture, "variance_w"),
+            1e-12,
+        );
+        approx(
+            result.z_statistic,
+            expected_f64(&fixture, "z_statistic"),
+            1e-12,
+        );
+        approx(result.p_value, expected_f64(&fixture, "p_value"), 2e-7);
+        assert_eq!(
+            result.n_zero_pairs_excluded,
+            expected_usize(&fixture, "n_zero_pairs_excluded")
+        );
+        assert_eq!(
+            result.n_ties_corrected,
+            expected_usize(&fixture, "n_ties_corrected")
+        );
+    }
+
+    #[test]
+    fn mann_whitney_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/nonparam_mannwhitney.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["group", "value"]);
+
+        let result = mann_whitney_csv(&rows, &headers, "value", "group", NaStrategy::Drop).unwrap();
+
+        assert_eq!(
+            result.group_a_label,
+            fixture["expected"]["group_a_label"].as_str().unwrap()
+        );
+        assert_eq!(
+            result.group_b_label,
+            fixture["expected"]["group_b_label"].as_str().unwrap()
+        );
+        assert_eq!(result.n_a, expected_usize(&fixture, "n_a"));
+        assert_eq!(result.n_b, expected_usize(&fixture, "n_b"));
+        approx(result.median_a, expected_f64(&fixture, "median_a"), 1e-12);
+        approx(result.median_b, expected_f64(&fixture, "median_b"), 1e-12);
+        approx(
+            result.u_statistic,
+            expected_f64(&fixture, "u_statistic"),
+            1e-12,
+        );
+        approx(
+            result.z_statistic,
+            expected_f64(&fixture, "z_statistic"),
+            1e-12,
+        );
+        approx(result.p_value, expected_f64(&fixture, "p_value"), 2e-7);
+    }
+
+    #[test]
+    fn standardization_direct_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/standardization_direct.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["age_group", "events", "person_time"]);
+        let standard_pop = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(fixture["standard_population"].as_str().unwrap());
+        let standard_pop = standard_pop.to_string_lossy();
+
+        let result = standardize_csv(
+            &rows,
+            &headers,
+            "direct",
+            "events",
+            "person_time",
+            "age_group",
+            &standard_pop,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.method,
+            fixture["expected"]["method"].as_str().unwrap()
+        );
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        approx(
+            result.standardized_rate.unwrap(),
+            expected_f64(&fixture, "standardized_rate"),
+            1e-12,
+        );
+        approx(
+            result.direct_ci_lower.unwrap(),
+            expected_f64(&fixture, "direct_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.direct_ci_upper.unwrap(),
+            expected_f64(&fixture, "direct_ci_upper"),
+            1e-10,
+        );
+
+        let expected_strata = fixture["expected"]["strata"].as_array().unwrap();
+        assert_eq!(result.strata.len(), expected_strata.len());
+        for expected in expected_strata {
+            let age_group = expected["age_group"].as_str().unwrap();
+            let actual = result
+                .strata
+                .iter()
+                .find(|stratum| stratum.age_group == age_group)
+                .unwrap_or_else(|| panic!("missing stratum {age_group}"));
+            approx(
+                actual.observed,
+                expected["observed"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.expected,
+                expected["expected"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(actual.weight, expected["weight"].as_f64().unwrap(), 1e-12);
+            approx(
+                actual.stratum_rate,
+                expected["stratum_rate"].as_f64().unwrap(),
+                1e-12,
+            );
+        }
+    }
+
+    #[test]
+    fn attributable_risk_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/attributable_risk.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["exposure", "outcome", "person_time"]);
+
+        let result = attributable_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            Some("person_time"),
+            None,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        approx(
+            result.rate_exposed,
+            expected_f64(&fixture, "rate_exposed"),
+            1e-12,
+        );
+        approx(
+            result.rate_unexposed,
+            expected_f64(&fixture, "rate_unexposed"),
+            1e-12,
+        );
+        approx(result.ar, expected_f64(&fixture, "ar"), 1e-12);
+        approx(
+            result.ar_ci_lower,
+            expected_f64(&fixture, "ar_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.ar_ci_upper,
+            expected_f64(&fixture, "ar_ci_upper"),
+            1e-10,
+        );
+        approx(
+            result.ar_percent,
+            expected_f64(&fixture, "ar_percent"),
+            1e-12,
+        );
+        approx(
+            result.exposure_prevalence.unwrap(),
+            expected_f64(&fixture, "default_exposure_prevalence"),
+            1e-12,
+        );
+        approx(
+            result.par.unwrap(),
+            expected_f64(&fixture, "default_par"),
+            1e-12,
+        );
+        approx(
+            result.par_ci_lower.unwrap(),
+            expected_f64(&fixture, "default_par_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.par_ci_upper.unwrap(),
+            expected_f64(&fixture, "default_par_ci_upper"),
+            1e-10,
+        );
+        approx(
+            result.par_percent.unwrap(),
+            expected_f64(&fixture, "default_par_percent"),
+            1e-12,
+        );
+    }
+
+    #[test]
+    fn attributable_risk_exposure_prevalence_override_changes_par() {
+        let fixture = load_fixture("tests/fixtures/r/attributable_risk.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["exposure", "outcome", "person_time"]);
+        let prevalence = expected_f64(&fixture, "override_exposure_prevalence");
+
+        let result = attributable_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            Some("person_time"),
+            Some(prevalence),
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        approx(result.exposure_prevalence.unwrap(), prevalence, 1e-12);
+        approx(
+            result.par.unwrap(),
+            expected_f64(&fixture, "override_par"),
+            1e-12,
+        );
+        approx(
+            result.par_ci_lower.unwrap(),
+            expected_f64(&fixture, "override_par_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.par_ci_upper.unwrap(),
+            expected_f64(&fixture, "override_par_ci_upper"),
+            1e-10,
+        );
+        approx(
+            result.par_percent.unwrap(),
+            expected_f64(&fixture, "override_par_percent"),
+            1e-12,
+        );
+    }
+
+    #[test]
+    fn attributable_risk_rejects_invalid_exposure_prevalence() {
+        let headers = csv::StringRecord::from(vec!["exposure", "outcome"]);
+        let rows = vec![
+            csv::StringRecord::from(vec!["1", "1"]),
+            csv::StringRecord::from(vec!["0", "0"]),
+        ];
+
+        let err = attributable_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            None,
+            Some(1.5),
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("between 0 and 1"), "err={err}");
+    }
+
+    #[test]
+    fn normality_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/normality.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["value"]);
+
+        let result = normality_csv(&rows, &headers, "value", NaStrategy::Drop).unwrap();
+
+        assert_eq!(result.n, expected_usize(&fixture, "n"));
+        approx(result.skewness, expected_f64(&fixture, "skewness"), 1e-12);
+        approx(result.kurtosis, expected_f64(&fixture, "kurtosis"), 1e-12);
+        approx(
+            result.shapiro_w.unwrap(),
+            expected_f64(&fixture, "shapiro_w"),
+            1e-12,
+        );
+        approx(
+            result.shapiro_p.unwrap(),
+            expected_f64(&fixture, "shapiro_p"),
+            1e-10,
+        );
+        assert_eq!(
+            result.shapiro_p_unreliable,
+            fixture["expected"]["shapiro_p_unreliable"]
+                .as_bool()
+                .unwrap()
+        );
+        approx(result.ks_d, expected_f64(&fixture, "ks_d"), 1e-12);
+        approx(result.ks_p, expected_f64(&fixture, "ks_p"), 1e-12);
+        assert_eq!(
+            result.lilliefors_used,
+            fixture["expected"]["lilliefors_used"].as_bool().unwrap()
+        );
+    }
+
+    #[test]
+    fn variance_homogeneity_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/variance_homogeneity.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["group", "value"]);
+
+        let result = variance_homogeneity_csv(
+            &rows,
+            &headers,
+            "value",
+            "group",
+            "median",
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        approx(
+            result.levene_statistic,
+            expected_f64(&fixture, "levene_statistic"),
+            1e-12,
+        );
+        approx(result.levene_p, expected_f64(&fixture, "levene_p"), 1e-8);
+        approx(
+            result.bartlett_statistic,
+            expected_f64(&fixture, "bartlett_statistic"),
+            1e-12,
+        );
+        approx(
+            result.bartlett_p,
+            expected_f64(&fixture, "bartlett_p"),
+            1e-8,
+        );
+
+        let expected_groups = fixture["expected"]["groups"].as_array().unwrap();
+        assert_eq!(result.groups.len(), expected_groups.len());
+        for expected in expected_groups {
+            let label = expected["group"].as_str().unwrap();
+            let actual = result
+                .groups
+                .iter()
+                .find(|group| group.group == label)
+                .unwrap_or_else(|| panic!("missing group {label}"));
+            assert_eq!(actual.n, expected["n"].as_u64().unwrap() as usize);
+            approx(
+                actual.variance,
+                expected["variance"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(actual.sd, expected["sd"].as_f64().unwrap(), 1e-12);
+        }
+    }
+
+    #[test]
+    fn lifetable_grouped_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/lifetable_grouped.json");
+        let (rows, headers) =
+            rows_from_fixture(&fixture, &["interval", "entering", "events", "withdrawals"]);
+
+        let result = lifetable_csv(
+            &rows,
+            &headers,
+            "interval",
+            "entering",
+            "events",
+            "withdrawals",
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_total, expected_usize(&fixture, "n_total"));
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        assert_eq!(result.time, "interval");
+
+        let expected_intervals = fixture["expected"]["intervals"].as_array().unwrap();
+        assert_eq!(result.intervals.len(), expected_intervals.len());
+        for expected in expected_intervals {
+            let idx = expected["interval_index"].as_u64().unwrap() as usize;
+            let actual = &result.intervals[idx];
+            assert_eq!(actual.interval_index, idx);
+            approx(actual.start, expected["start"].as_f64().unwrap(), 1e-12);
+            approx(actual.end, expected["end"].as_f64().unwrap(), 1e-12);
+            assert_eq!(
+                actual.entering,
+                expected["entering"].as_u64().unwrap() as usize
+            );
+            assert_eq!(
+                actual.withdrawals,
+                expected["withdrawals"].as_u64().unwrap() as usize
+            );
+            assert_eq!(actual.events, expected["events"].as_u64().unwrap() as usize);
+            approx(
+                actual.effective_at_risk,
+                expected["effective_at_risk"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.conditional_survival,
+                expected["conditional_survival"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.cumulative_survival,
+                expected["cumulative_survival"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.se_cumulative,
+                expected["se_cumulative"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.ci_lower,
+                expected["ci_lower"].as_f64().unwrap(),
+                1e-10,
+            );
+            approx(
+                actual.ci_upper,
+                expected["ci_upper"].as_f64().unwrap(),
+                1e-10,
+            );
+            approx(
+                actual.hazard_rate,
+                expected["hazard_rate"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.cumulative_hazard,
+                expected["cumulative_hazard"].as_f64().unwrap(),
+                1e-12,
+            );
+        }
+    }
+
+    #[test]
+    fn lifetable_individual_rejects_negative_time() {
+        let headers = csv::StringRecord::from(vec!["time", "status"]);
+        let rows = vec![csv::StringRecord::from(vec!["-0.5", "1"])];
+
+        let err = lifetable_individual_csv(
+            &rows,
+            &headers,
+            "time",
+            "status",
+            "width=1",
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("non-negative"), "err={err}");
+    }
+
+    #[test]
+    fn or_rr_crude_matches_scipy_fixture() {
+        let fixture = load_fixture("tests/fixtures/python/or_rr_crude.json");
+        let (rows, headers, strata) = or_rr_rows_from_fixture(&fixture);
+
+        let result = or_rr_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            &strata,
+            None,
+            None,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_total, expected_usize(&fixture, "n_total"));
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        assert_cells(&result.cells, &fixture["expected"]["cells"]);
+        approx(
+            result.odds_ratio,
+            expected_f64(&fixture, "odds_ratio"),
+            1e-12,
+        );
+        approx(
+            result.or_ci_lower,
+            expected_f64(&fixture, "or_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.or_ci_upper,
+            expected_f64(&fixture, "or_ci_upper"),
+            1e-10,
+        );
+        approx(
+            result.relative_risk,
+            expected_f64(&fixture, "relative_risk"),
+            1e-12,
+        );
+        approx(
+            result.rr_ci_lower,
+            expected_f64(&fixture, "rr_ci_lower"),
+            1e-10,
+        );
+        approx(
+            result.rr_ci_upper,
+            expected_f64(&fixture, "rr_ci_upper"),
+            1e-10,
+        );
+        approx(
+            result.chi_square,
+            expected_f64(&fixture, "chi_square"),
+            1e-12,
+        );
+        approx(
+            result.chi_p_value,
+            expected_f64(&fixture, "chi_p_value"),
+            1e-12,
+        );
+        assert_eq!(
+            result.continuity_correction,
+            fixture["expected"]["continuity_correction"]
+                .as_bool()
+                .unwrap()
+        );
+        assert!(result.mh_or.is_none());
+        assert!(result.homogeneity_p.is_none());
+    }
+
+    #[test]
+    fn or_rr_stratified_matches_statsmodels_gold_reference() {
+        let fixture = load_fixture("tests/fixtures/r/or_rr_stratified.json");
+        let (rows, headers, strata) = or_rr_rows_from_fixture(&fixture);
+
+        let result = or_rr_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            &strata,
+            None,
+            None,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_total, expected_usize(&fixture, "n_total"));
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        assert_cells(&result.cells, &fixture["expected"]["cells"]);
+        approx(
+            result.odds_ratio,
+            expected_f64(&fixture, "odds_ratio"),
+            1e-12,
+        );
+        approx(
+            result.relative_risk,
+            expected_f64(&fixture, "relative_risk"),
+            1e-12,
+        );
+        approx(
+            result.chi_p_value,
+            expected_f64(&fixture, "chi_p_value"),
+            1e-12,
+        );
+        approx(
+            result.mh_or.unwrap(),
+            expected_f64(&fixture, "mh_or"),
+            1e-12,
+        );
+        approx(
+            result.mh_or_ci_lower.unwrap(),
+            expected_f64(&fixture, "mh_or_ci_lower"),
+            1e-8,
+        );
+        approx(
+            result.mh_or_ci_upper.unwrap(),
+            expected_f64(&fixture, "mh_or_ci_upper"),
+            1e-8,
+        );
+        approx(
+            result.mh_rr.unwrap(),
+            expected_f64(&fixture, "mh_rr"),
+            1e-12,
+        );
+        approx(
+            result.mh_rr_ci_lower.unwrap(),
+            expected_f64(&fixture, "mh_rr_ci_lower"),
+            1e-8,
+        );
+        approx(
+            result.mh_rr_ci_upper.unwrap(),
+            expected_f64(&fixture, "mh_rr_ci_upper"),
+            1e-8,
+        );
+        approx(
+            result.homogeneity_chi_square.unwrap(),
+            expected_f64(&fixture, "homogeneity_chi_square"),
+            1e-12,
+        );
+        approx(
+            result.homogeneity_p.unwrap(),
+            expected_f64(&fixture, "homogeneity_p"),
+            1e-12,
+        );
+        assert_eq!(
+            result.continuity_correction,
+            fixture["expected"]["continuity_correction"]
+                .as_bool()
+                .unwrap()
+        );
+
+        let expected_strata = fixture["expected"]["mh_strata"].as_array().unwrap();
+        assert_eq!(result.mh_strata.len(), expected_strata.len());
+        for expected in expected_strata {
+            let label = expected["label"].as_str().unwrap();
+            let actual = result
+                .mh_strata
+                .iter()
+                .find(|stratum| stratum.label == label)
+                .unwrap_or_else(|| panic!("missing MH stratum {label}"));
+            assert_cells(&actual.cells, &expected["cells"]);
+            approx(
+                actual.or_stratum,
+                expected["or_stratum"].as_f64().unwrap(),
+                1e-12,
+            );
+            approx(
+                actual.rr_stratum,
+                expected["rr_stratum"].as_f64().unwrap(),
+                1e-12,
+            );
+        }
+    }
+
+    #[test]
+    fn or_rr_stratified_zero_cells_stay_finite() {
+        let headers = csv::StringRecord::from(vec!["exposure", "outcome", "stratum"]);
+        let mut rows = Vec::new();
+        push_2x2_rows(&mut rows, "s1", "1", "1", 1);
+        push_2x2_rows(&mut rows, "s2", "1", "0", 3);
+        push_2x2_rows(&mut rows, "s2", "0", "1", 2);
+
+        let result = or_rr_csv(
+            &rows,
+            &headers,
+            "exposure",
+            "outcome",
+            &["stratum".to_string()],
+            None,
+            None,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert!(result.continuity_correction);
+        assert!(result.mh_or.unwrap().is_finite());
+        assert!(result.mh_rr.unwrap().is_finite());
+        assert!(result.homogeneity_p.unwrap().is_finite());
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("continuity correction")));
+    }
 }

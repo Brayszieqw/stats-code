@@ -51,6 +51,11 @@ pub(crate) fn handle_init_project(args: &InitArgs) -> Result<InitProjectResult, 
         &data_dir.join("demo_cohort.dictionary.csv"),
         &mut written_files,
     )?;
+    copy_init_template(
+        &examples_dir.join("data").join("demo_standard_pop.csv"),
+        &data_dir.join("demo_standard_pop.csv"),
+        &mut written_files,
+    )?;
     write_init_readme(&project_dir.join("README.md"), &mut written_files)?;
 
     Ok(InitProjectResult {
@@ -202,6 +207,13 @@ pub(crate) fn handle_doctor(_args: &DoctorArgs) -> DoctorResult {
         "demo_dictionary_found",
         "demo_dictionary_missing",
         "bundled demo dictionary",
+    );
+    check_required_file(
+        &mut items,
+        &examples_dir.join("data").join("demo_standard_pop.csv"),
+        "demo_standard_population_found",
+        "demo_standard_population_missing",
+        "bundled demo standard population",
     );
 
     if process_command_available("cargo", &["audit", "--version"]) {

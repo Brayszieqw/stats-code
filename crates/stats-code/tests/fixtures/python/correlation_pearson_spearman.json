@@ -1,0 +1,40 @@
+{
+  "source": "SciPy 1.16.3 pearsonr/spearmanr plus Fisher z CI using stats-code normal quantile approximation",
+  "columns": ["x", "y"],
+  "rows": [
+    { "x": 10, "y": 20 },
+    { "x": 11, "y": 22 },
+    { "x": 12, "y": 21 },
+    { "x": 13, "y": 25 },
+    { "x": 14, "y": 26 },
+    { "x": 15, "y": 27 },
+    { "x": 16, "y": 30 },
+    { "x": 17, "y": 29 }
+  ],
+  "expected": {
+    "pearson": {
+      "n_pairs": 8,
+      "r": 0.9606597022317859,
+      "r_squared": 0.9228670634920635,
+      "se_fisher_z": 0.4472135954999579,
+      "ci_lower": 0.7924082202575726,
+      "ci_upper": 0.9930717977287844,
+      "t_statistic": 8.472767042146403,
+      "df": 6.0,
+      "p_value": 0.00014775766285343456
+    },
+    "spearman": {
+      "n_pairs": 8,
+      "r": 0.9523809523809524,
+      "r_squared": 0.90702947845805,
+      "se_fisher_z": 0.4472135954999579,
+      "ci_lower": 0.7531799460848734,
+      "ci_upper": 0.9915845549681069,
+      "t_statistic": 7.650920556760066,
+      "df": 6.0,
+      "p_value": 0.00026040002438725105,
+      "spearman_rho": 0.9523809523809524,
+      "spearman_p_value": 0.00026040002438725105
+    }
+  }
+}

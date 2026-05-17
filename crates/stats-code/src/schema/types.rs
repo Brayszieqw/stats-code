@@ -45,6 +45,33 @@ pub enum AnalysisKind {
     TableOne,
     Rate,
     Model,
+    #[serde(rename = "ttest.paired")]
+    TtestPaired,
+    #[serde(rename = "ttest.one_sample")]
+    TtestOneSample,
+    #[serde(rename = "anova.oneway")]
+    AnovaOneway,
+    #[serde(rename = "nonparam.cochran_armitage")]
+    NonparamCochranArmitage,
+    #[serde(rename = "nonparam.mcnemar")]
+    NonparamMcnemar,
+    #[serde(rename = "nonparam.wilcoxon")]
+    NonparamWilcoxon,
+    #[serde(rename = "nonparam.mannwhitney")]
+    NonparamMannwhitney,
+    Correlation,
+    #[serde(rename = "epi.or_rr")]
+    EpiOrRr,
+    #[serde(rename = "epi.standardize")]
+    EpiStandardize,
+    #[serde(rename = "epi.attributable")]
+    EpiAttributable,
+    #[serde(rename = "diagnostic.normality")]
+    DiagnosticNormality,
+    #[serde(rename = "diagnostic.variance")]
+    DiagnosticVariance,
+    #[serde(rename = "survival.lifetable")]
+    SurvivalLifetable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 
 use crate::bridge::Engine;
 use crate::cli::{
-    InspectArgs, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, RateArgs, ReportVerifyArgs,
-    TableOneArgs, WorkflowRunArgs,
+    InspectArgs, ModelCoxArgs, ModelLinearArgs, ModelLogisticArgs, NaStrategy, RateArgs,
+    ReportVerifyArgs, TableOneArgs, WorkflowRunArgs,
 };
 use crate::helpers::{stringify_error, unix_timestamp_nanos};
 use crate::render::render_analysis_check_text;
@@ -19,6 +19,13 @@ use crate::schema::{
     load_analysis_spec, AnalysisKind, AnalysisSpec, ArtifactMetadata, ModelKind, WorkflowRunResult,
     WorkflowStepRunResult,
 };
+use crate::stats::basic::{
+    attributable_csv, cochran_armitage_csv, lifetable_csv, lifetable_individual_csv,
+    mann_whitney_csv, mcnemar_csv, normality_csv, oneway_anova_csv, or_rr_csv, rbd_anova_csv,
+    standardize_csv, variance_homogeneity_csv, wilcoxon_csv,
+};
+use crate::stats::correlation::correlation_csv;
+use crate::stats::ttest::{one_sample_ttest_csv, paired_ttest_csv};
 
 use super::analysis::{
     privacy_requires_policy_exception, survey_requires_policy_exception, validate_analysis_contract,
@@ -292,6 +299,309 @@ fn execute_workflow_step(
                 serde_json::to_value(result).map_err(stringify_error)?,
             ))
         }
+        AnalysisKind::TtestPaired => {
+            let before = required_step_field(index, "before", step.before.as_deref())?;
+            let after = required_step_field(index, "after", step.after.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = paired_ttest_csv(&rows, &headers, &before, &after, 0.05)?;
+            Ok((
+                "stats.ttest.paired".to_string(),
+                json!({
+                    "kind": "ttest.paired",
+                    "before": before,
+                    "after": after,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::TtestOneSample => {
+            let var = required_step_field(index, "var", step.var.as_deref())?;
+            let mu = required_step_number(index, "mu", step.mu)?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = one_sample_ttest_csv(&rows, &headers, &var, mu, 0.05)?;
+            Ok((
+                "stats.ttest.one_sample".to_string(),
+                json!({
+                    "kind": "ttest.one_sample",
+                    "var": var,
+                    "mu": mu,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::AnovaOneway => {
+            let var = required_step_field(index, "var", step.var.as_deref())?;
+            let group = required_step_field(index, "group", step.group.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let response = if let Some(block) = &step.block {
+                let result = rbd_anova_csv(&rows, &headers, &var, &group, block, NaStrategy::Drop)?;
+                serde_json::to_value(result).map_err(stringify_error)?
+            } else {
+                let result = oneway_anova_csv(&rows, &headers, &var, &group, NaStrategy::Drop)?;
+                serde_json::to_value(result).map_err(stringify_error)?
+            };
+            Ok((
+                "stats.anova.oneway".to_string(),
+                json!({
+                    "kind": "anova.oneway",
+                    "var": var,
+                    "group": group,
+                    "block": &step.block,
+                }),
+                response,
+            ))
+        }
+        AnalysisKind::NonparamCochranArmitage => {
+            let exposure = required_step_field(index, "exposure", step.exposure.as_deref())?;
+            let outcome = required_step_field(index, "outcome", step.outcome.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = cochran_armitage_csv(
+                &rows,
+                &headers,
+                &exposure,
+                &outcome,
+                &step.scores,
+                NaStrategy::Drop,
+            )?;
+            Ok((
+                "stats.nonparam.cochran_armitage".to_string(),
+                json!({
+                    "kind": "nonparam.cochran_armitage",
+                    "exposure": exposure,
+                    "outcome": outcome,
+                    "scores": &step.scores,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::NonparamMcnemar => {
+            let var1 = required_step_field(index, "var1", step.var1.as_deref())?;
+            let var2 = required_step_field(index, "var2", step.var2.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = mcnemar_csv(&rows, &headers, &var1, &var2, 25, NaStrategy::Drop)?;
+            Ok((
+                "stats.nonparam.mcnemar".to_string(),
+                json!({
+                    "kind": "nonparam.mcnemar",
+                    "var1": var1,
+                    "var2": var2,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::NonparamWilcoxon => {
+            let var1 = required_step_field(index, "var1", step.var1.as_deref())?;
+            let var2 = required_step_field(index, "var2", step.var2.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = wilcoxon_csv(&rows, &headers, &var1, &var2, NaStrategy::Drop)?;
+            Ok((
+                "stats.nonparam.wilcoxon".to_string(),
+                json!({
+                    "kind": "nonparam.wilcoxon",
+                    "var1": var1,
+                    "var2": var2,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::NonparamMannwhitney => {
+            let var = required_step_field(index, "var", step.var.as_deref())?;
+            let group = required_step_field(index, "group", step.group.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = mann_whitney_csv(&rows, &headers, &var, &group, NaStrategy::Drop)?;
+            Ok((
+                "stats.nonparam.mannwhitney".to_string(),
+                json!({
+                    "kind": "nonparam.mannwhitney",
+                    "var": var,
+                    "group": group,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::Correlation => {
+            let x = required_step_field(index, "x", step.x.as_deref())?;
+            let y = required_step_field(index, "y", step.y.as_deref())?;
+            let method = step.method.as_deref().unwrap_or("pearson");
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = correlation_csv(&rows, &headers, &x, &y, 0.05, method)?;
+            Ok((
+                "stats.correlation".to_string(),
+                json!({
+                    "kind": "correlation",
+                    "x": x,
+                    "y": y,
+                    "method": method,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::EpiOrRr => {
+            let exposure = required_step_field(index, "exposure", step.exposure.as_deref())?;
+            let outcome = required_step_field(index, "outcome", step.outcome.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = or_rr_csv(
+                &rows,
+                &headers,
+                &exposure,
+                &outcome,
+                &step.strata,
+                step.exposure_event.as_deref(),
+                step.outcome_event.as_deref(),
+                0.05,
+                NaStrategy::Drop,
+            )?;
+            Ok((
+                "stats.epi.or_rr".to_string(),
+                json!({
+                    "kind": "epi.or_rr",
+                    "exposure": exposure,
+                    "outcome": outcome,
+                    "strata": &step.strata,
+                    "exposure_event": &step.exposure_event,
+                    "outcome_event": &step.outcome_event,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::EpiStandardize => {
+            let event = required_step_field(index, "event", step.event.as_deref())?;
+            let person_time =
+                required_step_field(index, "person_time", step.person_time.as_deref())?;
+            let age_group = required_step_field(index, "age_group", step.age_group.as_deref())?;
+            let standard_pop =
+                required_step_field(index, "standard_pop", step.standard_pop.as_deref())?;
+            let method = step.method.as_deref().unwrap_or("direct");
+            let standard_pop = resolve_step_reference(analysis_path, &standard_pop);
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = standardize_csv(
+                &rows,
+                &headers,
+                method,
+                &event,
+                &person_time,
+                &age_group,
+                &standard_pop,
+                0.05,
+                NaStrategy::Drop,
+            )?;
+            Ok((
+                "stats.epi.standardize".to_string(),
+                json!({
+                    "kind": "epi.standardize",
+                    "method": method,
+                    "event": event,
+                    "person_time": person_time,
+                    "age_group": age_group,
+                    "standard_pop": standard_pop,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::EpiAttributable => {
+            let exposure = required_step_field(index, "exposure", step.exposure.as_deref())?;
+            let outcome = required_step_field(index, "outcome", step.outcome.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = attributable_csv(
+                &rows,
+                &headers,
+                &exposure,
+                &outcome,
+                step.person_time.as_deref(),
+                step.exposure_prevalence,
+                0.05,
+                NaStrategy::Drop,
+            )?;
+            Ok((
+                "stats.epi.attributable".to_string(),
+                json!({
+                    "kind": "epi.attributable",
+                    "exposure": exposure,
+                    "outcome": outcome,
+                    "person_time": &step.person_time,
+                    "exposure_prevalence": step.exposure_prevalence,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::DiagnosticNormality => {
+            let var = required_step_field(index, "var", step.var.as_deref())?;
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = normality_csv(&rows, &headers, &var, NaStrategy::Drop)?;
+            Ok((
+                "stats.diagnostic.normality".to_string(),
+                json!({
+                    "kind": "diagnostic.normality",
+                    "var": var,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::DiagnosticVariance => {
+            let var = required_step_field(index, "var", step.var.as_deref())?;
+            let group = required_step_field(index, "group", step.group.as_deref())?;
+            let center = step.center.as_deref().unwrap_or("median");
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result =
+                variance_homogeneity_csv(&rows, &headers, &var, &group, center, NaStrategy::Drop)?;
+            Ok((
+                "stats.diagnostic.variance".to_string(),
+                json!({
+                    "kind": "diagnostic.variance",
+                    "var": var,
+                    "group": group,
+                    "center": center,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
+        AnalysisKind::SurvivalLifetable => {
+            let intervals = required_step_field(index, "intervals", step.intervals.as_deref())?;
+            let input_format = step.input_format.as_deref().unwrap_or("grouped");
+            let (headers, rows) = read_workflow_rows(data_path)?;
+            let result = if input_format.eq_ignore_ascii_case("individual") {
+                let time = required_step_field(index, "time", step.time.as_deref())?;
+                let status = required_step_field(index, "status", step.status.as_deref())?;
+                lifetable_individual_csv(
+                    &rows,
+                    &headers,
+                    &time,
+                    &status,
+                    &intervals,
+                    0.05,
+                    NaStrategy::Drop,
+                )?
+            } else {
+                let entering = required_step_field(index, "entering", step.entering.as_deref())?;
+                let events = required_step_field(index, "events", step.events.as_deref())?;
+                let withdrawals =
+                    required_step_field(index, "withdrawals", step.withdrawals.as_deref())?;
+                lifetable_csv(
+                    &rows,
+                    &headers,
+                    &intervals,
+                    &entering,
+                    &events,
+                    &withdrawals,
+                    0.05,
+                    NaStrategy::Drop,
+                )?
+            };
+            Ok((
+                "stats.survival.lifetable".to_string(),
+                json!({
+                    "kind": "survival.lifetable",
+                    "input_format": input_format,
+                    "intervals": intervals,
+                    "time": &step.time,
+                    "status": &step.status,
+                    "entering": &step.entering,
+                    "events": &step.events,
+                    "withdrawals": &step.withdrawals,
+                }),
+                serde_json::to_value(result).map_err(stringify_error)?,
+            ))
+        }
         AnalysisKind::Model => match step.model {
             Some(ModelKind::Logistic) => {
                 let args = ModelLogisticArgs {
@@ -349,6 +659,16 @@ fn execute_workflow_step(
     }
 }
 
+fn read_workflow_rows(path: &Path) -> Result<(csv::StringRecord, Vec<csv::StringRecord>), String> {
+    let mut reader = csv::Reader::from_path(path).map_err(stringify_error)?;
+    let headers = reader.headers().map_err(stringify_error)?.clone();
+    let rows = reader
+        .records()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(stringify_error)?;
+    Ok((headers, rows))
+}
+
 fn required_step_field(index: usize, field: &str, value: Option<&str>) -> Result<String, String> {
     value
         .filter(|value| !value.trim().is_empty())
@@ -356,10 +676,27 @@ fn required_step_field(index: usize, field: &str, value: Option<&str>) -> Result
         .ok_or_else(|| format!("analysis step {index} requires `{field}`"))
 }
 
+fn required_step_number(index: usize, field: &str, value: Option<f64>) -> Result<f64, String> {
+    value.ok_or_else(|| format!("analysis step {index} requires `{field}`"))
+}
+
 fn required_step_list(index: usize, field: &str, value: &[String]) -> Result<Vec<String>, String> {
     if value.is_empty() {
         Err(format!("analysis step {index} requires `{field}`"))
     } else {
         Ok(value.to_vec())
+    }
+}
+
+fn resolve_step_reference(analysis_path: &Path, value: &str) -> String {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        return value.to_string();
+    }
+    let candidate = resolve_relative_to_analysis(analysis_path, path);
+    if candidate.is_file() {
+        candidate.display().to_string()
+    } else {
+        value.to_string()
     }
 }

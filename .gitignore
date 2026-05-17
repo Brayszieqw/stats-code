@@ -39,3 +39,4 @@ codex_tmp/
 /tables/
 /stats-code-artifacts/
 /scratch-artifacts/
+crates/stats-code/examples/target/

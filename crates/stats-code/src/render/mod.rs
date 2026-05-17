@@ -19,6 +19,7 @@ pub(crate) use report::{
 };
 pub(crate) use stats::{
     render_cox_text, render_diagnostic_roc_text, render_linear_text, render_logistic_text,
+    render_stats_planned_text,
 };
 
 pub(crate) fn format_p_value(p: f64) -> String {

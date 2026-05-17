@@ -1,0 +1,21 @@
+{
+  "source": "R wilcox.test(after, before, paired = TRUE, exact = FALSE, correct = TRUE)",
+  "columns": ["before", "after"],
+  "rows": [
+    { "before": 20, "after": 22 },
+    { "before": 21, "after": 24 },
+    { "before": 22, "after": 26 },
+    { "before": 23, "after": 28 },
+    { "before": 24, "after": 30 },
+    { "before": 25, "after": 32 }
+  ],
+  "expected": {
+    "w_plus": 21.0,
+    "expected_w": 10.5,
+    "variance_w": 22.75,
+    "z_statistic": 2.096569673443837,
+    "p_value": 0.03603168621823355,
+    "n_zero_pairs_excluded": 0,
+    "n_ties_corrected": 0
+  }
+}

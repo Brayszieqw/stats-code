@@ -68,11 +68,7 @@ pub(crate) fn paired_ttest_csv(
     // Compute statistics
     let n = n_pairs as f64;
     let mean_diff = diffs.iter().sum::<f64>() / n;
-    let variance: f64 = diffs
-        .iter()
-        .map(|d| (d - mean_diff).powi(2))
-        .sum::<f64>()
-        / (n - 1.0);
+    let variance: f64 = diffs.iter().map(|d| (d - mean_diff).powi(2)).sum::<f64>() / (n - 1.0);
 
     if variance <= 0.0 {
         return Err(format!(
@@ -220,6 +216,56 @@ pub(crate) fn one_sample_ttest_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    fn load_fixture(relative_path: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        serde_json::from_str(&text)
+            .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+    }
+
+    fn expected_f64(fixture: &Value, key: &str) -> f64 {
+        fixture["expected"][key]
+            .as_f64()
+            .unwrap_or_else(|| panic!("missing expected.{key}"))
+    }
+
+    fn expected_usize(fixture: &Value, key: &str) -> usize {
+        fixture["expected"][key]
+            .as_u64()
+            .unwrap_or_else(|| panic!("missing expected.{key}")) as usize
+    }
+
+    fn paired_rows_from_fixture(fixture: &Value) -> (Vec<csv::StringRecord>, csv::StringRecord) {
+        let before = fixture["before"].as_array().unwrap();
+        let after = fixture["after"].as_array().unwrap();
+        assert_eq!(before.len(), after.len());
+        let rows = before
+            .iter()
+            .zip(after.iter())
+            .map(|(b, a)| {
+                csv::StringRecord::from(vec![
+                    b.as_f64().unwrap().to_string(),
+                    a.as_f64().unwrap().to_string(),
+                ])
+            })
+            .collect();
+        (rows, csv::StringRecord::from(vec!["before", "after"]))
+    }
+
+    fn one_sample_rows_from_fixture(
+        fixture: &Value,
+    ) -> (Vec<csv::StringRecord>, csv::StringRecord) {
+        let rows = fixture["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| csv::StringRecord::from(vec![value.as_f64().unwrap().to_string()]))
+            .collect();
+        (rows, csv::StringRecord::from(vec!["val"]))
+    }
 
     // -----------------------------------------------------------------------
     // Paired t-test tests
@@ -246,6 +292,43 @@ mod tests {
     }
 
     #[test]
+    fn paired_ttest_matches_r_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/ttest_paired.json");
+        let (rows, headers) = paired_rows_from_fixture(&fixture);
+
+        let result = paired_ttest_csv(&rows, &headers, "before", "after", 0.05).unwrap();
+
+        assert_eq!(result.n_pairs, expected_usize(&fixture, "n_pairs"));
+        assert!((result.mean_diff - expected_f64(&fixture, "mean_diff")).abs() < 1e-12);
+        assert!((result.sd_diff - expected_f64(&fixture, "sd_diff")).abs() < 1e-12);
+        assert!((result.se_diff - expected_f64(&fixture, "se_diff")).abs() < 1e-12);
+        assert!((result.t_statistic - expected_f64(&fixture, "t_statistic")).abs() < 1e-12);
+        assert!((result.df - expected_f64(&fixture, "df")).abs() < 1e-12);
+        assert!((result.p_value - expected_f64(&fixture, "p_value")).abs() < 1e-6);
+        assert!((result.ci_lower - expected_f64(&fixture, "ci_lower")).abs() < 1e-5);
+        assert!((result.ci_upper - expected_f64(&fixture, "ci_upper")).abs() < 1e-5);
+    }
+
+    #[test]
+    fn one_sample_ttest_matches_scipy_fixture() {
+        let fixture = load_fixture("tests/fixtures/python/ttest_one_sample.json");
+        let (rows, headers) = one_sample_rows_from_fixture(&fixture);
+        let mu = fixture["mu"].as_f64().unwrap();
+
+        let result = one_sample_ttest_csv(&rows, &headers, "val", mu, 0.05).unwrap();
+
+        assert_eq!(result.n, expected_usize(&fixture, "n"));
+        assert!((result.sample_mean - expected_f64(&fixture, "sample_mean")).abs() < 1e-12);
+        assert!((result.sample_sd - expected_f64(&fixture, "sample_sd")).abs() < 1e-12);
+        assert!((result.se - expected_f64(&fixture, "se")).abs() < 1e-12);
+        assert!((result.t_statistic - expected_f64(&fixture, "t_statistic")).abs() < 1e-12);
+        assert!((result.df - expected_f64(&fixture, "df")).abs() < 1e-12);
+        assert!((result.p_value - expected_f64(&fixture, "p_value")).abs() < 1e-6);
+        assert!((result.ci_lower - expected_f64(&fixture, "ci_lower")).abs() < 1e-5);
+        assert!((result.ci_upper - expected_f64(&fixture, "ci_upper")).abs() < 1e-5);
+    }
+
+    #[test]
     fn paired_ttest_simple() {
         // before = [10, 12, 14, 16, 18], after = [12, 14, 15, 18, 20]
         // diffs = [2, 2, 1, 2, 2]
@@ -263,10 +346,26 @@ mod tests {
         let result = paired_ttest_csv(&rows, &headers, "before", "after", 0.05).unwrap();
 
         assert_eq!(result.n_pairs, 5);
-        assert!((result.mean_diff - 1.8).abs() < 1e-10, "mean_diff: {}", result.mean_diff);
-        assert!((result.sd_diff - 0.447213595).abs() < 1e-5, "sd_diff: {}", result.sd_diff);
-        assert!((result.se_diff - 0.2).abs() < 1e-10, "se_diff: {}", result.se_diff);
-        assert!((result.t_statistic - 9.0).abs() < 1e-10, "t: {}", result.t_statistic);
+        assert!(
+            (result.mean_diff - 1.8).abs() < 1e-10,
+            "mean_diff: {}",
+            result.mean_diff
+        );
+        assert!(
+            (result.sd_diff - 0.447213595).abs() < 1e-5,
+            "sd_diff: {}",
+            result.sd_diff
+        );
+        assert!(
+            (result.se_diff - 0.2).abs() < 1e-10,
+            "se_diff: {}",
+            result.se_diff
+        );
+        assert!(
+            (result.t_statistic - 9.0).abs() < 1e-10,
+            "t: {}",
+            result.t_statistic
+        );
         assert_eq!(result.df, 4.0);
         assert!(result.p_value < 0.01, "p_value: {}", result.p_value);
         assert!(result.ci_lower < result.mean_diff);
@@ -296,13 +395,37 @@ mod tests {
         let result = paired_ttest_csv(&rows, &headers, "before", "after", 0.05).unwrap();
 
         assert_eq!(result.n_pairs, 6);
-        assert!((result.mean_diff - 2.833333).abs() < 0.001, "mean_diff: {}", result.mean_diff);
-        assert!((result.sd_diff - 1.169045).abs() < 0.005, "sd_diff: {}", result.sd_diff);
-        assert!((result.t_statistic - 5.9367).abs() < 0.01, "t: {}", result.t_statistic);
-        assert!((result.p_value - 0.001933).abs() < 0.001, "p: {}", result.p_value);
+        assert!(
+            (result.mean_diff - 2.833333).abs() < 0.001,
+            "mean_diff: {}",
+            result.mean_diff
+        );
+        assert!(
+            (result.sd_diff - 1.169045).abs() < 0.005,
+            "sd_diff: {}",
+            result.sd_diff
+        );
+        assert!(
+            (result.t_statistic - 5.9367).abs() < 0.01,
+            "t: {}",
+            result.t_statistic
+        );
+        assert!(
+            (result.p_value - 0.001933).abs() < 0.001,
+            "p: {}",
+            result.p_value
+        );
         // CI from R: 1.606502 to 4.060164
-        assert!((result.ci_lower - 1.6065).abs() < 0.01, "ci_lower: {}", result.ci_lower);
-        assert!((result.ci_upper - 4.0602).abs() < 0.01, "ci_upper: {}", result.ci_upper);
+        assert!(
+            (result.ci_lower - 1.6065).abs() < 0.01,
+            "ci_lower: {}",
+            result.ci_lower
+        );
+        assert!(
+            (result.ci_upper - 4.0602).abs() < 0.01,
+            "ci_upper: {}",
+            result.ci_upper
+        );
     }
 
     #[test]
@@ -321,8 +444,8 @@ mod tests {
         // Some rows have missing before or after values
         let records = vec![
             ("10", "12"),
-            ("", "14"),    // missing before
-            ("14", ""),    // missing after
+            ("", "14"), // missing before
+            ("14", ""), // missing after
             ("16", "18"),
             ("18", "21"),
         ];
@@ -339,11 +462,7 @@ mod tests {
     #[test]
     fn paired_ttest_zero_variance() {
         // All differences are zero
-        let records = vec![
-            ("10", "10"),
-            ("20", "20"),
-            ("30", "30"),
-        ];
+        let records = vec![("10", "10"), ("20", "20"), ("30", "30")];
         let (rows, headers) = make_csv(&records);
 
         let result = paired_ttest_csv(&rows, &headers, "before", "after", 0.05);
@@ -353,10 +472,7 @@ mod tests {
 
     #[test]
     fn paired_ttest_non_numeric() {
-        let records = vec![
-            ("10", "abc"),
-            ("20", "30"),
-        ];
+        let records = vec![("10", "abc"), ("20", "30")];
         let (rows, headers) = make_csv(&records);
 
         let result = paired_ttest_csv(&rows, &headers, "before", "after", 0.05);
@@ -391,7 +507,11 @@ mod tests {
         assert_eq!(result.n, 5);
         assert!((result.sample_mean - 14.0).abs() < 1e-10);
         assert!((result.sample_sd - 3.16227766).abs() < 1e-5);
-        assert!((result.t_statistic - 9.899495).abs() < 0.01, "t: {}", result.t_statistic);
+        assert!(
+            (result.t_statistic - 9.899495).abs() < 0.01,
+            "t: {}",
+            result.t_statistic
+        );
         assert_eq!(result.df, 4.0);
         assert!(result.p_value < 0.01, "p_value: {}", result.p_value);
     }
@@ -406,8 +526,16 @@ mod tests {
         let result = one_sample_ttest_csv(&rows, &headers, "val", 14.0, 0.05).unwrap();
 
         assert!((result.sample_mean - 14.0).abs() < 1e-10);
-        assert!((result.t_statistic).abs() < 1e-10, "t should be ~0, got {}", result.t_statistic);
-        assert!((result.p_value - 1.0).abs() < 1e-8, "p should be ~1.0, got {}", result.p_value);
+        assert!(
+            (result.t_statistic).abs() < 1e-10,
+            "t should be ~0, got {}",
+            result.t_statistic
+        );
+        assert!(
+            (result.p_value - 1.0).abs() < 1e-8,
+            "p should be ~1.0, got {}",
+            result.p_value
+        );
     }
 
     #[test]
@@ -422,8 +550,12 @@ mod tests {
         assert!(result.ci_lower < result.sample_mean);
         assert!(result.ci_upper > result.sample_mean);
         // CI should contain the true mean (100)
-        assert!(result.ci_lower < 100.0 && result.ci_upper > 100.0,
-            "CI [{}, {}] does not contain 100", result.ci_lower, result.ci_upper);
+        assert!(
+            result.ci_lower < 100.0 && result.ci_upper > 100.0,
+            "CI [{}, {}] does not contain 100",
+            result.ci_lower,
+            result.ci_upper
+        );
     }
 
     #[test]
@@ -470,14 +602,23 @@ mod tests {
 
         // For df=30, alpha=0.05, two-sided critical value ~ 2.042
         let t_crit_30 = t_distribution_critical_value(0.05, 30.0);
-        assert!((t_crit_30 - 2.042).abs() < 0.01, "t_crit(df=30): got {t_crit_30}");
+        assert!(
+            (t_crit_30 - 2.042).abs() < 0.01,
+            "t_crit(df=30): got {t_crit_30}"
+        );
 
         // For df=1000, alpha=0.05, should be close to normal 1.96
         let t_crit_large = t_distribution_critical_value(0.05, 1000.0);
-        assert!((t_crit_large - 1.96).abs() < 0.01, "t_crit(df=1000): got {t_crit_large}");
+        assert!(
+            (t_crit_large - 1.96).abs() < 0.01,
+            "t_crit(df=1000): got {t_crit_large}"
+        );
 
         // For df=1, alpha=0.05, two-sided critical value ~ 12.706
         let t_crit_df1 = t_distribution_critical_value(0.05, 1.0);
-        assert!((t_crit_df1 - 12.706).abs() < 0.05, "t_crit(df=1): got {t_crit_df1}");
+        assert!(
+            (t_crit_df1 - 12.706).abs() < 0.05,
+            "t_crit(df=1): got {t_crit_df1}"
+        );
     }
 }

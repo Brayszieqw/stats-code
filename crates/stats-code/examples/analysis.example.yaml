@@ -100,6 +100,72 @@ analyses:
     event: disease
     person_time: fu_pt
     strata: [sex]
+  - id: paired_ttest_age_bmi
+    kind: ttest.paired
+    before: age
+    after: bmi
+  - id: one_sample_ttest_age
+    kind: ttest.one_sample
+    var: age
+    mu: 50
+  - id: anova_age_by_smoke
+    kind: anova.oneway
+    var: age
+    group: smoke
+  - id: trend_smoke_disease
+    kind: nonparam.cochran_armitage
+    exposure: smoke
+    outcome: disease
+    scores: [2, 1, 0]
+  - id: mcnemar_disease_death
+    kind: nonparam.mcnemar
+    var1: disease
+    var2: death
+  - id: wilcoxon_age_bmi
+    kind: nonparam.wilcoxon
+    var1: age
+    var2: bmi
+  - id: mannwhitney_age_by_sex
+    kind: nonparam.mannwhitney
+    var: age
+    group: sex
+  - id: correlation_age_bmi
+    kind: correlation
+    x: age
+    y: bmi
+    method: pearson
+  - id: stratified_or_rr
+    kind: epi.or_rr
+    exposure: sex
+    exposure_event: male
+    outcome: disease
+    strata: [site]
+  - id: direct_standardize_by_site
+    kind: epi.standardize
+    method: direct
+    event: disease
+    person_time: fu_pt
+    age_group: site
+    standard_pop: data/demo_standard_pop.csv
+  - id: attributable_death_disease
+    kind: epi.attributable
+    exposure: death
+    outcome: disease
+    person_time: fu_pt
+  - id: normality_age
+    kind: diagnostic.normality
+    var: age
+  - id: variance_age_by_sex
+    kind: diagnostic.variance
+    var: age
+    group: sex
+    center: median
+  - id: lifetable_death
+    kind: survival.lifetable
+    input_format: individual
+    time: fu_time
+    status: death
+    intervals: width=3
   - id: logistic_main
     kind: model
     model: logistic

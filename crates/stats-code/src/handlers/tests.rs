@@ -86,6 +86,10 @@ fn init_project_writes_demo_contract_and_data() {
         .join("data")
         .join("demo_cohort.dictionary.csv")
         .is_file());
+    assert!(project_dir
+        .join("data")
+        .join("demo_standard_pop.csv")
+        .is_file());
     assert!(project_dir.join("README.md").is_file());
 
     let check_cli = test_cli(Command::Check(CheckArgs {
@@ -822,7 +826,7 @@ fn loads_example_analysis_yaml() {
         .join("analysis.example.yaml");
     let spec: AnalysisSpec = load_analysis_spec(&path).expect("example should parse");
     assert_eq!(spec.study.design, "cohort");
-    assert_eq!(spec.analyses.len(), 5);
+    assert_eq!(spec.analyses.len(), 19);
 }
 
 #[test]

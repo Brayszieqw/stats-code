@@ -154,6 +154,83 @@ fn describe_plan_step(index: usize, step: &crate::schema::AnalysisStepSpec) -> S
                 .unwrap_or("<missing-person-time>"),
             plan_list_or_none(&step.strata)
         ),
+        AnalysisKind::TtestPaired => format!(
+            "#{index} {id}: ttest.paired before=`{}` after=`{}`",
+            step.before.as_deref().unwrap_or("<missing-before>"),
+            step.after.as_deref().unwrap_or("<missing-after>")
+        ),
+        AnalysisKind::TtestOneSample => format!(
+            "#{index} {id}: ttest.one_sample var=`{}` mu={}",
+            step.var.as_deref().unwrap_or("<missing-var>"),
+            step.mu
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<missing-mu>".to_string())
+        ),
+        AnalysisKind::AnovaOneway => format!(
+            "#{index} {id}: anova.oneway var=`{}` group=`{}` block={}",
+            step.var.as_deref().unwrap_or("<missing-var>"),
+            step.group.as_deref().unwrap_or("<missing-group>"),
+            step.block.as_deref().unwrap_or("<none>")
+        ),
+        AnalysisKind::NonparamCochranArmitage => format!(
+            "#{index} {id}: nonparam.cochran_armitage exposure=`{}` outcome=`{}`",
+            step.exposure.as_deref().unwrap_or("<missing-exposure>"),
+            step.outcome.as_deref().unwrap_or("<missing-outcome>")
+        ),
+        AnalysisKind::NonparamMcnemar => format!(
+            "#{index} {id}: nonparam.mcnemar var1=`{}` var2=`{}`",
+            step.var1.as_deref().unwrap_or("<missing-var1>"),
+            step.var2.as_deref().unwrap_or("<missing-var2>")
+        ),
+        AnalysisKind::NonparamWilcoxon => format!(
+            "#{index} {id}: nonparam.wilcoxon var1=`{}` var2=`{}`",
+            step.var1.as_deref().unwrap_or("<missing-var1>"),
+            step.var2.as_deref().unwrap_or("<missing-var2>")
+        ),
+        AnalysisKind::NonparamMannwhitney => format!(
+            "#{index} {id}: nonparam.mannwhitney var=`{}` group=`{}`",
+            step.var.as_deref().unwrap_or("<missing-var>"),
+            step.group.as_deref().unwrap_or("<missing-group>")
+        ),
+        AnalysisKind::Correlation => format!(
+            "#{index} {id}: correlation x=`{}` y=`{}` method={}",
+            step.x.as_deref().unwrap_or("<missing-x>"),
+            step.y.as_deref().unwrap_or("<missing-y>"),
+            step.method.as_deref().unwrap_or("pearson")
+        ),
+        AnalysisKind::EpiOrRr => format!(
+            "#{index} {id}: epi.or_rr exposure=`{}` outcome=`{}` strata={}",
+            step.exposure.as_deref().unwrap_or("<missing-exposure>"),
+            step.outcome.as_deref().unwrap_or("<missing-outcome>"),
+            plan_list_or_none(&step.strata)
+        ),
+        AnalysisKind::EpiStandardize => format!(
+            "#{index} {id}: epi.standardize event=`{}` person_time=`{}` age_group=`{}`",
+            step.event.as_deref().unwrap_or("<missing-event>"),
+            step.person_time
+                .as_deref()
+                .unwrap_or("<missing-person-time>"),
+            step.age_group.as_deref().unwrap_or("<missing-age-group>")
+        ),
+        AnalysisKind::EpiAttributable => format!(
+            "#{index} {id}: epi.attributable exposure=`{}` outcome=`{}`",
+            step.exposure.as_deref().unwrap_or("<missing-exposure>"),
+            step.outcome.as_deref().unwrap_or("<missing-outcome>")
+        ),
+        AnalysisKind::DiagnosticNormality => format!(
+            "#{index} {id}: diagnostic.normality var=`{}`",
+            step.var.as_deref().unwrap_or("<missing-var>")
+        ),
+        AnalysisKind::DiagnosticVariance => format!(
+            "#{index} {id}: diagnostic.variance var=`{}` group=`{}`",
+            step.var.as_deref().unwrap_or("<missing-var>"),
+            step.group.as_deref().unwrap_or("<missing-group>")
+        ),
+        AnalysisKind::SurvivalLifetable => format!(
+            "#{index} {id}: survival.lifetable input_format={} intervals=`{}`",
+            step.input_format.as_deref().unwrap_or("grouped"),
+            step.intervals.as_deref().unwrap_or("<missing-intervals>")
+        ),
         AnalysisKind::Model => match step.model {
             Some(ModelKind::Logistic) => format!(
                 "#{index} {id}: logistic outcome=`{}` predictors={}",
@@ -578,6 +655,372 @@ fn validate_analysis_steps(
                         person_time,
                         true,
                     );
+                }
+            }
+            AnalysisKind::TtestPaired => {
+                if let Some(before) =
+                    required_contract_field(items, &step_label, "before", step.before.as_deref())
+                {
+                    check_column_reference(items, header_index, "ttest.paired.before", before);
+                    validate_numeric_column(items, data, header_index, before);
+                }
+                if let Some(after) =
+                    required_contract_field(items, &step_label, "after", step.after.as_deref())
+                {
+                    check_column_reference(items, header_index, "ttest.paired.after", after);
+                    validate_numeric_column(items, data, header_index, after);
+                }
+            }
+            AnalysisKind::TtestOneSample => {
+                if let Some(var) =
+                    required_contract_field(items, &step_label, "var", step.var.as_deref())
+                {
+                    check_column_reference(items, header_index, "ttest.one_sample.var", var);
+                    validate_numeric_column(items, data, header_index, var);
+                }
+                if step.mu.is_none() {
+                    push_check(
+                        items,
+                        AnalysisCheckLevel::Error,
+                        "analysis_field_missing",
+                        format!("{step_label} requires `mu`"),
+                    );
+                }
+            }
+            AnalysisKind::AnovaOneway => {
+                if let Some(var) =
+                    required_contract_field(items, &step_label, "var", step.var.as_deref())
+                {
+                    check_column_reference(items, header_index, "anova.oneway.var", var);
+                    validate_numeric_column(items, data, header_index, var);
+                }
+                if let Some(group) =
+                    required_contract_field(items, &step_label, "group", step.group.as_deref())
+                {
+                    check_column_reference(items, header_index, "anova.oneway.group", group);
+                }
+                if let Some(block) = &step.block {
+                    check_column_reference(items, header_index, "anova.oneway.block", block);
+                }
+            }
+            AnalysisKind::NonparamCochranArmitage => {
+                if let Some(exposure) = required_contract_field(
+                    items,
+                    &step_label,
+                    "exposure",
+                    step.exposure.as_deref(),
+                ) {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "nonparam.cochran_armitage.exposure",
+                        exposure,
+                    );
+                }
+                if let Some(outcome) =
+                    required_contract_field(items, &step_label, "outcome", step.outcome.as_deref())
+                {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "nonparam.cochran_armitage.outcome",
+                        outcome,
+                    );
+                    validate_binary_observed_levels(items, data, header_index, outcome);
+                }
+            }
+            AnalysisKind::NonparamMcnemar => {
+                if let Some(var1) =
+                    required_contract_field(items, &step_label, "var1", step.var1.as_deref())
+                {
+                    check_column_reference(items, header_index, "nonparam.mcnemar.var1", var1);
+                    validate_binary_observed_levels(items, data, header_index, var1);
+                }
+                if let Some(var2) =
+                    required_contract_field(items, &step_label, "var2", step.var2.as_deref())
+                {
+                    check_column_reference(items, header_index, "nonparam.mcnemar.var2", var2);
+                    validate_binary_observed_levels(items, data, header_index, var2);
+                }
+            }
+            AnalysisKind::NonparamWilcoxon => {
+                if let Some(var1) =
+                    required_contract_field(items, &step_label, "var1", step.var1.as_deref())
+                {
+                    check_column_reference(items, header_index, "nonparam.wilcoxon.var1", var1);
+                    validate_numeric_column(items, data, header_index, var1);
+                }
+                if let Some(var2) =
+                    required_contract_field(items, &step_label, "var2", step.var2.as_deref())
+                {
+                    check_column_reference(items, header_index, "nonparam.wilcoxon.var2", var2);
+                    validate_numeric_column(items, data, header_index, var2);
+                }
+            }
+            AnalysisKind::NonparamMannwhitney => {
+                if let Some(var) =
+                    required_contract_field(items, &step_label, "var", step.var.as_deref())
+                {
+                    check_column_reference(items, header_index, "nonparam.mannwhitney.var", var);
+                    validate_numeric_column(items, data, header_index, var);
+                }
+                if let Some(group) =
+                    required_contract_field(items, &step_label, "group", step.group.as_deref())
+                {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "nonparam.mannwhitney.group",
+                        group,
+                    );
+                    validate_binary_observed_levels(items, data, header_index, group);
+                }
+            }
+            AnalysisKind::Correlation => {
+                if let Some(x) = required_contract_field(items, &step_label, "x", step.x.as_deref())
+                {
+                    check_column_reference(items, header_index, "correlation.x", x);
+                    validate_numeric_column(items, data, header_index, x);
+                }
+                if let Some(y) = required_contract_field(items, &step_label, "y", step.y.as_deref())
+                {
+                    check_column_reference(items, header_index, "correlation.y", y);
+                    validate_numeric_column(items, data, header_index, y);
+                }
+            }
+            AnalysisKind::EpiOrRr => {
+                if let Some(exposure) = required_contract_field(
+                    items,
+                    &step_label,
+                    "exposure",
+                    step.exposure.as_deref(),
+                ) {
+                    check_column_reference(items, header_index, "epi.or_rr.exposure", exposure);
+                    validate_binary_observed_levels(items, data, header_index, exposure);
+                }
+                if let Some(outcome) =
+                    required_contract_field(items, &step_label, "outcome", step.outcome.as_deref())
+                {
+                    check_column_reference(items, header_index, "epi.or_rr.outcome", outcome);
+                    validate_binary_observed_levels(items, data, header_index, outcome);
+                }
+                for stratum in &step.strata {
+                    check_column_reference(items, header_index, "epi.or_rr.strata", stratum);
+                }
+            }
+            AnalysisKind::EpiStandardize => {
+                if let Some(event) =
+                    required_contract_field(items, &step_label, "event", step.event.as_deref())
+                {
+                    check_column_reference(items, header_index, "epi.standardize.event", event);
+                    validate_numeric_column(items, data, header_index, event);
+                }
+                if let Some(person_time) = required_contract_field(
+                    items,
+                    &step_label,
+                    "person_time",
+                    step.person_time.as_deref(),
+                ) {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "epi.standardize.person_time",
+                        person_time,
+                    );
+                    validate_nonnegative_numeric_column(
+                        items,
+                        data,
+                        header_index,
+                        person_time,
+                        true,
+                    );
+                }
+                if let Some(age_group) = required_contract_field(
+                    items,
+                    &step_label,
+                    "age_group",
+                    step.age_group.as_deref(),
+                ) {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "epi.standardize.age_group",
+                        age_group,
+                    );
+                }
+                let _ = required_contract_field(
+                    items,
+                    &step_label,
+                    "standard_pop",
+                    step.standard_pop.as_deref(),
+                );
+            }
+            AnalysisKind::EpiAttributable => {
+                if let Some(exposure) = required_contract_field(
+                    items,
+                    &step_label,
+                    "exposure",
+                    step.exposure.as_deref(),
+                ) {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "epi.attributable.exposure",
+                        exposure,
+                    );
+                    validate_binary_observed_levels(items, data, header_index, exposure);
+                }
+                if let Some(outcome) =
+                    required_contract_field(items, &step_label, "outcome", step.outcome.as_deref())
+                {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "epi.attributable.outcome",
+                        outcome,
+                    );
+                    validate_binary_observed_levels(items, data, header_index, outcome);
+                }
+                if let Some(person_time) = &step.person_time {
+                    check_column_reference(
+                        items,
+                        header_index,
+                        "epi.attributable.person_time",
+                        person_time,
+                    );
+                    validate_nonnegative_numeric_column(
+                        items,
+                        data,
+                        header_index,
+                        person_time,
+                        true,
+                    );
+                }
+            }
+            AnalysisKind::DiagnosticNormality => {
+                if let Some(var) =
+                    required_contract_field(items, &step_label, "var", step.var.as_deref())
+                {
+                    check_column_reference(items, header_index, "diagnostic.normality.var", var);
+                    validate_numeric_column(items, data, header_index, var);
+                }
+            }
+            AnalysisKind::DiagnosticVariance => {
+                if let Some(var) =
+                    required_contract_field(items, &step_label, "var", step.var.as_deref())
+                {
+                    check_column_reference(items, header_index, "diagnostic.variance.var", var);
+                    validate_numeric_column(items, data, header_index, var);
+                }
+                if let Some(group) =
+                    required_contract_field(items, &step_label, "group", step.group.as_deref())
+                {
+                    check_column_reference(items, header_index, "diagnostic.variance.group", group);
+                }
+            }
+            AnalysisKind::SurvivalLifetable => {
+                let input_format = step.input_format.as_deref().unwrap_or("grouped");
+                let intervals = required_contract_field(
+                    items,
+                    &step_label,
+                    "intervals",
+                    step.intervals.as_deref(),
+                );
+                if input_format.eq_ignore_ascii_case("individual") {
+                    if let Some(time) =
+                        required_contract_field(items, &step_label, "time", step.time.as_deref())
+                    {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.time",
+                            time,
+                        );
+                        validate_nonnegative_numeric_column(items, data, header_index, time, true);
+                    }
+                    if let Some(status) = required_contract_field(
+                        items,
+                        &step_label,
+                        "status",
+                        step.status.as_deref(),
+                    ) {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.status",
+                            status,
+                        );
+                        validate_binary_observed_levels(items, data, header_index, status);
+                    }
+                } else {
+                    if let Some(intervals) = intervals {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.intervals",
+                            intervals,
+                        );
+                    }
+                    if let Some(entering) = required_contract_field(
+                        items,
+                        &step_label,
+                        "entering",
+                        step.entering.as_deref(),
+                    ) {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.entering",
+                            entering,
+                        );
+                        validate_nonnegative_numeric_column(
+                            items,
+                            data,
+                            header_index,
+                            entering,
+                            true,
+                        );
+                    }
+                    if let Some(events) = required_contract_field(
+                        items,
+                        &step_label,
+                        "events",
+                        step.events.as_deref(),
+                    ) {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.events",
+                            events,
+                        );
+                        validate_nonnegative_numeric_column(
+                            items,
+                            data,
+                            header_index,
+                            events,
+                            true,
+                        );
+                    }
+                    if let Some(withdrawals) = required_contract_field(
+                        items,
+                        &step_label,
+                        "withdrawals",
+                        step.withdrawals.as_deref(),
+                    ) {
+                        check_column_reference(
+                            items,
+                            header_index,
+                            "survival.lifetable.withdrawals",
+                            withdrawals,
+                        );
+                        validate_nonnegative_numeric_column(
+                            items,
+                            data,
+                            header_index,
+                            withdrawals,
+                            true,
+                        );
+                    }
                 }
             }
             AnalysisKind::Model => match step.model {

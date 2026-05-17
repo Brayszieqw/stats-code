@@ -29,11 +29,7 @@ impl TextReportWriter {
     }
 
     /// Write a labeled field only if the value is `Some`; skip entirely if `None`.
-    pub fn field_opt(
-        &mut self,
-        label: &str,
-        value: Option<impl std::fmt::Display>,
-    ) -> &mut Self {
+    pub fn field_opt(&mut self, label: &str, value: Option<impl std::fmt::Display>) -> &mut Self {
         if let Some(v) = value {
             let _ = writeln!(self.buf, "  {label:<17}{v}");
         }
@@ -66,7 +62,8 @@ impl TextReportWriter {
         }
         let _ = writeln!(self.buf, "  {line}");
         // Write a separator line matching the total width
-        let total_width = columns.iter().map(|(_, w)| w).sum::<usize>() + columns.len().saturating_sub(1);
+        let total_width =
+            columns.iter().map(|(_, w)| w).sum::<usize>() + columns.len().saturating_sub(1);
         let separator: String = "─".repeat(total_width);
         let _ = writeln!(self.buf, "  {separator}");
         self

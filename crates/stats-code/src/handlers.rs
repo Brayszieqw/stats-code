@@ -45,7 +45,8 @@ use crate::render::{
     render_diagnostic_roc_text, render_doctor_text, render_init_project_text, render_inspect_text,
     render_linear_text, render_logistic_text, render_open_report_text, render_planned_text,
     render_power_text, render_rate_text, render_report_build_text, render_report_verify_text,
-    render_survival_km_text, render_tableone_text, render_workflow_run_text,
+    render_stats_planned_text, render_survival_km_text, render_tableone_text,
+    render_workflow_run_text,
 };
 use crate::report::{
     handle_report_build, handle_report_verify, persist_run_artifacts_with_metadata,
@@ -411,6 +412,13 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
             "workflow_run" => {
                 let value: WorkflowRunResult = serde_json::from_value(response)?;
                 Ok(render_workflow_run_text(&value))
+            }
+            "stats" => {
+                let value: PlannedCommandResult = serde_json::from_value(response)?;
+                Ok(
+                    render_stats_planned_text(&value)
+                        .unwrap_or_else(|| render_planned_text(&value)),
+                )
             }
             _ => {
                 let value: PlannedCommandResult = serde_json::from_value(response)?;

@@ -1,0 +1,40 @@
+{
+  "source": "R-compatible direct standardization: sum(w_i * events_i / person_time_i), normal CI using stats-code z critical",
+  "columns": ["age_group", "events", "person_time"],
+  "standard_population": "tests/fixtures/r/standard_population_three_age.csv",
+  "rows": [
+    { "age_group": "young", "events": 5, "person_time": 1000 },
+    { "age_group": "middle", "events": 12, "person_time": 1200 },
+    { "age_group": "older", "events": 30, "person_time": 1500 }
+  ],
+  "expected": {
+    "method": "direct",
+    "n_used": 3,
+    "standardized_rate": 0.0095,
+    "direct_ci_lower": 0.0063804334148648495,
+    "direct_ci_upper": 0.01261956658513515,
+    "strata": [
+      {
+        "age_group": "middle",
+        "observed": 12.0,
+        "expected": 11.4,
+        "weight": 0.3,
+        "stratum_rate": 0.01
+      },
+      {
+        "age_group": "older",
+        "observed": 30.0,
+        "expected": 14.25,
+        "weight": 0.2,
+        "stratum_rate": 0.02
+      },
+      {
+        "age_group": "young",
+        "observed": 5.0,
+        "expected": 9.5,
+        "weight": 0.5,
+        "stratum_rate": 0.005
+      }
+    ]
+  }
+}

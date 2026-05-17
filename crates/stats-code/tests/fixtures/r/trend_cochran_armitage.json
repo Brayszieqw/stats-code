@@ -1,0 +1,55 @@
+{
+  "source": "R prop.trend.test(x = c(2, 5, 11), n = c(20, 20, 20), score = c(0, 1, 2))",
+  "columns": ["exposure", "outcome"],
+  "rows_summary": [
+    {
+      "exposure": "a",
+      "score": 0.0,
+      "n": 20,
+      "events": 2,
+      "proportion": 0.1
+    },
+    {
+      "exposure": "b",
+      "score": 1.0,
+      "n": 20,
+      "events": 5,
+      "proportion": 0.25
+    },
+    {
+      "exposure": "c",
+      "score": 2.0,
+      "n": 20,
+      "events": 11,
+      "proportion": 0.55
+    }
+  ],
+  "expected": {
+    "n_used": 60,
+    "trend_statistic": 3.1052950170405937,
+    "p_value": 0.001900893250446667,
+    "categories": [
+      {
+        "category": "a",
+        "score": 0.0,
+        "n": 20,
+        "events": 2,
+        "proportion": 0.1
+      },
+      {
+        "category": "b",
+        "score": 1.0,
+        "n": 20,
+        "events": 5,
+        "proportion": 0.25
+      },
+      {
+        "category": "c",
+        "score": 2.0,
+        "n": 20,
+        "events": 11,
+        "proportion": 0.55
+      }
+    ]
+  }
+}

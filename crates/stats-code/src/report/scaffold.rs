@@ -23,6 +23,99 @@ pub fn build_command_log(spec: &AnalysisSpec) -> Value {
                 "person_time": step.person_time,
                 "status": "planned"
             }),
+            AnalysisKind::TtestPaired => json!({
+                "command": "stats-code stats ttest paired",
+                "before": step.before,
+                "after": step.after,
+                "status": "planned"
+            }),
+            AnalysisKind::TtestOneSample => json!({
+                "command": "stats-code stats ttest one-sample",
+                "var": step.var,
+                "mu": step.mu,
+                "status": "planned"
+            }),
+            AnalysisKind::AnovaOneway => json!({
+                "command": "stats-code stats anova oneway",
+                "var": step.var,
+                "group": step.group,
+                "block": step.block,
+                "status": "planned"
+            }),
+            AnalysisKind::NonparamCochranArmitage => json!({
+                "command": "stats-code stats nonparam cochran-armitage",
+                "exposure": step.exposure,
+                "outcome": step.outcome,
+                "scores": step.scores,
+                "status": "planned"
+            }),
+            AnalysisKind::NonparamMcnemar => json!({
+                "command": "stats-code stats nonparam mcnemar",
+                "var1": step.var1,
+                "var2": step.var2,
+                "status": "planned"
+            }),
+            AnalysisKind::NonparamWilcoxon => json!({
+                "command": "stats-code stats nonparam wilcoxon",
+                "var1": step.var1,
+                "var2": step.var2,
+                "status": "planned"
+            }),
+            AnalysisKind::NonparamMannwhitney => json!({
+                "command": "stats-code stats nonparam mannwhitney",
+                "var": step.var,
+                "group": step.group,
+                "status": "planned"
+            }),
+            AnalysisKind::Correlation => json!({
+                "command": "stats-code stats correlation",
+                "x": step.x,
+                "y": step.y,
+                "method": step.method,
+                "status": "planned"
+            }),
+            AnalysisKind::EpiOrRr => json!({
+                "command": "stats-code stats epi or-rr",
+                "exposure": step.exposure,
+                "outcome": step.outcome,
+                "strata": step.strata,
+                "status": "planned"
+            }),
+            AnalysisKind::EpiStandardize => json!({
+                "command": "stats-code stats epi standardize",
+                "event": step.event,
+                "person_time": step.person_time,
+                "age_group": step.age_group,
+                "standard_pop": step.standard_pop,
+                "status": "planned"
+            }),
+            AnalysisKind::EpiAttributable => json!({
+                "command": "stats-code stats epi attributable",
+                "exposure": step.exposure,
+                "outcome": step.outcome,
+                "person_time": step.person_time,
+                "status": "planned"
+            }),
+            AnalysisKind::DiagnosticNormality => json!({
+                "command": "stats-code stats diagnostic normality",
+                "var": step.var,
+                "status": "planned"
+            }),
+            AnalysisKind::DiagnosticVariance => json!({
+                "command": "stats-code stats diagnostic variance",
+                "var": step.var,
+                "group": step.group,
+                "center": step.center,
+                "status": "planned"
+            }),
+            AnalysisKind::SurvivalLifetable => json!({
+                "command": "stats-code stats survival lifetable",
+                "input_format": step.input_format,
+                "time": step.time,
+                "status_column": step.status,
+                "intervals": step.intervals,
+                "status": "planned"
+            }),
             AnalysisKind::Model => json!({
                 "command": "stats-code model",
                 "model": step.model,
@@ -243,6 +336,123 @@ pub fn build_methods_markdown(spec: &AnalysisSpec) -> String {
                     "- Rate analysis using event `{}` and person-time `{}`.",
                     step.event.as_deref().unwrap_or("<unspecified>"),
                     step.person_time.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::TtestPaired => {
+                let _ = writeln!(
+                    out,
+                    "- Paired t-test comparing `{}` and `{}`.",
+                    step.before.as_deref().unwrap_or("<unspecified>"),
+                    step.after.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::TtestOneSample => {
+                let _ = writeln!(
+                    out,
+                    "- One-sample t-test for `{}` against mu={}.",
+                    step.var.as_deref().unwrap_or("<unspecified>"),
+                    step.mu
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "<unspecified>".to_string())
+                );
+            }
+            AnalysisKind::AnovaOneway => {
+                let _ = writeln!(
+                    out,
+                    "- One-way ANOVA for `{}` grouped by `{}`.",
+                    step.var.as_deref().unwrap_or("<unspecified>"),
+                    step.group.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::NonparamCochranArmitage => {
+                let _ = writeln!(
+                    out,
+                    "- Cochran-Armitage trend test for exposure `{}` and outcome `{}`.",
+                    step.exposure.as_deref().unwrap_or("<unspecified>"),
+                    step.outcome.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::NonparamMcnemar => {
+                let _ = writeln!(
+                    out,
+                    "- McNemar test comparing paired binary variables `{}` and `{}`.",
+                    step.var1.as_deref().unwrap_or("<unspecified>"),
+                    step.var2.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::NonparamWilcoxon => {
+                let _ = writeln!(
+                    out,
+                    "- Wilcoxon signed-rank test comparing `{}` and `{}`.",
+                    step.var1.as_deref().unwrap_or("<unspecified>"),
+                    step.var2.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::NonparamMannwhitney => {
+                let _ = writeln!(
+                    out,
+                    "- Mann-Whitney U test for `{}` grouped by `{}`.",
+                    step.var.as_deref().unwrap_or("<unspecified>"),
+                    step.group.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::Correlation => {
+                let _ = writeln!(
+                    out,
+                    "- Correlation between `{}` and `{}`.",
+                    step.x.as_deref().unwrap_or("<unspecified>"),
+                    step.y.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::EpiOrRr => {
+                let _ = writeln!(
+                    out,
+                    "- Odds ratio / relative risk for exposure `{}` and outcome `{}` stratified by `{}`.",
+                    step.exposure.as_deref().unwrap_or("<unspecified>"),
+                    step.outcome.as_deref().unwrap_or("<unspecified>"),
+                    if step.strata.is_empty() {
+                        "<none>".to_string()
+                    } else {
+                        step.strata.join(", ")
+                    }
+                );
+            }
+            AnalysisKind::EpiStandardize => {
+                let _ = writeln!(
+                    out,
+                    "- Direct/indirect standardization for event `{}` by `{}`.",
+                    step.event.as_deref().unwrap_or("<unspecified>"),
+                    step.age_group.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::EpiAttributable => {
+                let _ = writeln!(
+                    out,
+                    "- Attributable risk for exposure `{}` and outcome `{}`.",
+                    step.exposure.as_deref().unwrap_or("<unspecified>"),
+                    step.outcome.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::DiagnosticNormality => {
+                let _ = writeln!(
+                    out,
+                    "- Normality diagnostics for `{}`.",
+                    step.var.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::DiagnosticVariance => {
+                let _ = writeln!(
+                    out,
+                    "- Variance homogeneity diagnostics for `{}` grouped by `{}`.",
+                    step.var.as_deref().unwrap_or("<unspecified>"),
+                    step.group.as_deref().unwrap_or("<unspecified>")
+                );
+            }
+            AnalysisKind::SurvivalLifetable => {
+                let _ = writeln!(
+                    out,
+                    "- Actuarial life table using `{}` input.",
+                    step.input_format.as_deref().unwrap_or("grouped")
                 );
             }
             AnalysisKind::Model => match step.model {
@@ -466,6 +676,22 @@ pub fn build_audit_trail_markdown(spec: &AnalysisSpec) -> String {
                 AnalysisKind::Inspect => "inspect".to_string(),
                 AnalysisKind::TableOne => "tableone".to_string(),
                 AnalysisKind::Rate => "rate".to_string(),
+                AnalysisKind::TtestPaired => "stats_ttest_paired".to_string(),
+                AnalysisKind::TtestOneSample => "stats_ttest_one_sample".to_string(),
+                AnalysisKind::AnovaOneway => "stats_anova_oneway".to_string(),
+                AnalysisKind::NonparamCochranArmitage => {
+                    "stats_nonparam_cochran_armitage".to_string()
+                }
+                AnalysisKind::NonparamMcnemar => "stats_nonparam_mcnemar".to_string(),
+                AnalysisKind::NonparamWilcoxon => "stats_nonparam_wilcoxon".to_string(),
+                AnalysisKind::NonparamMannwhitney => "stats_nonparam_mannwhitney".to_string(),
+                AnalysisKind::Correlation => "stats_correlation".to_string(),
+                AnalysisKind::EpiOrRr => "stats_epi_or_rr".to_string(),
+                AnalysisKind::EpiStandardize => "stats_epi_standardize".to_string(),
+                AnalysisKind::EpiAttributable => "stats_epi_attributable".to_string(),
+                AnalysisKind::DiagnosticNormality => "stats_diagnostic_normality".to_string(),
+                AnalysisKind::DiagnosticVariance => "stats_diagnostic_variance".to_string(),
+                AnalysisKind::SurvivalLifetable => "stats_survival_lifetable".to_string(),
                 AnalysisKind::Model => match step.model {
                     Some(ModelKind::Logistic) => "model_logistic".to_string(),
                     Some(ModelKind::Cox) => "model_cox".to_string(),
@@ -543,6 +769,48 @@ pub fn build_tables_readme(spec: &AnalysisSpec) -> String {
             }
             AnalysisKind::Rate => {
                 let _ = writeln!(out, "- `rate-summary.csv`");
+            }
+            AnalysisKind::TtestPaired => {
+                let _ = writeln!(out, "- `stats-ttest-paired.json`");
+            }
+            AnalysisKind::TtestOneSample => {
+                let _ = writeln!(out, "- `stats-ttest-one-sample.json`");
+            }
+            AnalysisKind::AnovaOneway => {
+                let _ = writeln!(out, "- `stats-anova-oneway.json`");
+            }
+            AnalysisKind::NonparamCochranArmitage => {
+                let _ = writeln!(out, "- `stats-nonparam-cochran-armitage.json`");
+            }
+            AnalysisKind::NonparamMcnemar => {
+                let _ = writeln!(out, "- `stats-nonparam-mcnemar.json`");
+            }
+            AnalysisKind::NonparamWilcoxon => {
+                let _ = writeln!(out, "- `stats-nonparam-wilcoxon.json`");
+            }
+            AnalysisKind::NonparamMannwhitney => {
+                let _ = writeln!(out, "- `stats-nonparam-mannwhitney.json`");
+            }
+            AnalysisKind::Correlation => {
+                let _ = writeln!(out, "- `stats-correlation.json`");
+            }
+            AnalysisKind::EpiOrRr => {
+                let _ = writeln!(out, "- `stats-epi-or-rr.json`");
+            }
+            AnalysisKind::EpiStandardize => {
+                let _ = writeln!(out, "- `stats-epi-standardize.json`");
+            }
+            AnalysisKind::EpiAttributable => {
+                let _ = writeln!(out, "- `stats-epi-attributable.json`");
+            }
+            AnalysisKind::DiagnosticNormality => {
+                let _ = writeln!(out, "- `stats-diagnostic-normality.json`");
+            }
+            AnalysisKind::DiagnosticVariance => {
+                let _ = writeln!(out, "- `stats-diagnostic-variance.json`");
+            }
+            AnalysisKind::SurvivalLifetable => {
+                let _ = writeln!(out, "- `stats-survival-lifetable.json`");
             }
             AnalysisKind::Model => match step.model {
                 Some(ModelKind::Logistic) => {
@@ -699,6 +967,7 @@ fn requires_time_anchor(spec: &AnalysisSpec) -> bool {
     spec.analyses.iter().any(|step| {
         matches!(step.model, Some(ModelKind::Cox))
             || matches!(step.kind, AnalysisKind::Rate)
+            || matches!(step.kind, AnalysisKind::EpiOrRr)
             || step.time.is_some()
             || step.event.is_some()
             || step.person_time.is_some()

@@ -79,11 +79,7 @@ fn norm_quantile(p: f64) -> f64 {
 fn rank_with_ties(values: &[f64]) -> Vec<f64> {
     let n = values.len();
     // (value, original_index)
-    let mut indexed: Vec<(f64, usize)> = values
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| (v, i))
-        .collect();
+    let mut indexed: Vec<(f64, usize)> = values.iter().enumerate().map(|(i, &v)| (v, i)).collect();
     indexed.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let mut ranks = vec![0.0_f64; n];
@@ -281,8 +277,8 @@ pub(crate) fn correlation_csv(
 
     Ok(CorrelationResult {
         status: "ok".to_string(),
-        data_path: String::new(),       // filled by caller if needed
-        analysis_path: None,            // filled by caller if needed
+        data_path: String::new(), // filled by caller if needed
+        analysis_path: None,      // filled by caller if needed
         n_total,
         n_used: n_pairs,
         n_excluded_missing,
@@ -316,6 +312,7 @@ pub(crate) fn correlation_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     // -----------------------------------------------------------------------
     // helpers to build test CSV data
@@ -356,9 +353,161 @@ mod tests {
         correlation_csv(&rows, &headers, col_x, col_y, 0.05, method)
     }
 
+    fn load_fixture(relative_path: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        serde_json::from_str(&text)
+            .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+    }
+
+    fn rows_from_fixture(
+        fixture: &Value,
+        columns: &[&str],
+    ) -> (Vec<csv::StringRecord>, csv::StringRecord) {
+        let rows = fixture["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let fields = columns
+                    .iter()
+                    .map(|column| match &row[*column] {
+                        Value::String(value) => value.clone(),
+                        Value::Number(value) => value.to_string(),
+                        other => panic!("unsupported fixture cell for {column}: {other}"),
+                    })
+                    .collect::<Vec<_>>();
+                csv::StringRecord::from(fields)
+            })
+            .collect();
+        (rows, csv::StringRecord::from(columns.to_vec()))
+    }
+
+    fn expected_f64(fixture: &Value, method: &str, key: &str) -> f64 {
+        fixture["expected"][method][key]
+            .as_f64()
+            .unwrap_or_else(|| panic!("missing expected.{method}.{key}"))
+    }
+
+    fn expected_usize(fixture: &Value, method: &str, key: &str) -> usize {
+        fixture["expected"][method][key]
+            .as_u64()
+            .unwrap_or_else(|| panic!("missing expected.{method}.{key}")) as usize
+    }
+
+    fn approx(actual: f64, expected: f64, tol: f64) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "expected {expected}, got {actual}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // unit tests
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn pearson_matches_scipy_fixture() {
+        let fixture = load_fixture("tests/fixtures/python/correlation_pearson_spearman.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["x", "y"]);
+
+        let result = correlation_csv(&rows, &headers, "x", "y", 0.05, "pearson").unwrap();
+
+        assert_eq!(
+            result.n_pairs,
+            expected_usize(&fixture, "pearson", "n_pairs")
+        );
+        approx(result.r, expected_f64(&fixture, "pearson", "r"), 1e-12);
+        approx(
+            result.r_squared,
+            expected_f64(&fixture, "pearson", "r_squared"),
+            1e-12,
+        );
+        approx(
+            result.se_fisher_z,
+            expected_f64(&fixture, "pearson", "se_fisher_z"),
+            1e-12,
+        );
+        approx(
+            result.ci_lower,
+            expected_f64(&fixture, "pearson", "ci_lower"),
+            1e-4,
+        );
+        approx(
+            result.ci_upper,
+            expected_f64(&fixture, "pearson", "ci_upper"),
+            1e-4,
+        );
+        approx(
+            result.t_statistic,
+            expected_f64(&fixture, "pearson", "t_statistic"),
+            1e-12,
+        );
+        approx(result.df, expected_f64(&fixture, "pearson", "df"), 1e-12);
+        approx(
+            result.p_value,
+            expected_f64(&fixture, "pearson", "p_value"),
+            1e-12,
+        );
+        assert!(result.spearman_rho.is_none());
+        assert!(result.spearman_p_value.is_none());
+    }
+
+    #[test]
+    fn spearman_matches_scipy_fixture() {
+        let fixture = load_fixture("tests/fixtures/python/correlation_pearson_spearman.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["x", "y"]);
+
+        let result = correlation_csv(&rows, &headers, "x", "y", 0.05, "spearman").unwrap();
+
+        assert_eq!(
+            result.n_pairs,
+            expected_usize(&fixture, "spearman", "n_pairs")
+        );
+        approx(result.r, expected_f64(&fixture, "spearman", "r"), 1e-12);
+        approx(
+            result.r_squared,
+            expected_f64(&fixture, "spearman", "r_squared"),
+            1e-12,
+        );
+        approx(
+            result.se_fisher_z,
+            expected_f64(&fixture, "spearman", "se_fisher_z"),
+            1e-12,
+        );
+        approx(
+            result.ci_lower,
+            expected_f64(&fixture, "spearman", "ci_lower"),
+            1e-4,
+        );
+        approx(
+            result.ci_upper,
+            expected_f64(&fixture, "spearman", "ci_upper"),
+            1e-4,
+        );
+        approx(
+            result.t_statistic,
+            expected_f64(&fixture, "spearman", "t_statistic"),
+            1e-12,
+        );
+        approx(result.df, expected_f64(&fixture, "spearman", "df"), 1e-12);
+        approx(
+            result.p_value,
+            expected_f64(&fixture, "spearman", "p_value"),
+            1e-12,
+        );
+        approx(
+            result.spearman_rho.unwrap(),
+            expected_f64(&fixture, "spearman", "spearman_rho"),
+            1e-12,
+        );
+        approx(
+            result.spearman_p_value.unwrap(),
+            expected_f64(&fixture, "spearman", "spearman_p_value"),
+            1e-12,
+        );
+    }
 
     #[test]
     fn pearson_perfect_positive() {
@@ -372,7 +521,11 @@ mod tests {
             &["14", "29"],
         ];
         let result = run_correlation(&["x", "y"], data, "x", "y", "pearson").unwrap();
-        assert!((result.r - 1.0).abs() < 1e-10, "expected r=1.0, got {}", result.r);
+        assert!(
+            (result.r - 1.0).abs() < 1e-10,
+            "expected r=1.0, got {}",
+            result.r
+        );
         assert!((result.r_squared - 1.0).abs() < 1e-10);
         assert_eq!(result.n_pairs, 5);
         assert_eq!(result.method, "pearson");
@@ -391,7 +544,11 @@ mod tests {
             &["5", "0"],
         ];
         let result = run_correlation(&["x", "y"], data, "x", "y", "pearson").unwrap();
-        assert!((result.r - (-1.0)).abs() < 1e-10, "expected r=-1.0, got {}", result.r);
+        assert!(
+            (result.r - (-1.0)).abs() < 1e-10,
+            "expected r=-1.0, got {}",
+            result.r
+        );
         assert!((result.r_squared - 1.0).abs() < 1e-10);
         assert_eq!(result.n_pairs, 5);
     }
@@ -408,7 +565,11 @@ mod tests {
         ];
         let result = run_correlation(&["x", "y"], data, "x", "y", "pearson").unwrap();
         // With only 5 random-ish points, r won't be exactly 0
-        assert!(result.r.abs() < 0.8, "expected near-zero r, got {}", result.r);
+        assert!(
+            result.r.abs() < 0.8,
+            "expected near-zero r, got {}",
+            result.r
+        );
     }
 
     #[test]
@@ -467,7 +628,7 @@ mod tests {
         let data: &[&[&str]] = &[
             &["1", "1"],
             &["2", "4"],
-            &["2", "3"],  // tie in x
+            &["2", "3"], // tie in x
             &["3", "16"],
             &["4", "25"],
         ];
@@ -481,10 +642,7 @@ mod tests {
     #[test]
     fn spearman_too_few_pairs() {
         // Only 2 complete pairs => should error for Spearman
-        let data: &[&[&str]] = &[
-            &["1", "2"],
-            &["3", "4"],
-        ];
+        let data: &[&[&str]] = &[&["1", "2"], &["3", "4"]];
         let result = run_correlation(&["x", "y"], data, "x", "y", "spearman");
         assert!(result.is_err(), "expected Err, got Ok");
         let msg = result.unwrap_err();
@@ -499,9 +657,9 @@ mod tests {
         // Some pairs have missing y values
         let data: &[&[&str]] = &[
             &["1", "2"],
-            &["2", ""],      // missing y
+            &["2", ""], // missing y
             &["3", "6"],
-            &["", "8"],      // missing x
+            &["", "8"], // missing x
             &["5", "10"],
         ];
         let result = run_correlation(&["x", "y"], data, "x", "y", "pearson").unwrap();
@@ -550,7 +708,11 @@ mod tests {
         ];
         let result = run_correlation(&["x", "y"], data, "x", "y", "pearson").unwrap();
         // For perfect r with n=5, df=3, t is effectively infinite => p ~ 0
-        assert!(result.p_value < 0.001, "p-value should be tiny, got {}", result.p_value);
+        assert!(
+            result.p_value < 0.001,
+            "p-value should be tiny, got {}",
+            result.p_value
+        );
         assert!((result.df - 3.0).abs() < 0.01);
         // t should be very large
         assert!(result.t_statistic > 10.0);
@@ -591,7 +753,11 @@ mod tests {
             expected_r,
             result.r
         );
-        assert!((result.t_statistic - 2.121).abs() < 0.02, "t-stat: got {}", result.t_statistic);
+        assert!(
+            (result.t_statistic - 2.121).abs() < 0.02,
+            "t-stat: got {}",
+            result.t_statistic
+        );
         assert!((result.df - 3.0).abs() < 0.01, "df: got {}", result.df);
         assert!(
             result.p_value > 0.05,
@@ -625,9 +791,12 @@ mod tests {
         // 99% CI should be wider than 95% CI
         let width_05 = result_05.ci_upper - result_05.ci_lower;
         let width_01 = result_01.ci_upper - result_01.ci_lower;
-        assert!(width_01 > width_05,
+        assert!(
+            width_01 > width_05,
             "99% CI width {:.4} should be > 95% CI width {:.4}",
-            width_01, width_05);
+            width_01,
+            width_05
+        );
         assert_eq!(result_05.alpha, 0.05);
         assert_eq!(result_01.alpha, 0.01);
     }

@@ -1,0 +1,35 @@
+{
+  "source": "One-way ANOVA reference from stats::aov-compatible sums of squares; p-value cross-checked with scipy.stats.f_oneway 1.16.3.",
+  "columns": ["group", "value"],
+  "rows": [
+    {"group": "A", "value": 12.0},
+    {"group": "A", "value": 14.0},
+    {"group": "A", "value": 15.0},
+    {"group": "A", "value": 13.0},
+    {"group": "B", "value": 18.0},
+    {"group": "B", "value": 20.0},
+    {"group": "B", "value": 21.0},
+    {"group": "B", "value": 19.0},
+    {"group": "C", "value": 25.0},
+    {"group": "C", "value": 24.0},
+    {"group": "C", "value": 27.0},
+    {"group": "C", "value": 26.0}
+  ],
+  "expected": {
+    "overall_mean": 19.5,
+    "ss_between": 288.0,
+    "ss_within": 15.0,
+    "ss_total": 303.0,
+    "df_between": 2,
+    "df_within": 9,
+    "ms_between": 144.0,
+    "ms_within": 1.6666666666666667,
+    "f_statistic": 86.39999999999999,
+    "p_value": 0.0000013363457521235217,
+    "groups": [
+      {"group": "A", "n": 4, "mean": 13.5, "sd": 1.2909944487358056},
+      {"group": "B", "n": 4, "mean": 19.5, "sd": 1.2909944487358056},
+      {"group": "C", "n": 4, "mean": 25.5, "sd": 1.2909944487358056}
+    ]
+  }
+}

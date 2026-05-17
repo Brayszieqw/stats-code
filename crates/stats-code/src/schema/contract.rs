@@ -120,19 +120,69 @@ pub struct AnalysisStepSpec {
     #[serde(default)]
     pub by: Option<String>,
     #[serde(default)]
+    pub var: Option<String>,
+    #[serde(default)]
+    pub before: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    #[serde(default)]
+    pub mu: Option<f64>,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub block: Option<String>,
+    #[serde(default)]
+    pub var1: Option<String>,
+    #[serde(default)]
+    pub var2: Option<String>,
+    #[serde(default)]
+    pub x: Option<String>,
+    #[serde(default)]
+    pub y: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub center: Option<String>,
+    #[serde(default)]
     pub event: Option<String>,
+    #[serde(default)]
+    pub events: Option<String>,
     #[serde(default)]
     pub person_time: Option<String>,
     #[serde(default)]
+    pub exposure: Option<String>,
+    #[serde(default)]
     pub outcome: Option<String>,
     #[serde(default)]
+    pub exposure_event: Option<String>,
+    #[serde(default)]
+    pub outcome_event: Option<String>,
+    #[serde(default)]
     pub time: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub intervals: Option<String>,
+    #[serde(default)]
+    pub entering: Option<String>,
+    #[serde(default)]
+    pub withdrawals: Option<String>,
+    #[serde(default)]
+    pub input_format: Option<String>,
+    #[serde(default)]
+    pub age_group: Option<String>,
+    #[serde(default)]
+    pub standard_pop: Option<String>,
+    #[serde(default)]
+    pub exposure_prevalence: Option<f64>,
     #[serde(default)]
     pub predictors: Vec<String>,
     #[serde(default)]
     pub adjust: Vec<String>,
     #[serde(default)]
     pub strata: Vec<String>,
+    #[serde(default)]
+    pub scores: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

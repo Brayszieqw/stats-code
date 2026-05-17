@@ -972,6 +972,7 @@ pub struct MhStratum {
     pub label: String,
     pub cells: TwoByTwoCells,
     pub or_stratum: f64,
+    pub rr_stratum: f64,
 }
 
 result_prelude! {
@@ -991,7 +992,11 @@ result_prelude! {
         pub mh_or: Option<f64>,
         pub mh_or_ci_lower: Option<f64>,
         pub mh_or_ci_upper: Option<f64>,
+        pub mh_rr: Option<f64>,
+        pub mh_rr_ci_lower: Option<f64>,
+        pub mh_rr_ci_upper: Option<f64>,
         pub mh_strata: Vec<MhStratum>,
+        pub homogeneity_chi_square: Option<f64>,
         pub homogeneity_p: Option<f64>,
     }
 }

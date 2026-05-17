@@ -1,0 +1,29 @@
+{
+  "source": "Randomized-block additive ANOVA reference from stats::aov-compatible treatment + block decomposition; p-values computed from F distribution.",
+  "columns": ["group", "block", "value"],
+  "rows": [
+    {"group": "A", "block": "B1", "value": 12.0},
+    {"group": "B", "block": "B1", "value": 18.0},
+    {"group": "C", "block": "B1", "value": 23.0},
+    {"group": "A", "block": "B2", "value": 13.0},
+    {"group": "B", "block": "B2", "value": 20.0},
+    {"group": "C", "block": "B2", "value": 25.0},
+    {"group": "A", "block": "B3", "value": 15.0},
+    {"group": "B", "block": "B3", "value": 21.0},
+    {"group": "C", "block": "B3", "value": 28.0},
+    {"group": "A", "block": "B4", "value": 14.0},
+    {"group": "B", "block": "B4", "value": 19.0},
+    {"group": "C", "block": "B4", "value": 26.0}
+  ],
+  "expected": {
+    "treatment_f": 323.9999999999968,
+    "treatment_df1": 2,
+    "treatment_df2": 6,
+    "treatment_p": 0.0000007721834800610867,
+    "block_f": 15.24999999999983,
+    "block_df1": 3,
+    "block_df2": 6,
+    "block_p": 0.0032574966735945,
+    "error_ms": 0.4444444444444488
+  }
+}

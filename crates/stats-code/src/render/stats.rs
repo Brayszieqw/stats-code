@@ -3,10 +3,13 @@ use std::fmt::Write as _;
 use serde::de::DeserializeOwned;
 
 use crate::schema::{
-    AttributableRiskResult, CochranArmitageResult, CorrelationResult, CoxResult,
-    DiagnosticRocResult, LifeTableResult, LinearResult, LogisticResult, MannWhitneyResult,
-    McNemarResult, NormalityResult, OneWayAnovaResult, OrRrResult, PlannedCommandResult,
-    RbdAnovaResult, StandardizationResult, TtestOneSampleResult, TtestPairedResult,
+    AttributableRiskResult, BlandAltmanResult, ClusterResult, CochranArmitageResult,
+    CompetingRisksResult, CorrelationResult, CoxResult, DiagnosticRocResult, DoseResponseResult,
+    KappaResult, LdaResult, LifeTableResult, LinearResult, LogisticResult, MannWhitneyResult,
+    McNemarResult, MetaAnalysisResult, MixedLmmResult, MultinomialLogitResult,
+    NormalityResult, OneWayAnovaResult, OrRrResult, OrdinalLogitResult, PcaResult,
+    PlannedCommandResult, PoissonResult, PosthocResult, PowerResult, PsmResult, RbdAnovaResult,
+    RepeatedAnovaResult, StandardizationResult, TtestOneSampleResult, TtestPairedResult,
     VarianceHomogeneityResult, WilcoxonSignedRankResult,
 };
 
@@ -51,6 +54,50 @@ pub fn render_stats_planned_text(result: &PlannedCommandResult) -> Option<String
         "stats.survival.lifetable" => {
             planned_result::<LifeTableResult>(result).map(|value| render_lifetable_text(&value))
         }
+        // --- Phase 2 methods ---
+        "stats.anova.posthoc" => {
+            planned_result::<PosthocResult>(result).map(|value| render_posthoc_text(&value))
+        }
+        "stats.anova.repeated" => planned_result::<RepeatedAnovaResult>(result)
+            .map(|value| render_repeated_anova_text(&value)),
+        "stats.model.poisson" => {
+            planned_result::<PoissonResult>(result).map(|value| render_poisson_text(&value))
+        }
+        "stats.epi.dose_response" => planned_result::<DoseResponseResult>(result)
+            .map(|value| render_dose_response_text(&value)),
+        "stats.meta" => {
+            planned_result::<MetaAnalysisResult>(result).map(|value| render_meta_analysis_text(&value))
+        }
+        "stats.agreement.kappa" => {
+            planned_result::<KappaResult>(result).map(|value| render_kappa_text(&value))
+        }
+        "stats.agreement.bland_altman" => planned_result::<BlandAltmanResult>(result)
+            .map(|value| render_bland_altman_text(&value)),
+        "stats.multivariate.pca" => {
+            planned_result::<PcaResult>(result).map(|value| render_pca_text(&value))
+        }
+        "stats.sample_size.log_rank" => {
+            planned_result::<PowerResult>(result).map(|value| render_logrank_sample_size_text(&value))
+        }
+        // --- Phase 3 methods ---
+        "stats.model.ordinal" => planned_result::<OrdinalLogitResult>(result)
+            .map(|value| render_ordinal_logit_text(&value)),
+        "stats.model.multinomial" => planned_result::<MultinomialLogitResult>(result)
+            .map(|value| render_multinomial_logit_text(&value)),
+        "stats.multivariate.lda" => {
+            planned_result::<LdaResult>(result).map(|value| render_lda_text(&value))
+        }
+        "stats.multivariate.cluster" => {
+            planned_result::<ClusterResult>(result).map(|value| render_cluster_text(&value))
+        }
+        "stats.mixed" => {
+            planned_result::<MixedLmmResult>(result).map(|value| render_mixed_lmm_text(&value))
+        }
+        "stats.psm" => {
+            planned_result::<PsmResult>(result).map(|value| render_psm_text(&value))
+        }
+        "stats.survival.competing" => planned_result::<CompetingRisksResult>(result)
+            .map(|value| render_competing_risks_text(&value)),
         _ => None,
     }
 }
@@ -1142,5 +1189,769 @@ pub fn render_diagnostic_roc_text(result: &DiagnosticRocResult) -> String {
             let _ = writeln!(out, "  - {note}");
         }
     }
+    out
+}
+
+// ============================================================================
+// Phase 2 renderers
+// ============================================================================
+
+pub fn render_posthoc_text(result: &PosthocResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Post-hoc Multiple Comparisons");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Variable", &result.variable);
+    w.field("Group", &result.group);
+    w.field("Method", &result.method);
+    let mut out = w.finish();
+    if !result.pairs.is_empty() {
+        let _ = writeln!(out, "  Pairwise comparisons");
+        for pair in &result.pairs {
+            let _ = writeln!(
+                out,
+                "  - {} vs {}: diff={:.4} SE={:.4} t={:.4} p_adj={} CI95=[{:.4}, {:.4}]",
+                pair.group_a,
+                pair.group_b,
+                pair.mean_difference,
+                pair.standard_error,
+                pair.test_statistic,
+                format_p_value(pair.adjusted_p_value),
+                pair.ci_lower,
+                pair.ci_upper
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_repeated_anova_text(result: &RepeatedAnovaResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Repeated-Measures ANOVA");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Variable", &result.variable);
+    w.field("Subject", &result.subject);
+    w.field("Time", &result.time);
+    w.field(
+        "Design",
+        format!(
+            "n_subjects={} n_timepoints={}",
+            result.n_subjects, result.n_timepoints
+        ),
+    );
+    w.field(
+        "Time effect",
+        format!(
+            "F({}, {})={:.4} p={}",
+            result.time_df1,
+            result.time_df2,
+            result.time_f,
+            format_p_value(result.time_p)
+        ),
+    );
+    if let (Some(mw), Some(mp)) = (result.mauchly_w, result.mauchly_p) {
+        w.field(
+            "Mauchly's W",
+            format!("W={:.4} p={}", mw, format_p_value(mp)),
+        );
+    }
+    if let Some(eps) = result.gg_epsilon {
+        w.field(
+            "GG correction",
+            format!(
+                "epsilon={:.4} p={}",
+                eps,
+                result
+                    .gg_p
+                    .map(format_p_value)
+                    .unwrap_or_else(|| "NA".to_string())
+            ),
+        );
+    }
+    if let Some(eps) = result.hf_epsilon {
+        w.field(
+            "HF correction",
+            format!(
+                "epsilon={:.4} p={}",
+                eps,
+                result
+                    .hf_p
+                    .map(format_p_value)
+                    .unwrap_or_else(|| "NA".to_string())
+            ),
+        );
+    }
+    let mut out = w.finish();
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_poisson_text(result: &PoissonResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Poisson GLM");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Outcome", &result.outcome);
+    w.field("Predictors", &result.predictors.join(", "));
+    w.field_opt("Offset", result.offset.as_deref());
+    w.field("Offset kind", &result.offset_kind);
+    w.field(
+        "Fit",
+        format!(
+            "iterations={} converged={}",
+            result.iterations, result.converged
+        ),
+    );
+    w.field(
+        "Log-likelihood",
+        format!("{:.4}", result.log_likelihood),
+    );
+    w.field("AIC", format!("{:.4}", result.aic));
+    w.field(
+        "Deviance",
+        format!(
+            "{:.4} (Pearson chi-sq={:.4})",
+            result.deviance, result.pearson_chi_square
+        ),
+    );
+    let mut out = w.finish();
+    if !result.coefficients.is_empty() {
+        let _ = writeln!(out, "  Coefficients");
+        for coef in &result.coefficients {
+            let _ = writeln!(
+                out,
+                "  - {}: beta={:.4} SE={:.4} IRR={:.4} CI95=[{:.4}, {:.4}] p={}",
+                coef.term,
+                coef.beta,
+                coef.standard_error,
+                coef.irr,
+                coef.ci_lower,
+                coef.ci_upper,
+                format_p_value(coef.p_value)
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_dose_response_text(result: &DoseResponseResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Dose-Response Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Exposure", &result.exposure);
+    w.field("Outcome", &result.outcome);
+    w.field(
+        "Trend",
+        format!(
+            "beta={:.4} SE={:.4} CI95=[{:.4}, {:.4}] p={}",
+            result.trend_beta,
+            result.trend_se,
+            result.trend_ci_lower,
+            result.trend_ci_upper,
+            format_p_value(result.trend_p_value)
+        ),
+    );
+    w.field(
+        "Linearity departure",
+        format!("p={}", format_p_value(result.linearity_p_value)),
+    );
+    let mut out = w.finish();
+    if !result.categories.is_empty() {
+        let _ = writeln!(out, "  Categories");
+        for cat in &result.categories {
+            let _ = writeln!(
+                out,
+                "  - {}: events={} pt={:.1} rate={:.6} RR={:.4} CI95=[{:.4}, {:.4}]",
+                cat.category,
+                cat.events,
+                cat.person_time,
+                cat.rate,
+                cat.rate_ratio,
+                cat.rr_ci_lower,
+                cat.rr_ci_upper
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_meta_analysis_text(result: &MetaAnalysisResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Meta-Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field(
+        "Fixed effect",
+        format!(
+            "ES={:.4} CI95=[{:.4}, {:.4}] z={:.4} p={}",
+            result.fixed_effect,
+            result.fixed_ci_lower,
+            result.fixed_ci_upper,
+            result.fixed_z,
+            format_p_value(result.fixed_p)
+        ),
+    );
+    w.field(
+        "Random effect",
+        format!(
+            "ES={:.4} CI95=[{:.4}, {:.4}] z={:.4} p={}",
+            result.random_effect,
+            result.random_ci_lower,
+            result.random_ci_upper,
+            result.random_z,
+            format_p_value(result.random_p)
+        ),
+    );
+    w.field(
+        "Heterogeneity",
+        format!(
+            "Q({})={:.4} p={} I^2={:.2} tau^2={:.6}",
+            result.q_df,
+            result.q_statistic,
+            format_p_value(result.q_p),
+            result.i_squared,
+            result.tau_squared
+        ),
+    );
+    let mut out = w.finish();
+    if !result.studies.is_empty() {
+        let _ = writeln!(out, "  Studies");
+        for study in &result.studies {
+            let _ = writeln!(
+                out,
+                "  - {}: ES={:.4} SE={:.4} w_fixed={:.4} w_random={:.4}",
+                study.label, study.effect, study.se, study.weight_fixed, study.weight_random
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_kappa_text(result: &KappaResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Cohen's Kappa");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Rater 1", &result.rater1);
+    w.field("Rater 2", &result.rater2);
+    w.field(
+        "Agreement",
+        format!(
+            "observed={:.4} expected={:.4}",
+            result.observed_agreement, result.expected_agreement
+        ),
+    );
+    w.field(
+        "Kappa",
+        format!(
+            "kappa={:.4} SE={:.4} CI95=[{:.4}, {:.4}]",
+            result.kappa, result.kappa_se, result.kappa_ci_lower, result.kappa_ci_upper
+        ),
+    );
+    if let Some(wk) = result.weighted_kappa {
+        w.field(
+            "Weighted",
+            format!("kind={} kappa={:.4}", result.weights_kind, wk),
+        );
+    }
+    let mut out = w.finish();
+    if !result.categories.is_empty() {
+        let _ = writeln!(out, "  Agreement matrix [{}x{}]", result.categories.len(), result.categories.len());
+        for row in &result.agreement_matrix {
+            let _ = writeln!(out, "  - {:?}", row);
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_bland_altman_text(result: &BlandAltmanResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Bland-Altman Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Method 1", &result.method1);
+    w.field("Method 2", &result.method2);
+    w.field("N", result.n);
+    w.field(
+        "Bias",
+        format!(
+            "{:.4} CI95=[{:.4}, {:.4}]",
+            result.bias, result.bias_ci_lower, result.bias_ci_upper
+        ),
+    );
+    w.field("SD of differences", format!("{:.4}", result.sd_difference));
+    w.field(
+        "Limits of agreement",
+        format!(
+            "lower={:.4} CI95=[{:.4}, {:.4}] upper={:.4} CI95=[{:.4}, {:.4}]",
+            result.loa_lower,
+            result.loa_lower_ci_lower,
+            result.loa_lower_ci_upper,
+            result.loa_upper,
+            result.loa_upper_ci_lower,
+            result.loa_upper_ci_upper
+        ),
+    );
+    w.field("Outside LOA", result.n_outside_loa);
+    let mut out = w.finish();
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_pca_text(result: &PcaResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Principal Component Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Variables", &result.variables.join(", "));
+    if !result.excluded_variables.is_empty() {
+        w.field("Excluded", &result.excluded_variables.join(", "));
+    }
+    w.field(
+        "Diagnostics",
+        format!(
+            "KMO={:.4} Bartlett chi2={:.4} df={} p={}",
+            result.kmo,
+            result.bartlett_chi_square,
+            result.bartlett_df,
+            format_p_value(result.bartlett_p)
+        ),
+    );
+    let mut out = w.finish();
+    if !result.components.is_empty() {
+        let _ = writeln!(out, "  Components");
+        for comp in &result.components {
+            let _ = writeln!(
+                out,
+                "  - PC{}: eigenvalue={:.4} variance={:.2} cumulative={:.2}",
+                comp.component, comp.eigenvalue, comp.variance_explained, comp.cumulative_variance
+            );
+        }
+        let _ = writeln!(out, "  Loadings");
+        for (i, var) in result.variables.iter().enumerate() {
+            let loading_str: Vec<String> = result
+                .loadings
+                .get(i)
+                .map(|row| row.iter().map(|v| format!("{v:.4}")).collect())
+                .unwrap_or_default();
+            let _ = writeln!(out, "  - {var}: [{}]", loading_str.join(", "));
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_logrank_sample_size_text(result: &PowerResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Log-Rank Sample Size");
+    w.field("Status", &result.status);
+    w.field("Method", &result.method);
+    w.field_opt("Power", result.power.map(|v| format!("{:.4}", v)));
+    w.field_opt(
+        "Effect size",
+        result.effect_size.map(|v| format!("{:.4}", v)),
+    );
+    w.field("Total N", result.total_n);
+    w.field_opt("Group 1 N", result.group1_n);
+    w.field_opt("Group 2 N", result.group2_n);
+    w.field_opt(
+        "Allocation",
+        result.allocation_ratio.map(|v| format!("{:.2}", v)),
+    );
+    let mut out = w.finish();
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+// ============================================================================
+// Phase 3 renderers
+// ============================================================================
+
+pub fn render_ordinal_logit_text(result: &OrdinalLogitResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Ordinal Logistic Regression");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Outcome", &result.outcome);
+    w.field("Predictors", &result.predictors.join(", "));
+    w.field(
+        "Fit",
+        format!(
+            "log-likelihood={:.4} AIC={:.4}",
+            result.log_likelihood, result.aic
+        ),
+    );
+    if let (Some(chi2), Some(p)) = (result.brant_chi_square, result.brant_p) {
+        w.field(
+            "Brant test",
+            format!("chi2={:.4} p={}", chi2, format_p_value(p)),
+        );
+    }
+    let mut out = w.finish();
+    if !result.thresholds.is_empty() {
+        let _ = writeln!(out, "  Thresholds: {:?}", result.thresholds);
+    }
+    if !result.coefficients.is_empty() {
+        let _ = writeln!(out, "  Coefficients");
+        for coef in &result.coefficients {
+            let _ = writeln!(
+                out,
+                "  - {}: beta={:.4} OR={:.4} CI95=[{:.4}, {:.4}] p={}",
+                coef.term,
+                coef.beta,
+                coef.odds_ratio,
+                coef.ci_lower,
+                coef.ci_upper,
+                format_p_value(coef.p_value)
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_multinomial_logit_text(result: &MultinomialLogitResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Multinomial Logistic Regression");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Outcome", &result.outcome);
+    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Reference", &result.reference);
+    w.field("Categories", &result.categories.join(", "));
+    w.field(
+        "Fit",
+        format!(
+            "log-likelihood={:.4} AIC={:.4} pseudo-R2={:.4}",
+            result.log_likelihood, result.aic, result.pseudo_r2
+        ),
+    );
+    let mut out = w.finish();
+    for group in &result.coefficients_per_category {
+        let _ = writeln!(out, "  Category: {}", group.category);
+        for coef in &group.coefficients {
+            let _ = writeln!(
+                out,
+                "  - {}: beta={:.4} OR={:.4} CI95=[{:.4}, {:.4}] p={}",
+                coef.term,
+                coef.beta,
+                coef.odds_ratio,
+                coef.ci_lower,
+                coef.ci_upper,
+                format_p_value(coef.p_value)
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_lda_text(result: &LdaResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Linear Discriminant Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Group", &result.group);
+    w.field("Groups", &result.groups.join(", "));
+    w.field("Variables", &result.variables.join(", "));
+    w.field(
+        "Wilks Lambda",
+        format!(
+            "lambda={:.4} chi2={:.4} p={}",
+            result.wilks_lambda,
+            result.wilks_chi_square,
+            format_p_value(result.wilks_p)
+        ),
+    );
+    w.field(
+        "Classification",
+        format!("overall correct rate={:.2}", result.overall_correct_rate),
+    );
+    let mut out = w.finish();
+    if !result.correct_rate_per_group.is_empty() {
+        let _ = writeln!(out, "  Per-group correct rates: {:?}", result.correct_rate_per_group);
+    }
+    if !result.confusion_matrix.is_empty() {
+        let _ = writeln!(out, "  Confusion matrix");
+        for row in &result.confusion_matrix {
+            let _ = writeln!(out, "  - {:?}", row);
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_cluster_text(result: &ClusterResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Cluster Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Method", &result.method);
+    w.field("K", result.k);
+    w.field("Variables", &result.variables.join(", "));
+    w.field(
+        "Within-cluster SS",
+        format!(
+            "total={:.4} per_cluster=[{}]",
+            result.total_within_ss,
+            result
+                .within_cluster_ss
+                .iter()
+                .map(|v| format!("{v:.4}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+    w.field(
+        "Silhouette",
+        format!("avg={:.4}", result.silhouette_avg),
+    );
+    let mut out = w.finish();
+    if !result.merge_distances.is_empty() {
+        let _ = writeln!(out, "  Merge distances (top 10): {:?}", &result.merge_distances.iter().take(10).copied().collect::<Vec<_>>());
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_mixed_lmm_text(result: &MixedLmmResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Linear Mixed-Effects Model");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Outcome", &result.outcome);
+    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Random group", &result.random_group);
+    w.field(
+        "Fit",
+        format!(
+            "iterations={} converged={} log-likelihood={:.4} AIC={:.4} BIC={:.4}",
+            result.iterations,
+            result.converged,
+            result.log_likelihood,
+            result.aic,
+            result.bic
+        ),
+    );
+    w.field(
+        "Variance components",
+        format!(
+            "random_intercept={:.6} residual={:.6} ICC={:.4}",
+            result.random_intercept_variance, result.residual_variance, result.icc
+        ),
+    );
+    let mut out = w.finish();
+    if !result.fixed_effects.is_empty() {
+        let _ = writeln!(out, "  Fixed effects");
+        for eff in &result.fixed_effects {
+            let _ = writeln!(
+                out,
+                "  - {}: estimate={:.4} SE={:.4} CI95=[{:.4}, {:.4}] p={}",
+                eff.term,
+                eff.estimate,
+                eff.standard_error,
+                eff.ci_lower,
+                eff.ci_upper,
+                format_p_value(eff.p_value)
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_psm_text(result: &PsmResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Propensity Score Matching");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Treatment", &result.treatment);
+    w.field("Covariates", &result.covariates.join(", "));
+    w.field(
+        "Matching",
+        format!(
+            "caliper={:.4} ratio={} treated={} control={} matched_pairs={} unmatched_treated={} unmatched_control={}",
+            result.caliper,
+            result.ratio,
+            result.n_treated,
+            result.n_control,
+            result.n_matched_pairs,
+            result.n_unmatched_treated,
+            result.n_unmatched_control
+        ),
+    );
+    w.field("Matched output", &result.matched_dataset_path);
+    let mut out = w.finish();
+    if !result.balance.is_empty() {
+        let _ = writeln!(out, "  Covariate balance (SMD before / after)");
+        for b in &result.balance {
+            let _ = writeln!(
+                out,
+                "  - {}: before={:.4} after={:.4}",
+                b.covariate, b.smd_before, b.smd_after
+            );
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
+    out
+}
+
+pub fn render_competing_risks_text(result: &CompetingRisksResult) -> String {
+    let mut w = TextReportWriter::new();
+    w.title("Competing Risks Analysis");
+    render_standard_fields(
+        &mut w,
+        &result.status,
+        &result.data_path,
+        result.analysis_path.as_deref(),
+        result.n_total,
+        result.n_used,
+        result.n_excluded_missing,
+    );
+    w.field("Time", &result.time);
+    w.field("Event type", &result.event_type);
+    w.field("Causes", &result.causes.join(", "));
+    if let (Some(chi2), Some(df), Some(p)) =
+        (result.gray_chi_square, result.gray_df, result.gray_p)
+    {
+        w.field(
+            "Gray test",
+            format!("chi2={:.4} df={} p={}", chi2, df, format_p_value(p)),
+        );
+    }
+    let mut out = w.finish();
+    if !result.cause_fits.is_empty() {
+        let _ = writeln!(out, "  Cause-specific fits");
+        for fit in &result.cause_fits {
+            let _ = writeln!(
+                out,
+                "  - cause={} n_events={} logPL={:.4}",
+                fit.cause, fit.n_events, fit.log_partial_likelihood
+            );
+            for coef in &fit.coefficients {
+                let _ = writeln!(
+                    out,
+                    "    {}: HR={:.4} CI95=[{:.4}, {:.4}] p={}",
+                    coef.term,
+                    coef.hazard_ratio,
+                    coef.ci_lower,
+                    coef.ci_upper,
+                    format_p_value(coef.p_value)
+                );
+            }
+        }
+    }
+    if !result.cif_curves.is_empty() {
+        let _ = writeln!(out, "  CIF curves");
+        for (cause, curve) in &result.cif_curves {
+            let _ = writeln!(out, "  - {cause}: {} time points", curve.len());
+        }
+    }
+    append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
     out
 }

@@ -103,6 +103,62 @@ pub(crate) fn jacobi_eigh(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
     (eigenvalues, eigenvectors)
 }
 
+/// Determinant of a square matrix via LU-like decomposition with partial pivoting.
+pub(crate) fn matrix_determinant(matrix: &[Vec<f64>]) -> f64 {
+    let n = matrix.len();
+    if n == 0 {
+        return 1.0;
+    }
+    let mut a = matrix.to_vec();
+    let mut det = 1.0;
+    for i in 0..n {
+        let mut pivot = i;
+        let mut max_val = a[i][i].abs();
+        for r in (i + 1)..n {
+            let val = a[r][i].abs();
+            if val > max_val {
+                max_val = val;
+                pivot = r;
+            }
+        }
+        if max_val < 1e-15 {
+            return 0.0;
+        }
+        if pivot != i {
+            a.swap(i, pivot);
+            det = -det;
+        }
+        det *= a[i][i];
+        for r in (i + 1)..n {
+            let factor = a[r][i] / a[i][i];
+            for c in i..n {
+                a[r][c] -= factor * a[i][c];
+            }
+        }
+    }
+    det
+}
+
+/// Matrix trace (sum of diagonal entries).
+pub(crate) fn matrix_trace(matrix: &[Vec<f64>]) -> f64 {
+    (0..matrix.len()).map(|i| matrix[i][i]).sum()
+}
+
+/// Compute Helmert contrast matrix of size (p-1) x p.
+/// For repeated-measures ANOVA sphericity diagnostics.
+pub(crate) fn helmert_contrast_matrix(p: usize) -> Vec<Vec<f64>> {
+    let mut c = vec![vec![0.0; p]; p - 1];
+    for i in 0..(p - 1) {
+        let k = (i + 1) as f64;
+        let scale = 1.0 / (k * (k + 1.0)).sqrt();
+        for j in 0..=i {
+            c[i][j] = -scale;
+        }
+        c[i][i + 1] = scale * k;
+    }
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +184,35 @@ mod tests {
     fn invert_with_ridge_inverts_identity() {
         let inv = invert_with_ridge(&[vec![1.0, 0.0], vec![0.0, 1.0]]).unwrap();
         assert_eq!(inv, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+    }
+
+    #[test]
+    fn determinant_2x2() {
+        let det = matrix_determinant(&[vec![2.0, 1.0], vec![1.0, 2.0]]);
+        assert!((det - 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn determinant_identity() {
+        let det = matrix_determinant(&[vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]]);
+        assert!((det - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn trace_3x3() {
+        let t = matrix_trace(&[vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0], vec![7.0, 8.0, 9.0]]);
+        assert!((t - 15.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn helmert_contrast_for_4_timepoints() {
+        let c = helmert_contrast_matrix(4);
+        assert_eq!(c.len(), 3);
+        assert_eq!(c[0].len(), 4);
+        // Check orthogonality: each contrast row should sum to zero
+        for row in &c {
+            let sum: f64 = row.iter().sum();
+            assert!(sum.abs() < 1e-12, "helmert row not contrast: sum={sum}");
+        }
     }
 }

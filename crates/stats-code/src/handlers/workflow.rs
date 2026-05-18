@@ -656,6 +656,11 @@ fn execute_workflow_step(
                 "analysis step {index} has kind `model` but no `model` field"
             )),
         },
+        // Phase 2 + Phase 3 methods: not yet wired in workflow runner
+        _ => Err(format!(
+            "analysis step {index} has kind `{:?}` which is not yet wired in the workflow runner",
+            step.kind
+        )),
     }
 }
 

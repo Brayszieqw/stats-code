@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::helpers::require_column;
+use crate::math::rank_with_ties;
 use crate::schema::{is_missing_value_for_column, CorrelationResult};
 
 // ---------------------------------------------------------------------------
@@ -66,37 +67,6 @@ fn norm_quantile(p: f64) -> f64 {
     } else {
         z
     }
-}
-
-// ---------------------------------------------------------------------------
-// ranking with average ranks for ties (used by Spearman)
-// ---------------------------------------------------------------------------
-
-/// Assign ranks to values, averaging ranks for ties.
-///
-/// Returns ranks in the original order. Values that are `None` are skipped
-/// (they should be filtered out before calling).
-fn rank_with_ties(values: &[f64]) -> Vec<f64> {
-    let n = values.len();
-    // (value, original_index)
-    let mut indexed: Vec<(f64, usize)> = values.iter().enumerate().map(|(i, &v)| (v, i)).collect();
-    indexed.sort_by(|a, b| a.0.total_cmp(&b.0));
-
-    let mut ranks = vec![0.0_f64; n];
-    let mut i = 0;
-    while i < n {
-        let mut j = i + 1;
-        while j < n && indexed[j].0 == indexed[i].0 {
-            j += 1;
-        }
-        // Average rank for the tie group: positions (i+1)..j average to (i+1 + j) / 2
-        let avg_rank = (i + 1 + j) as f64 / 2.0;
-        for entry in indexed.iter().take(j).skip(i) {
-            ranks[entry.1] = avg_rank;
-        }
-        i = j;
-    }
-    ranks
 }
 
 // ---------------------------------------------------------------------------

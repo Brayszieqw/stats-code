@@ -250,6 +250,8 @@ fn describe_plan_step(index: usize, step: &crate::schema::AnalysisStepSpec) -> S
             ),
             None => format!("#{index} {id}: model <missing-model>"),
         },
+        // Phase 2 (MEDIUM) + Phase 3 (LOW) -- catch-all for now
+        _ => format!("#{index} {id}: {:?}", step.kind),
     }
 }
 
@@ -1084,6 +1086,8 @@ fn validate_analysis_steps(
                     format!("{step_label} has kind `model` but no `model` field"),
                 ),
             },
+            // Phase 2 + Phase 3 methods: no additional validation for now
+            _ => {}
         }
     }
 }

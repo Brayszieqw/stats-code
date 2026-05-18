@@ -126,6 +126,7 @@ pub fn build_command_log(spec: &AnalysisSpec) -> Value {
                 "adjust": step.adjust,
                 "status": "planned"
             }),
+            _ => json!({ "command": format!("stats-code {:?}", step.kind), "status": "planned" }),
         })
         .collect::<Vec<_>>();
     Value::Array(commands)
@@ -492,6 +493,9 @@ pub fn build_methods_markdown(spec: &AnalysisSpec) -> String {
                     let _ = writeln!(out, "- Generic model step declared without model type.");
                 }
             },
+            _ => {
+                let _ = writeln!(out, "- {:?} step (analysis details TBD).", step.kind);
+            }
         }
     }
     out
@@ -698,6 +702,7 @@ pub fn build_audit_trail_markdown(spec: &AnalysisSpec) -> String {
                     Some(ModelKind::Linear) => "model_linear".to_string(),
                     None => "model".to_string(),
                 },
+                _ => format!("{:?}", step.kind).to_ascii_lowercase(),
             })
             .collect::<Vec<_>>()
             .join(", ")
@@ -825,6 +830,7 @@ pub fn build_tables_readme(spec: &AnalysisSpec) -> String {
                 None => {}
             },
             AnalysisKind::Inspect => {}
+            _ => {}
         }
     }
     out

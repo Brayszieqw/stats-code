@@ -72,6 +72,37 @@ pub enum AnalysisKind {
     DiagnosticVariance,
     #[serde(rename = "survival.lifetable")]
     SurvivalLifetable,
+    // --- Phase 2 (MEDIUM tier) ---
+    #[serde(rename = "anova.posthoc")]
+    AnovaPosthoc,
+    #[serde(rename = "anova.repeated")]
+    AnovaRepeated,
+    #[serde(rename = "model.poisson")]
+    ModelPoisson,
+    #[serde(rename = "epi.dose_response")]
+    EpiDoseResponse,
+    Meta,
+    #[serde(rename = "agreement.kappa")]
+    AgreementKappa,
+    #[serde(rename = "agreement.bland_altman")]
+    AgreementBlandAltman,
+    #[serde(rename = "multivariate.pca")]
+    MultivariatePca,
+    #[serde(rename = "sample_size.log_rank")]
+    SampleSizeLogRank,
+    // --- Phase 3 (LOW tier) ---
+    #[serde(rename = "model.ordinal")]
+    ModelOrdinal,
+    #[serde(rename = "model.multinomial")]
+    ModelMultinomial,
+    #[serde(rename = "multivariate.lda")]
+    MultivariateLda,
+    #[serde(rename = "multivariate.cluster")]
+    MultivariateCluster,
+    Mixed,
+    Psm,
+    #[serde(rename = "survival.competing")]
+    SurvivalCompeting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -19,7 +19,9 @@ pub(crate) mod distributions;
 pub(crate) mod glm;
 pub(crate) mod linalg;
 
-pub(crate) use linalg::jacobi_eigh;
+pub(crate) use linalg::{
+    helmert_contrast_matrix, jacobi_eigh, matrix_determinant, matrix_multiply, matrix_trace,
+};
 
 /// Dot product of two vectors.
 pub(crate) fn dot(left: &[f64], right: &[f64]) -> f64 {
@@ -683,6 +685,37 @@ pub(crate) fn quantile_sorted(values: &[f64], quantile: f64) -> f64 {
     }
     let frac = pos - lower as f64;
     values[lower] * (1.0 - frac) + values[upper] * frac
+}
+
+/// Assign average ranks for ties and return ranks in the original order.
+pub(crate) fn rank_with_ties(values: &[f64]) -> Vec<f64> {
+    rank_with_ties_by_tolerance(values, 0.0)
+}
+
+/// Assign average ranks using an absolute tolerance for floating-point ties.
+pub(crate) fn rank_with_ties_by_tolerance(values: &[f64], tolerance: f64) -> Vec<f64> {
+    let mut indexed: Vec<(f64, usize)> = values.iter().copied().zip(0..values.len()).collect();
+    indexed.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut ranks = vec![0.0; values.len()];
+    let mut i = 0usize;
+    while i < indexed.len() {
+        let mut j = i + 1;
+        while j < indexed.len()
+            && if tolerance > 0.0 {
+                (indexed[j].0 - indexed[i].0).abs() < tolerance
+            } else {
+                indexed[j].0 == indexed[i].0
+            }
+        {
+            j += 1;
+        }
+        let rank = (i + 1 + j) as f64 / 2.0;
+        for item in indexed.iter().take(j).skip(i) {
+            ranks[item.1] = rank;
+        }
+        i = j;
+    }
+    ranks
 }
 
 /// Poisson rate confidence interval per 1000 person-time.

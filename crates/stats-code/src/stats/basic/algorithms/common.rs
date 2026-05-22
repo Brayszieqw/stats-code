@@ -134,7 +134,7 @@ pub(super) fn sample_sd(values: &[f64]) -> f64 {
 
 pub(super) fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
+    sorted.sort_by(f64::total_cmp);
     quantile_sorted(&sorted, 0.5)
 }
 

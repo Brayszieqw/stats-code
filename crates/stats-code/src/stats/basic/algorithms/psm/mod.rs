@@ -5,7 +5,10 @@ use crate::cli::NaStrategy;
 use crate::helpers::require_column;
 use crate::schema::{PsmCovariateSmd, PsmResult};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, event_value, mean, missing, parse_num, prelude_notes,
+    sample_sd, sample_variance, EPS,
+};
 
 pub(crate) fn psm_csv(
     rows: &[csv::StringRecord],
@@ -68,7 +71,7 @@ pub(crate) fn psm_csv(
     let control_indices: Vec<usize> = t
         .iter()
         .enumerate()
-        .filter_map(|(i, v)| if !*v { Some(i) } else { None })
+        .filter_map(|(i, v)| if *v { None } else { Some(i) })
         .collect();
     let mut used_controls = BTreeSet::new();
     let mut matched_complete_indices = BTreeSet::new();
@@ -261,7 +264,7 @@ fn simple_propensity_scores(treatment: &[bool], x: &[Vec<f64>]) -> Vec<f64> {
         let mc = mean(
             &x.iter()
                 .zip(treatment)
-                .filter_map(|(row, t)| if !*t { Some(row[j]) } else { None })
+                .filter_map(|(row, t)| if *t { None } else { Some(row[j]) })
                 .collect::<Vec<_>>(),
         );
         let direction = (mt - mc).signum();
@@ -281,12 +284,12 @@ fn smd_for_covariate(treatment: &[bool], x: &[Vec<f64>], j: usize) -> f64 {
     let control: Vec<f64> = x
         .iter()
         .zip(treatment)
-        .filter_map(|(row, t)| if !*t { Some(row[j]) } else { None })
+        .filter_map(|(row, t)| if *t { None } else { Some(row[j]) })
         .collect();
     if treated.is_empty() || control.is_empty() {
         return f64::NAN;
     }
-    let pooled = ((sample_variance(&treated) + sample_variance(&control)) / 2.0)
+    let pooled = f64::midpoint(sample_variance(&treated), sample_variance(&control))
         .sqrt()
         .max(EPS);
     (mean(&treated) - mean(&control)) / pooled

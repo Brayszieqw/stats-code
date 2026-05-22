@@ -3,7 +3,9 @@ use crate::helpers::require_column;
 use crate::math::normal_cdf;
 use crate::schema::{PoissonCoefficient, PoissonResult};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, missing, parse_num, prelude_notes, z_critical, EPS,
+};
 
 pub(crate) fn poisson_glm_csv(
     rows: &[csv::StringRecord],
@@ -77,7 +79,7 @@ pub(crate) fn poisson_glm_csv(
     }
     check_missing_policy(excluded, strategy, "Poisson regression")?;
     let fit =
-        crate::math::glm::irls_fit::<crate::math::glm::Poisson>(&x, &y, Some(&offset), 25, 1e-7)?;
+        crate::math::glm::irls_fit::<crate::math::glm::Poisson>(&x, &y, Some(&offset), 100, 1e-7)?;
     let z = z_critical(alpha);
     let mut coefficients = Vec::new();
     for (idx, beta) in fit.beta.iter().enumerate() {

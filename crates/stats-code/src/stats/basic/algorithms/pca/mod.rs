@@ -3,7 +3,7 @@ use crate::helpers::require_column;
 use crate::math::{chi_square_cdf, invert_matrix, jacobi_eigh, matrix_determinant};
 use crate::schema::{PcaComponent, PcaResult};
 
-use super::common::*;
+use super::common::{check_missing_policy, column_index, missing, parse_num, prelude_notes, EPS};
 
 pub(crate) fn pca_csv(
     rows: &[csv::StringRecord],
@@ -178,10 +178,7 @@ fn covariance_or_correlation(
 }
 
 /// Compute KMO and Bartlett's test of sphericity for a correlation matrix.
-fn compute_kmo_and_bartlett(
-    matrix: &[Vec<f64>],
-    n: usize,
-) -> (f64, f64, usize, f64) {
+fn compute_kmo_and_bartlett(matrix: &[Vec<f64>], n: usize) -> (f64, f64, usize, f64) {
     let p = matrix.len();
     if p < 2 || n < 3 {
         return (f64::NAN, f64::NAN, 0, f64::NAN);
@@ -207,7 +204,11 @@ fn compute_kmo_and_bartlett(
             }
         }
         let denom = sum_r_sq + sum_a_sq;
-        if denom > EPS { sum_r_sq / denom } else { f64::NAN }
+        if denom > EPS {
+            sum_r_sq / denom
+        } else {
+            f64::NAN
+        }
     };
 
     // Bartlett's test: chi^2 = -(n - 1 - (2p + 5)/6) * ln(|R|)

@@ -46,7 +46,8 @@ pub(crate) fn jacobi_eigh(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
     for i in 0..n {
         v[i][i] = 1.0;
     }
-    for _ in 0..100 {
+    for _ in 0..200 {
+        // Find off-diagonal element with largest absolute value.
         let mut p = 0usize;
         let mut q = 1usize.min(n.saturating_sub(1));
         let mut max = 0.0;
@@ -59,29 +60,52 @@ pub(crate) fn jacobi_eigh(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
                 }
             }
         }
-        if max < 1e-10 || n < 2 {
+        if max < 1e-12 || n < 2 {
             break;
         }
-        let theta = 0.5 * (a[q][q] - a[p][p]).atan2(2.0 * a[p][q]);
+        // Compute the Jacobi rotation angle.
+        // tan(2θ) = 2·a[p][q] / (a[p][p] - a[q][q])
+        let app = a[p][p];
+        let aqq = a[q][q];
+        let apq = a[p][q];
+        let theta = if (app - aqq).abs() < 1e-30 {
+            std::f64::consts::FRAC_PI_4 * apq.signum()
+        } else {
+            0.5 * (2.0 * apq).atan2(app - aqq)
+        };
         let c = theta.cos();
         let s = theta.sin();
-        for row in a.iter_mut().take(n) {
-            let aip = row[p];
-            let aiq = row[q];
-            row[p] = c * aip - s * aiq;
-            row[q] = s * aip + c * aiq;
+
+        // Apply the similarity transformation A' = R^T A R.
+        // First update the four affected entries of A explicitly to avoid
+        // numerical drift.
+        let new_app = c * c * app + s * s * aqq + 2.0 * c * s * apq;
+        let new_aqq = s * s * app + c * c * aqq - 2.0 * c * s * apq;
+        a[p][p] = new_app;
+        a[q][q] = new_aqq;
+        a[p][q] = 0.0;
+        a[q][p] = 0.0;
+
+        // Update remaining entries in rows/columns p and q.
+        for i in 0..n {
+            if i == p || i == q {
+                continue;
+            }
+            let aip = a[i][p];
+            let aiq = a[i][q];
+            a[i][p] = c * aip + s * aiq;
+            a[p][i] = a[i][p];
+            a[i][q] = -s * aip + c * aiq;
+            a[q][i] = a[i][q];
         }
-        for j in 0..n {
-            let apj = a[p][j];
-            let aqj = a[q][j];
-            a[p][j] = c * apj - s * aqj;
-            a[q][j] = s * apj + c * aqj;
-        }
+
+        // Update eigenvector matrix V <- V * R, where R has columns
+        // [c, s] and [-s, c].
         for row in v.iter_mut().take(n) {
             let vip = row[p];
             let viq = row[q];
-            row[p] = c * vip - s * viq;
-            row[q] = s * vip + c * viq;
+            row[p] = c * vip + s * viq;
+            row[q] = -s * vip + c * viq;
         }
     }
     let mut pairs: Vec<(f64, Vec<f64>)> = (0..n)
@@ -178,6 +202,34 @@ mod tests {
         let (values, vectors) = jacobi_eigh(vec![vec![2.0, 0.0], vec![0.0, 1.0]]);
         assert_eq!(values, vec![2.0, 1.0]);
         assert!((vectors[0][0].abs() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn jacobi_eigh_symmetric_2x2() {
+        // A = [[4, 1], [1, 3]]; characteristic eq: λ² - 7λ + 11 = 0
+        // λ = (7 ± √5)/2 ≈ 4.618 and 2.382
+        let (values, _) = jacobi_eigh(vec![vec![4.0, 1.0], vec![1.0, 3.0]]);
+        assert!((values[0] - 4.618_033_988_749_895).abs() < 1e-10);
+        assert!((values[1] - 2.381_966_011_250_105).abs() < 1e-10);
+    }
+
+    #[test]
+    fn jacobi_eigh_correlation_3x3() {
+        // Correlation matrix with structure: variables x1, x2, x3 highly correlated.
+        // R = [[1, 0.95, 0.93], [0.95, 1, 0.96], [0.93, 0.96, 1]].
+        // Trace = 3; first eigenvalue should dominate (~2.92).
+        let (values, _) = jacobi_eigh(vec![
+            vec![1.0, 0.95, 0.93],
+            vec![0.95, 1.0, 0.96],
+            vec![0.93, 0.96, 1.0],
+        ]);
+        let total: f64 = values.iter().sum();
+        assert!((total - 3.0).abs() < 1e-9, "trace should be preserved: got {total}");
+        assert!(
+            values[0] / total > 0.9,
+            "first eigenvalue should explain > 90% of variance, got {}",
+            values[0] / total
+        );
     }
 
     #[test]

@@ -107,8 +107,17 @@ pub(crate) fn irls_fit<F: Family>(
     let zero_offset = vec![0.0_f64; n];
     let off = offset.unwrap_or(&zero_offset);
 
-    // Initialize beta to zeros.
+    // Initialize beta with a sensible starting point.
+    // For Poisson with log link: intercept = log(mean(y)) - mean(offset),
+    // other coefficients = 0. This avoids large initial residuals when an
+    // offset is present (e.g., log(person_time)) which would otherwise stall
+    // the IRLS iteration.
     let mut beta = vec![0.0_f64; p];
+    let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
+    let off_mean: f64 = off.iter().sum::<f64>() / n as f64;
+    if y_mean > 0.0 {
+        beta[0] = y_mean.ln() - off_mean;
+    }
 
     let mut converged = false;
     let mut iterations = 0usize;
@@ -156,12 +165,15 @@ pub(crate) fn irls_fit<F: Family>(
             })
             .collect();
 
-        // Build X'WX and X'Wz
+        // Build X'WX and X'W(z - offset).
+        // The working response z = η + (y - μ)/(dμ/dη) absorbs the offset
+        // through η = X β + offset, so we must subtract offset before
+        // regressing on X to recover β_new (not β_new + offset shift).
         let mut xtwx = vec![vec![0.0_f64; p]; p];
         let mut xtwz = vec![0.0_f64; p];
         for i in 0..n {
             let wi = w[i];
-            let zi = z[i];
+            let zi = z[i] - off[i];
             for j in 0..p {
                 xtwz[j] += wi * x[i][j] * zi;
                 for k in j..p {

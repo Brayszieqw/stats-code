@@ -1,7 +1,7 @@
 use crate::cli::NaStrategy;
 use crate::schema::ClusterResult;
 
-use super::common::*;
+use super::common::{mean, prelude_notes, EPS};
 use super::pca::numeric_matrix;
 
 pub(crate) fn cluster_csv(
@@ -84,7 +84,7 @@ pub(crate) fn cluster_csv(
 
 /// Ward hierarchical clustering via Lance-Williams update formula.
 ///
-/// Returns (assignments, merge_distances, centroids, within_ss).
+/// Returns (assignments, `merge_distances`, centroids, `within_ss`).
 /// `merge_distances` is the increase in total within-cluster SS at each merge step.
 fn ward_hierarchical(
     data: &[Vec<f64>],
@@ -257,8 +257,7 @@ fn kmeans(data: &[Vec<f64>], k: usize, mut seed: u64) -> (Vec<usize>, Vec<Vec<f6
                 .min_by(|(_, a), (_, b)| {
                     squared_distance(row, a).total_cmp(&squared_distance(row, b))
                 })
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+                .map_or(0, |(idx, _)| idx);
             if assignments[i] != best {
                 assignments[i] = best;
                 changed = true;

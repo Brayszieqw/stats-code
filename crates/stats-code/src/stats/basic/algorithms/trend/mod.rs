@@ -5,7 +5,7 @@ use crate::helpers::require_column;
 use crate::math::normal_cdf;
 use crate::schema::{CategoryProportion, CochranArmitageResult};
 
-use super::common::*;
+use super::common::{check_missing_policy, column_index, event_value, missing, prelude_notes, EPS};
 
 pub(crate) fn cochran_armitage_csv(
     rows: &[csv::StringRecord],

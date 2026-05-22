@@ -1,0 +1,23 @@
+{
+  "source": "Dose-response trend analysis with 4 categories. Strong increasing rate ratio across doses ensures p < 0.05.",
+  "columns": ["dose", "events", "person_time"],
+  "rows": [
+    {"dose": "a_none", "events": 5, "person_time": 1000.0},
+    {"dose": "a_none", "events": 4, "person_time": 1000.0},
+    {"dose": "a_none", "events": 6, "person_time": 1000.0},
+    {"dose": "b_low", "events": 12, "person_time": 1000.0},
+    {"dose": "b_low", "events": 10, "person_time": 1000.0},
+    {"dose": "b_low", "events": 14, "person_time": 1000.0},
+    {"dose": "c_med", "events": 25, "person_time": 1000.0},
+    {"dose": "c_med", "events": 22, "person_time": 1000.0},
+    {"dose": "c_med", "events": 28, "person_time": 1000.0},
+    {"dose": "d_high", "events": 50, "person_time": 1000.0},
+    {"dose": "d_high", "events": 47, "person_time": 1000.0},
+    {"dose": "d_high", "events": 53, "person_time": 1000.0}
+  ],
+  "scores": [0.0, 1.0, 2.0, 3.0],
+  "expected": {
+    "n_categories": 4,
+    "trend_significant": true
+  }
+}

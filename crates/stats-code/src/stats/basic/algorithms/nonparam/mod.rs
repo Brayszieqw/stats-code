@@ -3,7 +3,10 @@ use crate::helpers::require_column;
 use crate::math::normal_cdf;
 use crate::schema::{MannWhitneyResult, McNemarResult, WilcoxonSignedRankResult};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, chi_square_p_value, column_index, event_value, grouped_numeric, median,
+    paired_numeric_columns, prelude_notes, rank_with_ties, EPS,
+};
 
 pub(crate) fn mcnemar_csv(
     rows: &[csv::StringRecord],
@@ -115,7 +118,10 @@ pub(crate) fn wilcoxon_csv(
         .sum::<f64>();
     let n = diffs.len() as f64;
     let expected_w = n * (n + 1.0) / 4.0;
-    let variance_w = n * (n + 1.0) * (2.0 * n + 1.0) / 24.0;
+    // Variance with tie correction: subtract Σ(t³ - t)/48 over tie groups,
+    // where t is the size of each tie group in the absolute differences.
+    let tie_adjustment = tie_correction_sum(&abs) / 48.0;
+    let variance_w = (n * (n + 1.0) * (2.0 * n + 1.0) / 24.0 - tie_adjustment).max(EPS);
     let z_statistic =
         (w_plus - expected_w - 0.5 * (w_plus - expected_w).signum()) / variance_w.sqrt().max(EPS);
     let p_value = 2.0 * (1.0 - normal_cdf(z_statistic.abs()));
@@ -142,7 +148,7 @@ pub(crate) fn wilcoxon_csv(
 
 fn count_tie_groups(values: &[f64]) -> usize {
     let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
+    sorted.sort_by(f64::total_cmp);
     let mut count = 0usize;
     let mut i = 0usize;
     while i < sorted.len() {
@@ -156,6 +162,29 @@ fn count_tie_groups(values: &[f64]) -> usize {
         i = j;
     }
     count
+}
+
+/// Sum of t³ - t across all tie groups.
+///
+/// Used by Wilcoxon and Mann-Whitney for variance correction when ties are
+/// present. Returns 0 when no ties exist.
+fn tie_correction_sum(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let mut total = 0.0_f64;
+    let mut i = 0usize;
+    while i < sorted.len() {
+        let mut j = i + 1;
+        while j < sorted.len() && (sorted[j] - sorted[i]).abs() < EPS {
+            j += 1;
+        }
+        let t = (j - i) as f64;
+        if t > 1.0 {
+            total += t * t * t - t;
+        }
+        i = j;
+    }
+    total
 }
 
 pub(crate) fn mann_whitney_csv(
@@ -195,7 +224,18 @@ pub(crate) fn mann_whitney_csv(
     let u_b = n_a as f64 * n_b as f64 - u_a;
     let u = u_a.min(u_b);
     let mean_u = n_a as f64 * n_b as f64 / 2.0;
-    let sd_u = (n_a as f64 * n_b as f64 * (n_a + n_b + 1) as f64 / 12.0).sqrt();
+    // Variance with tie correction (Conover 1999):
+    // Var(U) = n_a * n_b / 12 * [(N + 1) - Σ(t³ - t) / (N (N - 1))]
+    // where N = n_a + n_b and t is the size of each tie group.
+    let n_total = (n_a + n_b) as f64;
+    let tie_sum = tie_correction_sum(&values);
+    let tie_term = if n_total > 1.0 {
+        tie_sum / (n_total * (n_total - 1.0))
+    } else {
+        0.0
+    };
+    let var_u = n_a as f64 * n_b as f64 / 12.0 * ((n_total + 1.0) - tie_term);
+    let sd_u = var_u.max(EPS).sqrt();
     let z = (u - mean_u) / sd_u.max(EPS);
     Ok(MannWhitneyResult {
         status: "ok".to_string(),

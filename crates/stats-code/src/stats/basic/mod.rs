@@ -1,39 +1,12 @@
-mod agreement;
-mod anova;
-mod attributable;
-mod cluster;
-mod common;
-mod doseresponse;
-mod effect;
-mod lifetable;
-mod meta;
-mod nonparam;
-mod normality;
-mod pca;
-mod poisson;
-mod psm;
-mod sample_size;
-mod standardize;
-mod trend;
-mod variance;
+mod algorithms;
 
-pub(crate) use agreement::{bland_altman_csv, kappa_csv};
-pub(crate) use anova::{oneway_anova_csv, posthoc_csv, rbd_anova_csv, repeated_anova_csv};
-pub(crate) use attributable::attributable_csv;
-pub(crate) use cluster::cluster_csv;
-pub(crate) use doseresponse::dose_response_csv;
-pub(crate) use effect::or_rr_csv;
-pub(crate) use lifetable::{lifetable_csv, lifetable_individual_csv};
-pub(crate) use meta::meta_analysis_csv;
-pub(crate) use nonparam::{mann_whitney_csv, mcnemar_csv, wilcoxon_csv};
-pub(crate) use normality::normality_csv;
-pub(crate) use pca::pca_csv;
-pub(crate) use poisson::poisson_glm_csv;
-pub(crate) use psm::psm_csv;
-pub(crate) use sample_size::logrank_sample_size;
-pub(crate) use standardize::standardize_csv;
-pub(crate) use trend::cochran_armitage_csv;
-pub(crate) use variance::variance_homogeneity_csv;
+pub(crate) use algorithms::{
+    attributable_csv, bland_altman_csv, cluster_csv, cochran_armitage_csv, dose_response_csv,
+    kappa_csv, lifetable_csv, lifetable_individual_csv, logrank_sample_size, mann_whitney_csv,
+    mcnemar_csv, meta_analysis_csv, normality_csv, oneway_anova_csv, or_rr_csv, pca_csv,
+    poisson_glm_csv, posthoc_csv, psm_csv, rbd_anova_csv, repeated_anova_csv, standardize_csv,
+    variance_homogeneity_csv, wilcoxon_csv,
+};
 
 #[cfg(test)]
 mod tests {
@@ -1004,5 +977,299 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("continuity correction")));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 18.2 — Repeated-measures ANOVA fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn repeated_anova_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/anova_repeated.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["subject", "time", "value"]);
+
+        let result = repeated_anova_csv(
+            &rows,
+            &headers,
+            "value",
+            "subject",
+            "time",
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_subjects, expected_usize(&fixture, "n_subjects"));
+        assert_eq!(
+            result.n_timepoints,
+            expected_usize(&fixture, "n_timepoints")
+        );
+        assert_eq!(result.time_df1, expected_usize(&fixture, "time_df1"));
+        assert_eq!(result.time_df2, expected_usize(&fixture, "time_df2"));
+        // Clear time trend in the data → p < 0.05
+        assert!(
+            result.time_p < 0.05,
+            "expected time_p < 0.05, got {}",
+            result.time_p
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 19.2 — Poisson GLM fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn poisson_glm_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/poisson_glm.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["events", "x1", "x2", "pt"]);
+
+        let predictors = vec!["x1".to_string(), "x2".to_string()];
+        let result = poisson_glm_csv(
+            &rows,
+            &headers,
+            "events",
+            &predictors,
+            None,
+            Some("pt"),
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        assert_eq!(
+            result.coefficients.len(),
+            expected_usize(&fixture, "n_coefficients")
+        );
+        assert_eq!(
+            result.converged,
+            fixture["expected"]["converged"].as_bool().unwrap()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 20.2 — Dose-response fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dose_response_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/dose_response.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["dose", "events", "person_time"]);
+        let scores: Vec<f64> = fixture["scores"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+
+        let result = dose_response_csv(
+            &rows,
+            &headers,
+            "dose",
+            "events",
+            "person_time",
+            &scores,
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.categories.len(),
+            expected_usize(&fixture, "n_categories")
+        );
+        // Clear dose-response trend → p < 0.05
+        assert!(
+            result.trend_p_value < 0.05,
+            "expected trend_p_value < 0.05, got {}",
+            result.trend_p_value
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 21.2 — Meta-analysis fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn meta_analysis_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/meta_analysis.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["study", "effect", "se"]);
+
+        let result = meta_analysis_csv(
+            &rows,
+            &headers,
+            "effect",
+            "se",
+            Some("study"),
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_studies"));
+        // Fixed-effect estimate should be close to the inverse-variance weighted mean
+        approx(
+            result.fixed_effect,
+            expected_f64(&fixture, "fixed_effect_estimate"),
+            0.01,
+        );
+        // I² should be positive (heterogeneity present)
+        assert!(
+            result.i_squared > 0.0,
+            "expected i_squared > 0, got {}",
+            result.i_squared
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 22.2 — Kappa fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn kappa_matches_gold_fixture() {
+        use crate::cli::AgreementKappaArgs;
+
+        let fixture = load_fixture("tests/fixtures/r/kappa_agreement.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["rater1", "rater2"]);
+
+        let args = AgreementKappaArgs {
+            data: None,
+            analysis: None,
+            rater1: "rater1".to_string(),
+            rater2: "rater2".to_string(),
+            weights: "none".to_string(),
+        };
+
+        let result = kappa_csv(&rows, &headers, &args, 0.05, NaStrategy::Drop).unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        approx(
+            result.observed_agreement,
+            expected_f64(&fixture, "observed_agreement"),
+            1e-12,
+        );
+        // Kappa should be positive (better than chance agreement)
+        assert!(
+            result.kappa > 0.0,
+            "expected kappa > 0, got {}",
+            result.kappa
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 23.2 — Bland-Altman fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn bland_altman_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/bland_altman.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["method1", "method2"]);
+
+        let result = bland_altman_csv(
+            &rows,
+            &headers,
+            "method1",
+            "method2",
+            0.05,
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        approx(result.bias, expected_f64(&fixture, "bias"), 1e-12);
+        // SD of differences should be positive
+        assert!(
+            result.sd_difference > 0.0,
+            "expected sd_difference > 0, got {}",
+            result.sd_difference
+        );
+        // LOA lower < bias < LOA upper
+        assert!(
+            result.loa_lower < result.bias,
+            "expected loa_lower < bias: {} < {}",
+            result.loa_lower,
+            result.bias
+        );
+        assert!(
+            result.loa_upper > result.bias,
+            "expected loa_upper > bias: {} > {}",
+            result.loa_upper,
+            result.bias
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 24.2 — PCA fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pca_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/pca_iris.json");
+        let (rows, headers) = rows_from_fixture(&fixture, &["x1", "x2", "x3"]);
+
+        let vars = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
+        let result = pca_csv(
+            &rows,
+            &headers,
+            &vars,
+            None,
+            "correlation",
+            NaStrategy::Drop,
+        )
+        .unwrap();
+
+        assert_eq!(result.n_used, expected_usize(&fixture, "n_used"));
+        assert_eq!(
+            result.components.len(),
+            expected_usize(&fixture, "n_components")
+        );
+        // First component should explain > 90% of variance (highly correlated data)
+        assert!(
+            result.components[0].variance_explained > 0.9,
+            "expected first component variance > 0.9, got {}",
+            result.components[0].variance_explained
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 25.2 — Sample size (log-rank) fixture test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sample_size_logrank_matches_gold_fixture() {
+        let fixture = load_fixture("tests/fixtures/r/sample_size_logrank.json");
+        let params = &fixture["params"];
+
+        let result = logrank_sample_size(
+            params["median1"].as_f64().unwrap(),
+            params["median2"].as_f64().unwrap(),
+            params["accrual"].as_f64().unwrap(),
+            params["followup"].as_f64().unwrap(),
+            params["power"].as_f64().unwrap(),
+            params["alpha"].as_f64().unwrap(),
+            params["allocation_ratio"].as_f64().unwrap(),
+            Some(params["dropout_rate"].as_f64().unwrap()),
+        )
+        .unwrap();
+
+        // Total N should be positive
+        assert!(
+            result.total_n > 0,
+            "expected total_n > 0, got {}",
+            result.total_n
+        );
+        // Required events should be positive (from notes)
+        let events_note = result
+            .notes
+            .iter()
+            .find(|n| n.starts_with("required_events="))
+            .expect("missing required_events note");
+        let events: f64 = events_note
+            .strip_prefix("required_events=")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(events > 0.0, "expected required_events > 0, got {events}");
+        // Power should be >= 0.8 (as requested)
+        assert_eq!(result.power, Some(0.8));
     }
 }

@@ -15,7 +15,7 @@
 //! routines, and matrix inversion uses Gauss-Jordan elimination with explicit
 //! singular-pivot errors.
 
-pub(crate) mod distributions;
+pub mod distributions;
 pub(crate) mod glm;
 pub(crate) mod linalg;
 
@@ -554,7 +554,7 @@ pub(crate) fn t_distribution_critical_value(alpha: f64, df: f64) -> f64 {
         }
     }
     for _ in 0..120 {
-        let mid = (lo + hi) / 2.0;
+        let mid = f64::midpoint(lo, hi);
         let p = t_distribution_p_value(mid, df);
         if p < target_p {
             hi = mid;
@@ -565,7 +565,7 @@ pub(crate) fn t_distribution_critical_value(alpha: f64, df: f64) -> f64 {
             break;
         }
     }
-    (lo + hi) / 2.0
+    f64::midpoint(lo, hi)
 }
 
 /// Approximate critical value for t distribution at 97.5% (two-sided 95% CI).

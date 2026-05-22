@@ -13,7 +13,10 @@ use crate::schema::{
     RepeatedAnovaResult,
 };
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, grouped_numeric, mean, missing, parse_num, prelude_notes,
+    sample_sd, EPS,
+};
 
 pub(crate) fn oneway_anova_csv(
     rows: &[csv::StringRecord],
@@ -421,8 +424,9 @@ fn mauchly_and_corrections(
     };
 
     // Box epsilon correction for chi-square
-    let box_eps = 1.0 - (2.0 * (p - 1) as f64 * (p - 1) as f64 + 3.0 * (p - 1) as f64 - 1.0)
-        / (6.0 * (p - 1) as f64 * (n - 1.0));
+    let box_eps = 1.0
+        - (2.0 * (p - 1) as f64 * (p - 1) as f64 + 3.0 * (p - 1) as f64 - 1.0)
+            / (6.0 * (p - 1) as f64 * (n - 1.0));
 
     let chi_sq = if mauchly_w > EPS && box_eps > 0.0 {
         -(n - 1.0) * box_eps * mauchly_w.ln()

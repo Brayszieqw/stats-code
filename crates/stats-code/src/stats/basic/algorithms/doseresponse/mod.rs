@@ -5,7 +5,9 @@ use crate::helpers::require_column;
 use crate::math::normal_cdf;
 use crate::schema::{DoseResponseCategory, DoseResponseResult};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, missing, parse_num, prelude_notes, z_critical, EPS,
+};
 
 pub(crate) fn dose_response_csv(
     rows: &[csv::StringRecord],
@@ -54,8 +56,7 @@ pub(crate) fn dose_response_csv(
     let ref_rate = agg
         .values()
         .next()
-        .map(|(events, pt)| *events as f64 / pt.max(EPS))
-        .unwrap_or(1.0)
+        .map_or(1.0, |(events, pt)| *events as f64 / pt.max(EPS))
         .max(EPS);
     let mut categories = Vec::new();
     let mut xs = Vec::new();

@@ -4,7 +4,10 @@ use crate::cli::NaStrategy;
 use crate::helpers::require_column;
 use crate::schema::{MhStratum, OrRrResult, TwoByTwoCells};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, chi_square_p_value, column_index, event_value, missing, prelude_notes,
+    z_critical, EPS,
+};
 
 pub(crate) fn or_rr_csv(
     rows: &[csv::StringRecord],
@@ -176,7 +179,7 @@ pub(crate) fn or_rr_csv(
 }
 
 fn corrected_cells(raw: [usize; 4]) -> (TwoByTwoCells, bool) {
-    let corrected = raw.iter().any(|v| *v == 0);
+    let corrected = raw.contains(&0);
     let add = if corrected { 0.5 } else { 0.0 };
     (
         TwoByTwoCells {

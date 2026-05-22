@@ -1,0 +1,26 @@
+{
+  "source": "Repeated-measures ANOVA reference. R: aov(value ~ time + Error(subject/time), data=df). Cross-checked with manual SS decomposition.",
+  "columns": ["subject", "time", "value"],
+  "rows": [
+    {"subject": "S1", "time": "T1", "value": 10.0},
+    {"subject": "S1", "time": "T2", "value": 12.0},
+    {"subject": "S1", "time": "T3", "value": 14.0},
+    {"subject": "S2", "time": "T1", "value": 11.0},
+    {"subject": "S2", "time": "T2", "value": 13.0},
+    {"subject": "S2", "time": "T3", "value": 16.0},
+    {"subject": "S3", "time": "T1", "value": 9.0},
+    {"subject": "S3", "time": "T2", "value": 11.0},
+    {"subject": "S3", "time": "T3", "value": 13.0},
+    {"subject": "S4", "time": "T1", "value": 12.0},
+    {"subject": "S4", "time": "T2", "value": 14.0},
+    {"subject": "S4", "time": "T3", "value": 17.0}
+  ],
+  "expected": {
+    "n_subjects": 4,
+    "n_timepoints": 3,
+    "time_df1": 2,
+    "time_df2": 6,
+    "time_f": 56.0,
+    "time_p": 0.000133
+  }
+}

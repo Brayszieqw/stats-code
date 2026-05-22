@@ -1,0 +1,19 @@
+{
+  "source": "Meta-analysis reference. R: meta::metagen(TE=effect, seTE=se, studlab=study). Fixed-effect and DerSimonian-Laird random-effects.",
+  "columns": ["study", "effect", "se"],
+  "rows": [
+    {"study": "Study1", "effect": 0.5, "se": 0.2},
+    {"study": "Study2", "effect": 0.8, "se": 0.3},
+    {"study": "Study3", "effect": 0.3, "se": 0.15},
+    {"study": "Study4", "effect": 0.6, "se": 0.25},
+    {"study": "Study5", "effect": 1.0, "se": 0.4}
+  ],
+  "expected": {
+    "n_studies": 5,
+    "fixed_effect_estimate": 0.4919,
+    "fixed_se": 0.1048,
+    "q_statistic": 3.7619,
+    "i_squared": 0.0,
+    "tau_squared": 0.0
+  }
+}

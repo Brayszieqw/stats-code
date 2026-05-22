@@ -1,6 +1,6 @@
 use crate::schema::PowerResult;
 
-use super::common::*;
+use super::common::{inverse_normal_cdf, z_critical, EPS};
 
 pub(crate) fn logrank_sample_size(
     median1: f64,
@@ -26,9 +26,10 @@ pub(crate) fn logrank_sample_size(
         ((z_alpha + z_beta).powi(2) * (1.0 + r).powi(2) / (r * hr.ln().powi(2))).ceil();
     let lambda1 = std::f64::consts::LN_2 / median1;
     let lambda2 = std::f64::consts::LN_2 / median2;
-    let event_prob = ((1.0 - (-lambda1 * (accrual / 2.0 + followup)).exp())
-        + (1.0 - (-lambda2 * (accrual / 2.0 + followup)).exp()))
-        / 2.0;
+    let event_prob = f64::midpoint(
+        1.0 - (-lambda1 * (accrual / 2.0 + followup)).exp(),
+        1.0 - (-lambda2 * (accrual / 2.0 + followup)).exp(),
+    );
     let dropout = dropout_rate.unwrap_or(0.0).clamp(0.0, 0.99);
     let total_n = (required_events / (event_prob * (1.0 - dropout)).max(EPS)).ceil() as usize;
     let group1_n = (total_n as f64 / (1.0 + r)).ceil() as usize;

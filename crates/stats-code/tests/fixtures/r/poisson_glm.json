@@ -1,0 +1,23 @@
+{
+  "source": "Poisson GLM with log(pt) offset. R: glm(events ~ x1 + x2, family=poisson, offset=log(pt)). Realistic count data.",
+  "columns": ["events", "x1", "x2", "pt"],
+  "rows": [
+    {"events": 5, "x1": 0.0, "x2": 0.0, "pt": 100.0},
+    {"events": 8, "x1": 1.0, "x2": 0.0, "pt": 100.0},
+    {"events": 7, "x1": 0.0, "x2": 1.0, "pt": 100.0},
+    {"events": 12, "x1": 1.0, "x2": 1.0, "pt": 100.0},
+    {"events": 4, "x1": 0.0, "x2": 0.0, "pt": 100.0},
+    {"events": 11, "x1": 1.0, "x2": 0.0, "pt": 100.0},
+    {"events": 6, "x1": 0.0, "x2": 1.0, "pt": 100.0},
+    {"events": 14, "x1": 1.0, "x2": 1.0, "pt": 100.0},
+    {"events": 6, "x1": 0.0, "x2": 0.0, "pt": 100.0},
+    {"events": 10, "x1": 1.0, "x2": 0.0, "pt": 100.0},
+    {"events": 8, "x1": 0.0, "x2": 1.0, "pt": 100.0},
+    {"events": 13, "x1": 1.0, "x2": 1.0, "pt": 100.0}
+  ],
+  "expected": {
+    "n_used": 12,
+    "n_coefficients": 3,
+    "converged": true
+  }
+}

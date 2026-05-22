@@ -2,7 +2,10 @@ use crate::cli::NaStrategy;
 use crate::helpers::require_column;
 use crate::schema::{LifeTableResult, LifeTableRow};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, event_value, missing, parse_num, prelude_notes, z_critical,
+    EPS,
+};
 
 pub(crate) fn lifetable_csv(
     rows: &[csv::StringRecord],
@@ -237,11 +240,7 @@ fn individual_intervals(
 }
 
 fn parse_interval(raw: &str, fallback: f64) -> (f64, f64) {
-    let normalized = raw
-        .replace('[', "")
-        .replace(']', "")
-        .replace('(', "")
-        .replace(')', "");
+    let normalized = raw.replace(['[', ']', '(', ')'], "");
     for sep in ["-", ",", ".."] {
         if let Some((a, b)) = normalized.split_once(sep) {
             if let (Ok(start), Ok(end)) = (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {

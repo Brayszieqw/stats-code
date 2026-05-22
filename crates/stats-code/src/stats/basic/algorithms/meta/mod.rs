@@ -3,7 +3,10 @@ use crate::helpers::require_column;
 use crate::math::normal_cdf;
 use crate::schema::{MetaAnalysisResult, MetaStudy};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, chi_square_p_value, column_index, missing, parse_num, prelude_notes,
+    z_critical, EPS,
+};
 
 pub(crate) fn meta_analysis_csv(
     rows: &[csv::StringRecord],
@@ -42,7 +45,7 @@ pub(crate) fn meta_analysis_csv(
                 .filter(|value| !value.trim().is_empty())
                 .map_or_else(
                     || format!("study_{}", row_index + 1),
-                    |value| value.to_string(),
+                    std::string::ToString::to_string,
                 ),
         );
     }

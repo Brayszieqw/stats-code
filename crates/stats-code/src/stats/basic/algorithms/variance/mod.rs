@@ -4,7 +4,9 @@ use crate::cli::NaStrategy;
 use crate::math::f_distribution_p_value;
 use crate::schema::{GroupVarianceSummary, VarianceHomogeneityResult};
 
-use super::common::*;
+use super::common::{
+    chi_square_p_value, grouped_numeric, mean, median, prelude_notes, sample_variance, EPS,
+};
 
 pub(crate) fn variance_homogeneity_csv(
     rows: &[csv::StringRecord],

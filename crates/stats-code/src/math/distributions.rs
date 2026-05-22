@@ -34,7 +34,8 @@ pub(crate) fn chi_square_p(x: f64, df: f64) -> f64 {
 /// This deterministic approximation uses the relationship `q / sqrt(2) ~ t`
 /// for each pairwise contrast and applies a Sidak-style max-tail adjustment
 /// across `k * (k - 1) / 2` comparisons.
-pub(crate) fn studentized_range_p(q: f64, k: usize, df: f64) -> f64 {
+#[must_use]
+pub fn studentized_range_p(q: f64, k: usize, df: f64) -> f64 {
     if !q.is_finite() || q <= 0.0 || k < 2 || df <= 0.0 {
         return 1.0;
     }

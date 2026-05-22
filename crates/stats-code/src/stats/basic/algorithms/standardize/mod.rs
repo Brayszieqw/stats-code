@@ -5,7 +5,10 @@ use crate::cli::NaStrategy;
 use crate::helpers::require_column;
 use crate::schema::{StandardizationResult, StandardizationStratum};
 
-use super::common::*;
+use super::common::{
+    check_missing_policy, column_index, missing, parse_num, prelude_notes, stringify_csv_error,
+    z_critical, EPS,
+};
 
 pub(crate) fn standardize_csv(
     rows: &[csv::StringRecord],
@@ -75,8 +78,7 @@ pub(crate) fn standardize_csv(
     for stratum in &mut strata {
         let pt = agg
             .get(&stratum.age_group)
-            .map(|(_, person_time)| *person_time)
-            .unwrap_or(0.0);
+            .map_or(0.0, |(_, person_time)| *person_time);
         stratum.expected = pt * std_rate.max(EPS);
         expected += stratum.expected;
     }

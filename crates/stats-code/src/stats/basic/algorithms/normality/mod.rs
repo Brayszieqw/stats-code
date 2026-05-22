@@ -2,7 +2,9 @@ use crate::cli::NaStrategy;
 use crate::math::normal_cdf;
 use crate::schema::NormalityResult;
 
-use super::common::*;
+use super::common::{
+    chi_square_p_value, inverse_normal_cdf, mean, numeric_column, prelude_notes, sample_sd, EPS,
+};
 
 pub(crate) fn normality_csv(
     rows: &[csv::StringRecord],
@@ -14,7 +16,7 @@ pub(crate) fn normality_csv(
     if values.len() < 3 {
         return Err("Normality diagnostics require at least 3 observations.".to_string());
     }
-    values.sort_by(|a, b| a.total_cmp(b));
+    values.sort_by(f64::total_cmp);
     let n = values.len();
     let m = mean(&values);
     let sd = sample_sd(&values).max(EPS);
@@ -29,6 +31,11 @@ pub(crate) fn normality_csv(
         ks_d = ks_d.max((cdf - fn_lo).abs()).max((fn_hi - cdf).abs());
     }
     let ks_p = (-2.0 * n as f64 * ks_d.powi(2)).exp().clamp(0.0, 1.0);
+    // NOTE: This is the asymptotic two-sided Kolmogorov-Smirnov p-value,
+    // not the Lilliefors-corrected version. Despite `lilliefors_used: true`
+    // in the result struct, the corrected critical values from Lilliefors
+    // (1967) are not yet applied. p-values should be interpreted with
+    // caution at small n.
     let shapiro_w = Some(shapiro_w_approx(&values));
     let shapiro_p_unreliable = n > 5000;
     let shapiro_p = if shapiro_p_unreliable {
@@ -65,6 +72,15 @@ pub(crate) fn normality_csv(
     })
 }
 
+/// Approximate Shapiro-Wilk W statistic.
+///
+/// Uses Blom-style expected normal scores (`(i - 3/8) / (n + 1/4)`) for the
+/// rank-based weights. This matches the asymptotic form but does NOT use the
+/// Royston (1992) coefficient series, so values may differ from R's
+/// `shapiro.test()` by O(1e-2) for small n. The companion p-value reported
+/// by `normality_csv` is computed from the Jarque-Bera chi-square (df=2)
+/// rather than Royston's transform; this is a known limitation tracked for
+/// future replacement with the full Royston implementation.
 fn shapiro_w_approx(sorted_values: &[f64]) -> f64 {
     let n = sorted_values.len();
     let m = mean(sorted_values);

@@ -57,71 +57,96 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+// All variants in `Command` are hidden from `stats-code --help`. They remain
+// fully parseable so internal callers (e.g. `SkillInvoker::StatsCli`) can still
+// invoke `stats-code workflow run ...`, but the user-facing help surface stays
+// minimal per Requirements 2.2 / 2.4 / 2.5 of the single-command-launcher spec.
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
+    #[command(hide = true)]
     Chat(ChatArgs),
+    #[command(hide = true)]
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
     },
     /// Create a demo analysis project from bundled templates.
+    #[command(hide = true)]
     Init(InitArgs),
     /// Check local Stats Code environment readiness.
+    #[command(hide = true)]
     Doctor(DoctorArgs),
     /// Preview the declared workflow plan without running statistics.
+    #[command(hide = true)]
     Plan(PlanArgs),
     /// Validate an analysis.yaml contract without running statistics.
+    #[command(hide = true)]
     Check(CheckArgs),
+    #[command(hide = true)]
     Inspect(InspectArgs),
+    #[command(hide = true)]
     Tableone(TableOneArgs),
+    #[command(hide = true)]
     Rate(RateArgs),
+    #[command(hide = true)]
     Power {
         #[command(subcommand)]
         command: PowerCommand,
     },
+    #[command(hide = true)]
     Diagnostic {
         #[command(subcommand)]
         command: DiagnosticCommand,
     },
+    #[command(hide = true)]
     Survival {
         #[command(subcommand)]
         command: SurvivalCommand,
     },
+    #[command(hide = true)]
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
     },
+    #[command(hide = true)]
     Ai {
         #[command(subcommand)]
         command: AiCommand,
     },
+    #[command(hide = true)]
     Audit {
         #[command(subcommand)]
         command: AuditCommand,
     },
+    #[command(hide = true)]
     Model {
         #[command(subcommand)]
         command: ModelCommand,
     },
+    #[command(hide = true)]
     Report {
         #[command(subcommand)]
         command: ReportCommand,
     },
+    #[command(hide = true)]
     Open {
         #[command(subcommand)]
         command: OpenCommand,
     },
     /// Run the declared analysis.yaml workflow deterministically.
+    #[command(hide = true)]
     Workflow {
         #[command(subcommand)]
         command: WorkflowCommand,
     },
     /// Run a custom Python or R script via the bridge.
+    #[command(hide = true)]
     Run {
         #[command(subcommand)]
         command: RunCommand,
     },
     /// Statistical and epidemiological analysis methods.
+    #[command(hide = true)]
     Stats {
         #[command(subcommand)]
         command: StatsCommand,
@@ -614,7 +639,7 @@ pub enum StatsCommand {
         #[command(subcommand)]
         command: AnovaCommand,
     },
-    /// Nonparametric tests (McNemar, Wilcoxon signed-rank, Mann-Whitney U,
+    /// Nonparametric tests (`McNemar`, Wilcoxon signed-rank, Mann-Whitney U,
     /// Cochran-Armitage trend).
     Nonparam {
         #[command(subcommand)]
@@ -689,7 +714,7 @@ pub enum AnovaCommand {
 /// Nonparametric test subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum NonparamCommand {
-    /// McNemar test for paired binary outcomes.
+    /// `McNemar` test for paired binary outcomes.
     Mcnemar(NonparamMcnemarArgs),
     /// Wilcoxon signed-rank test.
     Wilcoxon(NonparamWilcoxonArgs),
@@ -949,7 +974,7 @@ pub struct EpiStandardizeArgs {
     pub person_time: String,
     #[arg(long)]
     pub age_group: String,
-    /// Built-in name (who_world_2000, china_census_2010, segi_world) or path to CSV.
+    /// Built-in name (`who_world_2000`, `china_census_2010`, `segi_world`) or path to CSV.
     #[arg(long)]
     pub standard_pop: String,
 }

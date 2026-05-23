@@ -198,13 +198,10 @@ pub(crate) fn correlation_csv(
     let mut x_vals: Vec<f64> = Vec::with_capacity(n_total);
     let mut y_vals: Vec<f64> = Vec::with_capacity(n_total);
     for (x_opt, y_opt) in x_raw.iter().zip(y_raw.iter()) {
-        match (x_opt, y_opt) {
-            (Some(x_val), Some(y_val)) => {
-                x_vals.push(*x_val);
-                y_vals.push(*y_val);
-            }
-            _ => { /* excluded */ }
-        }
+        if let (Some(x_val), Some(y_val)) = (x_opt, y_opt) {
+            x_vals.push(*x_val);
+            y_vals.push(*y_val);
+        } else { /* excluded */ }
     }
 
     let n_pairs = x_vals.len();

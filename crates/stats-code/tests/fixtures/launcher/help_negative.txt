@@ -1,0 +1,41 @@
+# Negative-assertion fixture for `stats-code --help` output.
+#
+# This file is consumed by task 1.5's unit test (`cli_help_hides_subcommands`).
+# Each non-empty / non-comment line is a token that MUST NOT appear in the help
+# text rendered by `stats-code --help`.
+#
+# Source: single-command-launcher spec, Requirements 2.2 / 2.4 / 2.5.
+#   - Requirement 2.2: `stats-code --help` only lists `--version`, `--help`,
+#     `--no-browser`.
+#   - Requirement 2.4: none of the internal algorithm subcommands are visible.
+#   - Requirement 2.5: SkillInvoker still resolves these subcommands when called
+#     by name; they are hidden, not removed.
+#
+# Format: one forbidden token per line. Lines starting with `#` are comments.
+# Tokens are matched as case-sensitive substrings against the help text body.
+
+# Top-level subcommand names from `Command` enum:
+chat
+config
+init
+doctor
+plan
+check
+inspect
+tableone
+rate
+power
+diagnostic
+survival
+auth
+ai
+audit
+model
+report
+open
+workflow
+run
+stats
+
+# Help-text section header that clap renders when subcommands are visible:
+Commands:

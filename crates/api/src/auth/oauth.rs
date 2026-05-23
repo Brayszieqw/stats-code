@@ -335,34 +335,8 @@ fn generate_random_token(bytes: usize) -> io::Result<String> {
     Ok(base64url_encode(&buffer))
 }
 
-#[cfg(unix)]
 fn fill_random_bytes(buffer: &mut [u8]) -> io::Result<()> {
-    File::open("/dev/urandom")?.read_exact(buffer)
-}
-
-#[cfg(windows)]
-#[allow(clippy::unnecessary_wraps)]
-fn fill_random_bytes(buffer: &mut [u8]) -> io::Result<()> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let pid = u128::from(std::process::id());
-    let mut state = seed
-        .wrapping_mul(6_364_136_223_846_793_005)
-        .wrapping_add(pid);
-    for byte in buffer.iter_mut() {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            *byte = (state >> 33) as u8;
-        }
-    }
-    Ok(())
+    getrandom::getrandom(buffer).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
 }
 
 fn credentials_home_dir() -> io::Result<PathBuf> {

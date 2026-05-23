@@ -219,10 +219,12 @@ pub fn is_missing_value(value: &str) -> bool {
     ) {
         return true;
     }
-    // SAS-style sentinel values (common in epidemiology/clinical data)
-    if matches!(value, "9" | "99" | "999" | "9999" | "99999" | "999999") {
-        return true;
-    }
+    // Note: SAS-style sentinel values like "9", "99", "999" are NOT treated as
+    // missing here because they are valid integer counts in many contexts
+    // (e.g., Poisson event counts, age, score variables). Callers that need
+    // to treat these as missing should declare them via the data dictionary
+    // (`missing.codes` in the analysis spec) and use
+    // `is_missing_with_dictionary` instead.
     false
 }
 

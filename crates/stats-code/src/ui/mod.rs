@@ -14,7 +14,6 @@ mod wrap;
 #[cfg(test)]
 mod proptest_ui;
 
-pub use stream::{StreamOutcome, StreamRenderer};
 
 use std::io::{self, Write};
 
@@ -231,7 +230,7 @@ impl ChatUi {
         for (i, entry) in log.entries.iter().enumerate() {
             let is_focused = i == log.cursor;
             let line = tool_display::render_collapsed(entry, is_focused, &self.caps);
-            writeln!(out, "{}", line)?;
+            writeln!(out, "{line}")?;
         }
         out.flush()
     }

@@ -352,9 +352,7 @@ pub fn build_methods_markdown(spec: &AnalysisSpec) -> String {
                     out,
                     "- One-sample t-test for `{}` against mu={}.",
                     step.var.as_deref().unwrap_or("<unspecified>"),
-                    step.mu
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "<unspecified>".to_string())
+                    step.mu.map_or_else(|| "<unspecified>".to_string(), |value| value.to_string())
                 );
             }
             AnalysisKind::AnovaOneway => {

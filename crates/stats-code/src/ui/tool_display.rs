@@ -137,7 +137,7 @@ pub fn render_collapsed(
             .chars()
             .take(max_summary_chars)
             .collect();
-        format!("{}…", truncated)
+        format!("{truncated}…")
     } else {
         entry.input_summary.clone()
     };
@@ -177,7 +177,7 @@ pub fn render_expanded(entry: &ToolCallEntry, terminal_width: u16, terminal_heig
             .chars()
             .take(max_summary_chars)
             .collect();
-        format!("{}…", truncated)
+        format!("{truncated}…")
     } else {
         entry.input_summary.clone()
     };
@@ -198,7 +198,7 @@ pub fn render_expanded(entry: &ToolCallEntry, terminal_width: u16, terminal_heig
         Err(_) => entry.full_input.clone(),
     };
     for line in pretty_input.lines() {
-        lines.push(format!("  {}", line));
+        lines.push(format!("  {line}"));
     }
 
     // ── Separator ─────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ pub fn render_expanded(entry: &ToolCallEntry, terminal_width: u16, terminal_heig
 
     // ── Output lines with 2-space indent ─────────────────────────────────────
     for line in entry.output.lines() {
-        lines.push(format!("  {}", line));
+        lines.push(format!("  {line}"));
     }
 
     // ── Truncation ────────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ pub fn render_expanded(entry: &ToolCallEntry, terminal_width: u16, terminal_heig
         let remaining = lines.len() - max_lines;
         lines.truncate(max_lines);
         lines.push(
-            format!("  ... [{} more lines]", remaining)
+            format!("  ... [{remaining} more lines]")
                 .dimmed()
                 .to_string(),
         );
@@ -242,10 +242,10 @@ pub fn entry_line_count(entry: &ToolCallEntry, terminal_width: u16, terminal_hei
 ///
 /// 假设调用时终端光标停在 `new_cursor` 对应条目的第一行（即 `log.cursor` 已更新）。
 /// 策略：
-/// 1. 计算 old_cursor 相对于 new_cursor 的行偏移（考虑展开条目占多行）
-/// 2. 移动到 old_cursor 行，清除并重绘为非聚焦状态
-/// 3. 移动到 new_cursor 行，清除并重绘为聚焦状态
-/// 4. 光标最终停在 new_cursor 行
+/// 1. 计算 `old_cursor` 相对于 `new_cursor` 的行偏移（考虑展开条目占多行）
+/// 2. 移动到 `old_cursor` 行，清除并重绘为非聚焦状态
+/// 3. 移动到 `new_cursor` 行，清除并重绘为聚焦状态
+/// 4. 光标最终停在 `new_cursor` 行
 pub fn redraw_cursor_move(
     out: &mut impl Write,
     log: &ToolCallLog,
@@ -301,7 +301,7 @@ pub fn redraw_cursor_move(
             caps,
         )
     };
-    write!(out, "\r{}", old_line)?;
+    write!(out, "\r{old_line}")?;
 
     // ── Step 2: move to new_cursor line and redraw as focused ─────────────────
     if old_cursor < new_cursor {
@@ -327,7 +327,7 @@ pub fn redraw_cursor_move(
             caps,
         )
     };
-    write!(out, "\r{}", new_line)?;
+    write!(out, "\r{new_line}")?;
 
     out.flush()
 }
@@ -336,9 +336,9 @@ pub fn redraw_cursor_move(
 ///
 /// `was_collapsed` 是切换前的状态（现在已经是 `!was_collapsed`）。
 ///
-/// - 展开（was_collapsed == true，现在展开）：
+/// - `展开（was_collapsed` == true，现在展开）：
 ///   条目从 1 行变为 N 行，需要在当前行下方插入 N-1 行并重绘
-/// - 折叠（was_collapsed == false，现在折叠）：
+/// - `折叠（was_collapsed` == false，现在折叠）：
 ///   条目从 N 行变为 1 行，需要清除 N-1 行并重绘
 pub fn redraw_toggle(
     out: &mut impl Write,
@@ -369,11 +369,11 @@ pub fn redraw_toggle(
                 if is_focused {
                     write!(out, "\r▼ {}", &line[2..])?; // replace leading "▼ " with focused version
                 } else {
-                    write!(out, "\r{}", line)?;
+                    write!(out, "\r{line}")?;
                 }
             } else {
                 writeln!(out)?;
-                write!(out, "{}", line)?;
+                write!(out, "{line}")?;
             }
         }
 
@@ -399,7 +399,7 @@ pub fn redraw_toggle(
         // Clear the current (first) line and redraw as collapsed
         queue!(out, terminal::Clear(terminal::ClearType::CurrentLine))?;
         let collapsed_line = render_collapsed(entry, is_focused, caps);
-        write!(out, "\r{}", collapsed_line)?;
+        write!(out, "\r{collapsed_line}")?;
 
         // Clear the remaining N-1 lines below
         for _ in 1..old_line_count {
@@ -600,7 +600,7 @@ pub fn render_tool_log_plain(
     for entry in &log.entries {
         let rendered = render_expanded(entry, terminal_width, terminal_height);
         let clean = strip_cursor_movement_sequences(&rendered);
-        writeln!(out, "{}", clean)?;
+        writeln!(out, "{clean}")?;
     }
     out.flush()
 }

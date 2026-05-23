@@ -1,0 +1,140 @@
+/* 全局莫兰迪暖米色 & 学术科技感样式设计 */
+
+:root {
+  --primary-color: #38618c; /* 莫兰迪蓝 */
+  --primary-light: #5f87b3;
+  --bg-base: #f7f6f0;      /* 暖米色底色 */
+  --bg-gradient-start: #fdfdfb;
+  --bg-gradient-end: #f4f2ea;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --text-main: #2b3a4a;
+  --text-secondary: #5a6e85;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text-main);
+  background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+  background-attachment: fixed;
+  overflow: hidden;
+}
+
+/* 磨砂玻璃卡片效果 */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 rgba(142, 152, 170, 0.08);
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.glass-panel:hover {
+  box-shadow: 0 12px 40px 0 rgba(142, 152, 170, 0.12);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* 学术级三线表样式 */
+.three-line-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+  text-align: left;
+}
+
+.three-line-table th {
+  border-top: 2px solid #2b3b4c;
+  border-bottom: 1px solid #2b3b4c;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: #2b3b4c;
+  background: rgba(56, 97, 140, 0.03);
+}
+
+.three-line-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e1e6eb;
+  color: #435366;
+}
+
+.three-line-table tr:last-child td {
+  border-bottom: 2px solid #2b3b4c; /* 最底部的粗线 */
+}
+
+/* 引擎计算预演呼吸灯 & 旋转粒子动效 */
+@keyframes pulseGlow {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(56, 97, 140, 0.2);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 20px rgba(56, 97, 140, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(56, 97, 140, 0);
+  }
+}
+
+.engine-pulse {
+  animation: pulseGlow 2s infinite ease-in-out;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(95, 135, 179, 0.15) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+@keyframes spinSlow {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.engine-spin-slow {
+  animation: spinSlow 20s infinite linear;
+}
+
+/* 微光流动进度条 */
+@keyframes progressSlick {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.slick-progress {
+  background: linear-gradient(90deg, #38618c, #8ca5c0, #38618c);
+  background-size: 200% 200%;
+  animation: progressSlick 3s infinite linear;
+}
+
+/* 滚动条隐藏与高颜值微调 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 152, 170, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 152, 170, 0.4);
+}

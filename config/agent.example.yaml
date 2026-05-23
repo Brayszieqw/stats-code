@@ -1,0 +1,45 @@
+# Agent Server configuration example.
+#
+# Copy to `config/agent.yaml` and customize. Environment variables in the form
+# `${VAR_NAME}` are expanded at load time.
+#
+# Choose ONE provider in `ai.provider` ("deepseek" or "openai") and fill in the
+# matching section. The other section may be omitted entirely.
+
+server:
+  bind: "127.0.0.1:8080"
+  max_concurrent_sessions: 50
+
+ai:
+  # ---------- Provider selection ----------
+  # "deepseek" — DeepSeek hosted API (cheapest for Chinese content)
+  # "openai"   — OpenAI official API (gpt-4o, gpt-4o-mini, gpt-3.5-turbo, ...)
+  provider: "deepseek"
+
+  # ---------- DeepSeek configuration ----------
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"          # required; e.g. "sk-xxxx"
+    model: "deepseek-chat"                  # also "deepseek-reasoner"
+    base_url: "https://api.deepseek.com/v1/"
+    request_timeout_secs: 30
+    max_retries: 2
+
+  # ---------- OpenAI configuration ----------
+  openai:
+    api_key: "${OPENAI_API_KEY}"            # required; e.g. "sk-proj-xxxx"
+    model: "gpt-4o-mini"                    # also "gpt-4o", "gpt-3.5-turbo"
+    base_url: "https://api.openai.com/v1/"
+    organization: null                      # optional; e.g. "org-xxx"
+    request_timeout_secs: 30
+    max_retries: 2
+
+storage:
+  # "mem"          — in-memory only (development; lost on restart)
+  # "sled:<path>"  — sled-backed persistent KV store
+  session_store: "sled:./data/sessions"
+  dataset_root: "./data/datasets"
+
+skill_runner:
+  stats_code_bin: "stats-code"     # absolute path or in $PATH
+  max_wall_secs: 60
+  max_rss_mib: 1024

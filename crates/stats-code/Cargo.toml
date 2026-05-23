@@ -4,13 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "stats-code"
 path = "src/main.rs"
 
+[features]
+# Default = prod 模式：前端通过 rust-embed 内嵌进二进制（Requirement 6）。
+# 开启 dev-vite 切换到 dev 模式，由 launcher spawn `npm run dev` 子进程作为
+# Web_Frontend 来源（Requirement 7），此时 build.rs 跳过 web/dist 校验。
+default = []
+dev-vite = []
+
 [dependencies]
 api = { path = "../api" }
+agent-core = { path = "../agent-core" }
+agent-server = { path = "../agent-server" }
 clap = { workspace = true, features = ["derive"] }
 csv = "1"
 serde = { workspace = true, features = ["derive"] }
@@ -26,6 +36,38 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 icy_sixel = "0.1"
 calamine = "0.34.0"
 tempfile = "3"
+# 解析 `%APPDATA%` 等平台标准目录（Requirement 8.1, 9.4），
+# launcher/paths.rs 用它定位 `%APPDATA%\stats-code\`。
+dirs = "6"
+# prod 模式下用于把 web/dist/ 嵌入二进制（Requirement 6.1）。
+# dev-vite 模式不会触达这条 derive，但保持依赖始终在场以避免按 feature 切换
+# 编译图与 build.rs 的耦合复杂度。
+rust-embed = "8.5"
+# 用于在 prod 模式下伺服内嵌前端资源的 SPA fallback handler（Requirement 6.2）。
+# 与 agent-server 已用的 axum 0.7 版本对齐，避免后续 launcher 合并 router 时
+# 出现版本不一致；dev-vite 模式下 launcher 不会引用，仅作为 stats-code 公共
+# 依赖存在。
+axum = "0.7"
+# HTTP client for LLM probe connectivity testing (task 10.7).
+reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1"
+secrecy = { version = "0.10", features = ["serde"] }
+tokio-stream = "0.1"
+# 通过文件后缀推断 Content-Type，配合 rust-embed 给前端静态资源附正确 MIME。
+mime_guess = "2"
+
+# Windows 专属：launcher::process_guard 在 dev-vite 模式下用 Job Object 把
+# `npm run dev` Vite 子进程绑定到主进程生命周期（Requirement 7.1, 7.3）。
+# `Win32_System_JobObjects` 提供 CreateJobObjectW / SetInformationJobObject /
+# AssignProcessToJobObject 与 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 等常量；
+# `Win32_System_Threading` 提供进程句柄相关定义；
+# `Win32_Foundation` 提供 HANDLE / BOOL / CloseHandle 等基本类型与 API。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 proptest = "1"

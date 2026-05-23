@@ -162,9 +162,7 @@ fn describe_plan_step(index: usize, step: &crate::schema::AnalysisStepSpec) -> S
         AnalysisKind::TtestOneSample => format!(
             "#{index} {id}: ttest.one_sample var=`{}` mu={}",
             step.var.as_deref().unwrap_or("<missing-var>"),
-            step.mu
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "<missing-mu>".to_string())
+            step.mu.map_or_else(|| "<missing-mu>".to_string(), |value| value.to_string())
         ),
         AnalysisKind::AnovaOneway => format!(
             "#{index} {id}: anova.oneway var=`{}` group=`{}` block={}",

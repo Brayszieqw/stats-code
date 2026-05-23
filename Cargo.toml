@@ -2,6 +2,8 @@
 members = [
     "crates/api",
     "crates/stats-code",
+    "crates/agent-core",
+    "crates/agent-server",
 ]
 resolver = "2"
 
@@ -18,7 +20,11 @@ serde_json = "1"
 tokio = "1"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `deny`（不是 `forbid`）允许特定模块通过 `#[allow(unsafe_code)]` 局部启用，
+# `forbid` 则会硬阻止任何 allow 覆盖。Windows 平台的 `launcher::process_guard`
+# 模块需要直接调用 Win32 Job Object FFI（`windows-sys`），必须能在受控位置
+# 启用 unsafe；改用 `deny` 后未在显式 allow 的位置仍按错误处理，policy 等价。
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

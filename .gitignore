@@ -1,4 +1,17 @@
-/target
+﻿/target
+
+# Frontend generated/dependency outputs
+/web/node_modules/
+/web/dist/
+/web/tsconfig.tsbuildinfo
+
+
+# Local runtime config/state
+/config/agent.yaml
+/data/
+# Local Cargo config / generated backups
+/.cargo/
+*.bak-*
 
 # Debug / scratch files
 *.log
@@ -37,6 +50,6 @@ codex_tmp/
 /audit/
 /report/
 /tables/
-/stats-code-artifacts/
+stats-code-artifacts/
 /scratch-artifacts/
 crates/stats-code/examples/target/

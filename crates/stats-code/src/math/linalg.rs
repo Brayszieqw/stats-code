@@ -133,6 +133,9 @@ pub(crate) fn matrix_determinant(matrix: &[Vec<f64>]) -> f64 {
     if n == 0 {
         return 1.0;
     }
+    if matrix.iter().any(|row| row.len() != n) {
+        return 0.0;
+    }
     let mut a = matrix.to_vec();
     let mut det = 1.0;
     for i in 0..n {
@@ -164,8 +167,13 @@ pub(crate) fn matrix_determinant(matrix: &[Vec<f64>]) -> f64 {
 }
 
 /// Matrix trace (sum of diagonal entries).
+/// Returns 0.0 for empty or non-square matrices.
 pub(crate) fn matrix_trace(matrix: &[Vec<f64>]) -> f64 {
-    (0..matrix.len()).map(|i| matrix[i][i]).sum()
+    let n = matrix.len();
+    if n == 0 || matrix.iter().any(|row| row.len() != n) {
+        return 0.0;
+    }
+    (0..n).map(|i| matrix[i][i]).sum()
 }
 
 /// Compute Helmert contrast matrix of size (p-1) x p.

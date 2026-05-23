@@ -1,0 +1,321 @@
+/**
+ * MessageList — 渲染聊天消息列表（ChatGPT/Claude 风格气泡）
+ *
+ * 根据消息角色（user / agent）渲染不同样式的消息气泡。
+ * Agent 消息支持：流式文本、SkillResult 表格、Interpretation 解读卡片、
+ *                 ChoicePrompt 结构化选择题。
+ *
+ * Validates: Requirements 1.1, 7.5
+ */
+
+import { useEffect, useRef } from 'react';
+import { Card, Table, Tag, Typography, Space, theme as antdTheme } from 'antd';
+import { RobotOutlined, UserOutlined, BulbOutlined } from '@ant-design/icons';
+import type { ChatMessage } from '../hooks/useSseChat';
+import type { SkillResult, RiskSignal, ChoiceAnswer } from '../api/types';
+import { ChoicePromptCard } from './ChoicePromptCard';
+import { ThreeLineTable } from './ThreeLineTable';
+import { StatsChartRenderer } from './StatsChartRenderer';
+
+const { Text, Paragraph } = Typography;
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+export interface MessageListProps {
+  messages: ChatMessage[];
+  onChoiceSubmit?: (answer: ChoiceAnswer) => void;
+  disabled?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function RiskSignalTags({ signals }: { signals: RiskSignal[] }) {
+  if (!signals || signals.length === 0) return null;
+
+  const labelMap: Record<RiskSignal, { text: string; color: string }> = {
+    PValueAboveAlpha: { text: 'P > 0.05', color: 'orange' },
+    VifTooHigh: { text: 'VIF > 10', color: 'red' },
+    LowPower: { text: '检验功效 < 0.8', color: 'volcano' },
+    CoxPhAssumptionViolated: { text: 'Cox PH 假设违反', color: 'magenta' },
+  };
+
+  return (
+    <Space size={4} wrap style={{ marginTop: 8 }}>
+      {signals.map((signal, idx) => {
+        const info = labelMap[signal] ?? { text: signal, color: 'default' };
+        return (
+          <Tag key={idx} color={info.color}>
+            {info.text}
+          </Tag>
+        );
+      })}
+    </Space>
+  );
+}
+
+function GenericKVTable({ payload }: { payload: any }) {
+  const entries =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? Object.entries(payload as Record<string, unknown>)
+      : [];
+
+  const columns = [
+    { title: '指标', dataIndex: 'key', key: 'key', width: '40%' },
+    {
+      title: '值',
+      dataIndex: 'value',
+      key: 'value',
+      render: (val: unknown) => {
+        if (val === null || val === undefined) return '-';
+        if (typeof val === 'number') {
+          return Number.isInteger(val) ? String(val) : val.toFixed(4);
+        }
+        if (typeof val === 'string') return val;
+        return JSON.stringify(val);
+      },
+    },
+  ];
+
+  const dataSource = entries.map(([key, value]) => ({ key, value }));
+
+  if (dataSource.length === 0) return null;
+
+  return (
+    <Table
+      columns={columns}
+      dataSource={dataSource}
+      pagination={false}
+      size="small"
+      style={{ marginBottom: 8 }}
+    />
+  );
+}
+
+function SkillResultView({ result }: { result: SkillResult }) {
+  const { payload, risk_signals } = result;
+
+  const isStructuredTable =
+    payload &&
+    typeof payload === 'object' &&
+    (('rows' in payload && 'group_levels' in payload) ||
+     ('coefficients' in payload && Array.isArray(payload.coefficients)));
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      {isStructuredTable ? (
+        <div style={{ margin: '8px 0 16px' }}>
+          <ThreeLineTable skillResult={result} />
+        </div>
+      ) : (
+        <GenericKVTable payload={payload} />
+      )}
+
+      {/* Render ECharts visualization below the table inline inside the chat bubble */}
+      <StatsChartRenderer skillResult={result} />
+
+      <RiskSignalTags signals={risk_signals} />
+    </div>
+  );
+}
+
+function InterpretationView({ text }: { text: string }) {
+  const { token } = antdTheme.useToken();
+  return (
+    <Card
+      size="small"
+      style={{
+        marginTop: 10,
+        background: token.colorSuccessBg,
+        borderColor: token.colorSuccessBorder,
+      }}
+    >
+      <Space size={6} align="start" style={{ marginBottom: 4 }}>
+        <BulbOutlined style={{ color: token.colorSuccess }} />
+        <Text strong>AI 解读</Text>
+      </Space>
+      <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{text}</Paragraph>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function MessageList({ messages, onChoiceSubmit, disabled = false }: MessageListProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  if (messages.length === 0) {
+    return <EmptyState />;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 8 }}>
+      {messages.map((msg) => (
+        <MessageBubble key={msg.id} message={msg} onChoiceSubmit={onChoiceSubmit} disabled={disabled} />
+      ))}
+      <div ref={bottomRef} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
+
+function EmptyState() {
+  const { token } = antdTheme.useToken();
+  const examples = [
+    { icon: '📈', title: '线性回归', body: '帮我分析血压与年龄的关系' },
+    { icon: '📊', title: 'Logistic 回归', body: '风险因素对某事件的影响' },
+    { icon: '⏱️', title: '生存分析', body: '不同治疗方案的生存率差异' },
+    { icon: '⚡', title: '功效分析', body: '需要多少样本量才能检测出效应' },
+  ];
+
+  return (
+    <div style={{ textAlign: 'center', padding: '48px 16px', color: token.colorTextSecondary }}>
+      <RobotOutlined style={{ fontSize: 56, color: token.colorPrimary, marginBottom: 16 }} />
+      <Paragraph style={{ fontSize: 16, marginBottom: 8 }} strong>
+        Stats 智能分析助手
+      </Paragraph>
+      <Paragraph type="secondary" style={{ marginBottom: 24 }}>
+        上传数据文件，用自然语言描述你的研究问题，由 AI 引导你完成分析
+      </Paragraph>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12,
+          maxWidth: 720,
+          margin: '0 auto',
+        }}
+      >
+        {examples.map((e) => (
+          <div
+            key={e.title}
+            style={{
+              padding: 14,
+              background: token.colorBgContainer,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              borderRadius: token.borderRadiusLG,
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ fontSize: 22 }}>{e.icon}</div>
+            <Text strong style={{ display: 'block', marginTop: 4 }}>
+              {e.title}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {e.body}
+            </Text>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Message bubble
+// ---------------------------------------------------------------------------
+
+function MessageBubble({
+  message,
+  onChoiceSubmit,
+  disabled = false,
+}: {
+  message: ChatMessage;
+  onChoiceSubmit?: (answer: ChoiceAnswer) => void;
+  disabled?: boolean;
+}) {
+  const { token } = antdTheme.useToken();
+  const isUser = message.role === 'user';
+
+  const userBubbleStyle: React.CSSProperties = {
+    background: token.colorPrimary,
+    color: '#fff',
+    borderRadius: '12px 12px 2px 12px',
+    padding: '10px 14px',
+    maxWidth: '75%',
+  };
+
+  const agentBubbleStyle: React.CSSProperties = {
+    background: token.colorBgContainer,
+    color: token.colorText,
+    border: `1px solid ${token.colorBorderSecondary}`,
+    borderRadius: '12px 12px 12px 2px',
+    padding: '12px 16px',
+    maxWidth: '85%',
+    boxShadow: token.boxShadowTertiary,
+  };
+
+  const avatarStyle: React.CSSProperties = {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    color: '#fff',
+    fontSize: 16,
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: isUser ? 'flex-end' : 'flex-start',
+        alignItems: 'flex-start',
+        gap: 10,
+      }}
+    >
+      {!isUser && (
+        <div style={{ ...avatarStyle, background: token.colorPrimary }}>
+          <RobotOutlined />
+        </div>
+      )}
+
+      <div style={isUser ? userBubbleStyle : agentBubbleStyle}>
+        {message.content && (
+          <Paragraph
+            style={{
+              marginBottom: 0,
+              color: isUser ? '#fff' : 'inherit',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.6,
+            }}
+          >
+            {message.content}
+          </Paragraph>
+        )}
+
+        {message.skillResult && <SkillResultView result={message.skillResult} />}
+        {message.interpretation && <InterpretationView text={message.interpretation} />}
+        {message.choicePrompt && (
+          <ChoicePromptCard
+            prompt={message.choicePrompt}
+            onSubmit={(answer) => onChoiceSubmit?.(answer)}
+            disabled={disabled}
+          />
+        )}
+      </div>
+
+      {isUser && (
+        <div style={{ ...avatarStyle, background: token.colorSuccess }}>
+          <UserOutlined />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default MessageList;

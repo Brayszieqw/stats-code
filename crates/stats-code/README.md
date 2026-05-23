@@ -48,6 +48,31 @@ What is real today:
 - `model logistic` for CSV with local deterministic fitting, OR, CI, and basic risk warnings
 - `model cox` for CSV with local deterministic fitting, HR, CI, and basic risk warnings
 - `model linear` for CSV with local deterministic OLS fitting, coefficients, CI, p-values, and fit metrics
+- `stats ttest paired` / `stats ttest one-sample` for paired and one-sample t-tests
+- `stats anova oneway` for one-way and randomized-block ANOVA
+- `stats anova repeated` for repeated-measures ANOVA
+- `stats anova posthoc` for Bonferroni and Tukey HSD pairwise comparisons
+- `stats nonparam mcnemar` / `wilcoxon` / `mannwhitney` / `cochran-armitage` for nonparametric tests
+- `stats correlation` for Pearson r and Spearman ρ with Fisher z CI
+- `stats diagnostic normality` for Shapiro-Wilk and Lilliefors K-S tests
+- `stats diagnostic variance` for Levene and Bartlett homogeneity tests
+- `stats epi or-rr` for OR/RR with Mantel-Haenszel stratification and Breslow-Day test
+- `stats epi standardize` for direct rate standardization and SMR with Byar CI
+- `stats epi attributable` for AR, AR%, PAR, PAR% with delta-method CI
+- `stats epi dose-response` for dose-response trend analysis with Poisson offset
+- `stats model poisson` for Poisson GLM via IRLS with offset/exposure support
+- `stats meta` for fixed-effect and DerSimonian-Laird random-effects meta-analysis
+- `stats agreement kappa` for Cohen's kappa and weighted kappa
+- `stats agreement bland-altman` for Bland-Altman bias and limits of agreement
+- `stats multivariate pca` for principal component analysis with KMO and Bartlett tests
+- `stats multivariate cluster` for k-means and Ward hierarchical clustering
+- `stats multivariate lda` for linear discriminant analysis (Python bridge)
+- `stats model ordinal` / `stats model multinomial` for ordinal/multinomial logistic (Python bridge)
+- `stats mixed` for linear mixed-effects models via statsmodels (Python bridge)
+- `stats psm` for propensity score matching with greedy 1:k nearest-neighbor
+- `stats survival lifetable` for actuarial life-table survival with Greenwood CI
+- `stats survival competing` for competing risks CIF and cause-specific Cox (Python bridge)
+- `stats sample-size log-rank` for Schoenfeld log-rank sample size calculation
 - declared `survey.weight` support for Rust tableone, rate, logistic, Cox, and linear point estimates
 - `privacy.small_cell_threshold` suppression in generated report markdown tables
 - `workflow run` for one-command deterministic execution of the declared `analysis.yaml` steps plus report generation
@@ -179,10 +204,10 @@ The parity script compares linear and logistic models against Python statsmodels
 Create a local release package with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File crates/stats-code/scripts/package-release.ps1
+./release.ps1
 ```
 
-The package script builds the release binary, stages README, quickstart/install notes, example contract/data, a zip archive, and `SHA256SUMS.txt` under `target/stats-code-release/`.
+The release script builds the release binary, stages README, install.ps1, a zip archive, and `SHA256SUMS.txt` under `target/stats-code-release/`.
 
 `stats-code auth set <provider> --api-key ...` stores provider credentials in the local Stats Code auth store. `stats-code ai ask ...` and interactive chat load saved credentials automatically when the corresponding process environment variables are not already set.
 

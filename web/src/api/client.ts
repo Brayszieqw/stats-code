@@ -1,0 +1,233 @@
+/**
+ * Typed API client for all /api/* endpoints.
+ *
+ * Each function corresponds to an agent-server HTTP route.
+ * Relative paths are used so Vite's dev proxy handles routing to :8080.
+ */
+
+import type {
+  Session,
+  SessionSettings,
+  DatasetSummary,
+  PostAudioResponse,
+  HealthResponse,
+  ErrorPayload,
+  LlmProvider,
+  LlmStatusResponse,
+} from './types';
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom error class wrapping structured API error responses.
+ */
+export class ApiError extends Error {
+  public readonly payload: ErrorPayload;
+  public readonly status: number;
+
+  constructor(status: number, payload: ErrorPayload) {
+    super(payload.message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+/**
+ * Parse a fetch Response and throw ApiError on non-2xx status.
+ */
+async function handleResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let payload: ErrorPayload;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {
+        error_code: 'SkillExecutionFailed',
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+    throw new ApiError(res.status, payload);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// Session endpoints
+// ---------------------------------------------------------------------------
+
+/** POST /api/sessions — 创建新会话 */
+export async function createSession(): Promise<Session> {
+  const res = await fetch('/api/sessions', { method: 'POST' });
+  return handleResponse<Session>(res);
+}
+
+/** GET /api/sessions/:sid — 获取会话状态与历史 */
+export async function getSession(sid: string): Promise<Session> {
+  const res = await fetch(`/api/sessions/${sid}`);
+  return handleResponse<Session>(res);
+}
+
+/** PATCH /api/sessions/:sid/settings — 更新会话设置 */
+export async function patchSettings(
+  sid: string,
+  settings: Partial<SessionSettings>,
+): Promise<Session> {
+  const res = await fetch(`/api/sessions/${sid}/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  return handleResponse<Session>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Message endpoint (SSE)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/sessions/:sid/messages — 发送用户消息并接收 SSE 事件流。
+ *
+ * 浏览器原生 `EventSource` 仅支持 GET，所以这里使用 fetch + ReadableStream
+ * 读取 POST 响应的 SSE 流。返回原始 `Response` 由 `useSseChat` hook 解析。
+ */
+export async function postMessageFetch(
+  sid: string,
+  text: string,
+): Promise<Response> {
+  const res = await fetch(`/api/sessions/${sid}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    let payload: ErrorPayload;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {
+        error_code: 'SkillExecutionFailed',
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+    throw new ApiError(res.status, payload);
+  }
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// Audio endpoint
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/sessions/:sid/audio — 上传音频文件。
+ *
+ * Wire format (matches `crates/agent-server/src/handlers/audio.rs`):
+ *   - Content-Type: application/octet-stream
+ *   - Body: raw audio bytes
+ *   - Header X-Audio-Duration-Secs: integer seconds
+ */
+export async function postAudio(
+  sid: string,
+  audio: Blob,
+  durationSecs: number,
+): Promise<PostAudioResponse> {
+  const res = await fetch(`/api/sessions/${sid}/audio`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Audio-Duration-Secs': String(Math.max(0, Math.round(durationSecs))),
+    },
+    body: audio,
+  });
+  return handleResponse<PostAudioResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Dataset endpoints
+// ---------------------------------------------------------------------------
+
+/** POST /api/sessions/:sid/datasets — 上传数据文件 */
+export async function postDataset(
+  sid: string,
+  file: File,
+): Promise<DatasetSummary> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`/api/sessions/${sid}/datasets`, {
+    method: 'POST',
+    body: formData,
+  });
+  return handleResponse<DatasetSummary>(res);
+}
+
+/** GET /api/sessions/:sid/datasets/:did — 获取数据集摘要 */
+export async function getDataset(
+  sid: string,
+  did: string,
+): Promise<DatasetSummary> {
+  const res = await fetch(`/api/sessions/${sid}/datasets/${did}`);
+  return handleResponse<DatasetSummary>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
+/** GET /api/health — 健康检查 */
+export async function healthCheck(): Promise<HealthResponse> {
+  const res = await fetch('/api/health');
+  return handleResponse<HealthResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// LLM config
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/llm-status — 查询 LLM 配置状态。
+ *
+ * 用于 Onboarding_Card 的遮罩判定（Requirement 10、11.1）。
+ * 响应不含 `api_key`（Requirement 10.4）。
+ */
+export async function getLlmStatus(): Promise<LlmStatusResponse> {
+  const res = await fetch('/api/llm-status');
+  return handleResponse<LlmStatusResponse>(res);
+}
+
+/**
+ * POST /api/llm-config — 测试并保存 LLM 配置。
+ *
+ * 后端先用提供的 provider + api_key 发起一次连通性 probe：
+ *   - probe 成功 → 落盘并返回 200
+ *   - probe 失败 → 不落盘并返回 422 + `LLM_PROBE_FAILED`
+ *
+ * Validates: Requirements 11.3, 11.4, 11.5
+ */
+export async function postLlmConfig(
+  provider: LlmProvider,
+  apiKey: string,
+  baseUrl?: string,
+  model?: string,
+): Promise<void> {
+  const res = await fetch('/api/llm-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, api_key: apiKey, base_url: baseUrl, model }),
+  });
+  if (!res.ok) {
+    let payload: ErrorPayload;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {
+        error_code: 'SkillExecutionFailed',
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+    throw new ApiError(res.status, payload);
+  }
+}

@@ -1,4 +1,11 @@
 pub mod bridge;
+/// Internal math module exposed for integration testing only.
+#[doc(hidden)]
+pub mod math;
+/// Release packaging helpers (Feature: single-command-launcher).
+pub mod release;
+/// Stats Code Launcher 模块树（Feature: single-command-launcher，task 1.2）。
+pub mod launcher;
 mod chat;
 mod cli;
 mod config;
@@ -11,7 +18,6 @@ mod helpers;
 mod input;
 mod linear;
 mod logistic;
-mod math;
 mod modeling;
 mod power;
 mod rate;

@@ -473,9 +473,7 @@ pub fn render_correlation_text(result: &CorrelationResult) -> String {
                 "rho={:.4} p={}",
                 rho,
                 result
-                    .spearman_p_value
-                    .map(format_p_value)
-                    .unwrap_or_else(|| "NA".to_string())
+                    .spearman_p_value.map_or_else(|| "NA".to_string(), format_p_value)
             ),
         );
     }
@@ -558,9 +556,7 @@ pub fn render_or_rr_text(result: &OrRrResult) -> String {
                 "{:.4}; p={}",
                 statistic,
                 result
-                    .homogeneity_p
-                    .map(format_p_value)
-                    .unwrap_or_else(|| "NA".to_string())
+                    .homogeneity_p.map_or_else(|| "NA".to_string(), format_p_value)
             ),
         );
     }
@@ -713,9 +709,7 @@ pub fn render_normality_text(result: &NormalityResult) -> String {
             "W={} p={} unreliable={}",
             format_optional_number(result.shapiro_w),
             result
-                .shapiro_p
-                .map(format_p_value)
-                .unwrap_or_else(|| "NA".to_string()),
+                .shapiro_p.map_or_else(|| "NA".to_string(), format_p_value),
             result.shapiro_p_unreliable
         ),
     );
@@ -1278,9 +1272,7 @@ pub fn render_repeated_anova_text(result: &RepeatedAnovaResult) -> String {
                 "epsilon={:.4} p={}",
                 eps,
                 result
-                    .gg_p
-                    .map(format_p_value)
-                    .unwrap_or_else(|| "NA".to_string())
+                    .gg_p.map_or_else(|| "NA".to_string(), format_p_value)
             ),
         );
     }
@@ -1291,9 +1283,7 @@ pub fn render_repeated_anova_text(result: &RepeatedAnovaResult) -> String {
                 "epsilon={:.4} p={}",
                 eps,
                 result
-                    .hf_p
-                    .map(format_p_value)
-                    .unwrap_or_else(|| "NA".to_string())
+                    .hf_p.map_or_else(|| "NA".to_string(), format_p_value)
             ),
         );
     }
@@ -1315,7 +1305,7 @@ pub fn render_poisson_text(result: &PoissonResult) -> String {
         result.n_excluded_missing,
     );
     w.field("Outcome", &result.outcome);
-    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Predictors", result.predictors.join(", "));
     w.field_opt("Offset", result.offset.as_deref());
     w.field("Offset kind", &result.offset_kind);
     w.field(
@@ -1506,7 +1496,7 @@ pub fn render_kappa_text(result: &KappaResult) -> String {
     if !result.categories.is_empty() {
         let _ = writeln!(out, "  Agreement matrix [{}x{}]", result.categories.len(), result.categories.len());
         for row in &result.agreement_matrix {
-            let _ = writeln!(out, "  - {:?}", row);
+            let _ = writeln!(out, "  - {row:?}");
         }
     }
     append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
@@ -1566,9 +1556,9 @@ pub fn render_pca_text(result: &PcaResult) -> String {
         result.n_used,
         result.n_excluded_missing,
     );
-    w.field("Variables", &result.variables.join(", "));
+    w.field("Variables", result.variables.join(", "));
     if !result.excluded_variables.is_empty() {
-        w.field("Excluded", &result.excluded_variables.join(", "));
+        w.field("Excluded", result.excluded_variables.join(", "));
     }
     w.field(
         "Diagnostics",
@@ -1609,17 +1599,17 @@ pub fn render_logrank_sample_size_text(result: &PowerResult) -> String {
     w.title("Log-Rank Sample Size");
     w.field("Status", &result.status);
     w.field("Method", &result.method);
-    w.field_opt("Power", result.power.map(|v| format!("{:.4}", v)));
+    w.field_opt("Power", result.power.map(|v| format!("{v:.4}")));
     w.field_opt(
         "Effect size",
-        result.effect_size.map(|v| format!("{:.4}", v)),
+        result.effect_size.map(|v| format!("{v:.4}")),
     );
     w.field("Total N", result.total_n);
     w.field_opt("Group 1 N", result.group1_n);
     w.field_opt("Group 2 N", result.group2_n);
     w.field_opt(
         "Allocation",
-        result.allocation_ratio.map(|v| format!("{:.2}", v)),
+        result.allocation_ratio.map(|v| format!("{v:.2}")),
     );
     let mut out = w.finish();
     append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
@@ -1643,7 +1633,7 @@ pub fn render_ordinal_logit_text(result: &OrdinalLogitResult) -> String {
         result.n_excluded_missing,
     );
     w.field("Outcome", &result.outcome);
-    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Predictors", result.predictors.join(", "));
     w.field(
         "Fit",
         format!(
@@ -1693,9 +1683,9 @@ pub fn render_multinomial_logit_text(result: &MultinomialLogitResult) -> String 
         result.n_excluded_missing,
     );
     w.field("Outcome", &result.outcome);
-    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Predictors", result.predictors.join(", "));
     w.field("Reference", &result.reference);
-    w.field("Categories", &result.categories.join(", "));
+    w.field("Categories", result.categories.join(", "));
     w.field(
         "Fit",
         format!(
@@ -1736,8 +1726,8 @@ pub fn render_lda_text(result: &LdaResult) -> String {
         result.n_excluded_missing,
     );
     w.field("Group", &result.group);
-    w.field("Groups", &result.groups.join(", "));
-    w.field("Variables", &result.variables.join(", "));
+    w.field("Groups", result.groups.join(", "));
+    w.field("Variables", result.variables.join(", "));
     w.field(
         "Wilks Lambda",
         format!(
@@ -1758,7 +1748,7 @@ pub fn render_lda_text(result: &LdaResult) -> String {
     if !result.confusion_matrix.is_empty() {
         let _ = writeln!(out, "  Confusion matrix");
         for row in &result.confusion_matrix {
-            let _ = writeln!(out, "  - {:?}", row);
+            let _ = writeln!(out, "  - {row:?}");
         }
     }
     append_notes_and_warnings(&mut out, &result.notes, &result.warnings);
@@ -1779,7 +1769,7 @@ pub fn render_cluster_text(result: &ClusterResult) -> String {
     );
     w.field("Method", &result.method);
     w.field("K", result.k);
-    w.field("Variables", &result.variables.join(", "));
+    w.field("Variables", result.variables.join(", "));
     w.field(
         "Within-cluster SS",
         format!(
@@ -1818,7 +1808,7 @@ pub fn render_mixed_lmm_text(result: &MixedLmmResult) -> String {
         result.n_excluded_missing,
     );
     w.field("Outcome", &result.outcome);
-    w.field("Predictors", &result.predictors.join(", "));
+    w.field("Predictors", result.predictors.join(", "));
     w.field("Random group", &result.random_group);
     w.field(
         "Fit",
@@ -1871,7 +1861,7 @@ pub fn render_psm_text(result: &PsmResult) -> String {
         result.n_excluded_missing,
     );
     w.field("Treatment", &result.treatment);
-    w.field("Covariates", &result.covariates.join(", "));
+    w.field("Covariates", result.covariates.join(", "));
     w.field(
         "Matching",
         format!(
@@ -1915,7 +1905,7 @@ pub fn render_competing_risks_text(result: &CompetingRisksResult) -> String {
     );
     w.field("Time", &result.time);
     w.field("Event type", &result.event_type);
-    w.field("Causes", &result.causes.join(", "));
+    w.field("Causes", result.causes.join(", "));
     if let (Some(chi2), Some(df), Some(p)) =
         (result.gray_chi_square, result.gray_df, result.gray_p)
     {

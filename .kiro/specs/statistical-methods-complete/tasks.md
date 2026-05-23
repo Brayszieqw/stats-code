@@ -1,4 +1,4 @@
-0# Implementation Plan: Statistical Methods Complete
+﻿0# Implementation Plan: Statistical Methods Complete
 
 ## Overview
 
@@ -258,65 +258,65 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
 
 ### Phase 2 — MEDIUM-Priority Methods (Req 11, 12, 13, 20, 21, 22, 23, 24, 30)
 
-- [ ] 17. Implement post-hoc multiple comparisons — Bonferroni + Tukey HSD (Req 11)
+- [x] 17. Implement post-hoc multiple comparisons — Bonferroni + Tukey HSD (Req 11)
   - [x] 17.1 Implement Bonferroni pairwise comparisons in `stats/anova.rs`
     - Append `posthoc_csv(...)` returning `PosthocResult` with `method = "bonferroni"`
     - Wire `AnovaCommand::Posthoc` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 11.1, 11.3, 11.4_
 
-  - [ ] 17.2 Implement Tukey HSD with studentized-range CDF
+  - [x] 17.2 Implement Tukey HSD with studentized-range CDF
     - Use `math/distributions::studentized_range_p`
     - _Requirements: 11.2, 11.3, 11.4_
 
-  - [ ] 17.3 Tukey HSD validation harness (R-fixture gate)
+  - [x] 17.3 Tukey HSD validation harness (R-fixture gate)
     - File: `crates/stats-code/tests/tukey_validation.rs`
     - Assert `max |p_rust − p_R_ptukey| < 1e-3` for `df ∈ [2, 200]`, `k ∈ [2, 20]`; if it fails, the handler must error with `requires --engine python`
     - _Requirements: 11.2, design Tukey HSD Validation Gate_
 
-  - [ ]* 17.4 CLI integration test for posthoc
+  - [x]* 17.4 CLI integration test for posthoc
     - _Requirements: G4.2_
 
-- [ ] 18. Implement repeated-measures ANOVA (Req 12)
-  - [ ] 18.1 Implement `repeated_measures_anova_csv(...)` in `stats/anova.rs`
+- [x] 18. Implement repeated-measures ANOVA (Req 12)
+  - [x] 18.1 Implement `repeated_measures_anova_csv(...)` in `stats/anova.rs`
     - Subject × time matrix; partition SS_total = SS_subject + SS_time + SS_error
     - Mauchly's W with Greenhouse-Geisser ε and Huynh-Feldt ε corrections
     - Drop subjects with any missing time-point measurement; report exclusion count
     - Wire `AnovaCommand::Repeated` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
 
-  - [ ] 18.2 R gold-reference fixtures and unit tests (`car::Anova` repeated-measures output)
+  - [x] 18.2 R gold-reference fixtures and unit tests (`car::Anova` repeated-measures output)
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 18.3 CLI integration test
+  - [x]* 18.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 19. Implement Poisson regression (Req 13)
+- [x] 19. Implement Poisson regression (Req 13)
   - [x] 19.1 Implement `poisson_glm_csv(...)` in `stats/model/poisson.rs` reusing `math/glm.rs`
     - Mutually-exclusive `--offset <col>` (already on log scale) vs `--exposure <col>` (raw, internally log-transformed); record `offset_kind` in result
     - 25-iteration cap with descriptive non-convergence error
     - Wire `StatsModelCommand::Poisson` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
 
-  - [ ] 19.2 R + statsmodels cross-checked fixtures and unit tests
+  - [x] 19.2 R + statsmodels cross-checked fixtures and unit tests
     - _Requirements: G4.1, G5.1, G5.2_
 
-  - [ ]* 19.3 CLI integration test
+  - [x]* 19.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 20. Implement dose-response analysis (Req 20)
+- [x] 20. Implement dose-response analysis (Req 20)
   - [x] 20.1 Implement `dose_response_csv(...)` in `stats/epi/doseresponse.rs`
     - Reuse `math/glm.rs` Poisson IRLS with `log(person_time)` offset
     - Trend χ² + linearity-departure χ² (df = k - 2)
     - Wire `EpiStatsCommand::DoseResponse` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 20.1, 20.2, 20.3, 20.4_
 
-  - [ ] 20.2 R gold-reference fixtures and unit tests
+  - [x] 20.2 R gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 20.3 CLI integration test
+  - [x]* 20.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 21. Implement meta-analysis — fixed-effect + DerSimonian-Laird random (Req 21)
+- [x] 21. Implement meta-analysis — fixed-effect + DerSimonian-Laird random (Req 21)
   - [x] 21.1 Implement `meta_analysis_csv(...)` in `stats/meta.rs`
     - Inverse-variance fixed effect, DL random effect, Q, I², τ²
     - Per-study fixed/random weights, forest/funnel plot points
@@ -324,13 +324,13 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `StatsCommand::Meta(MetaArgs)` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6_
 
-  - [ ] 21.2 R `meta` package gold-reference fixtures and unit tests
+  - [x] 21.2 R `meta` package gold-reference fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 21.3 CLI integration test
+  - [x]* 21.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 22. Implement Cohen's kappa and weighted kappa (Req 22)
+- [x] 22. Implement Cohen's kappa and weighted kappa (Req 22)
   - [x] 22.1 Implement kappa in `stats/agreement.rs`
     - Build c×c agreement matrix from union of both raters' categories (per design clarification — disjoint sets are filled with zeros, NOT an error; supersedes Req 22.4 wording)
     - Linear and quadratic Fleiss-Cohen weights
@@ -338,13 +338,13 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `AgreementCommand::Kappa` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5_
 
-  - [ ] 22.2 R `psych::cohen.kappa` fixtures and unit tests
+  - [x] 22.2 R `psych::cohen.kappa` fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 22.3 CLI integration test
+  - [x]* 22.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 23. Implement Bland-Altman analysis (Req 23)
+- [x] 23. Implement Bland-Altman analysis (Req 23)
   - [x] 23.1 Implement Bland-Altman in `stats/agreement.rs`
     - Bias, SD of differences, 95% LOA (mean ± 1.96·SD)
     - 95% CI for bias and each LOA via t_{n-1}; per-point `(mean, diff)` in result for plotting
@@ -352,14 +352,14 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `AgreementCommand::BlandAltman` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5_
 
-  - [ ] 23.2 R `BlandAltmanLeh` fixtures and unit tests
+  - [x] 23.2 R `BlandAltmanLeh` fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 23.3 CLI integration test
+  - [x]* 23.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 24. Implement principal component analysis (Req 24)
-  - [ ] 24.1 Implement PCA in `stats/multivariate/pca.rs`
+- [x] 24. Implement principal component analysis (Req 24)
+  - [x] 24.1 Implement PCA in `stats/multivariate/pca.rs`
     - Correlation-matrix default, covariance-matrix opt-in via `--matrix covariance`
     - Jacobi eigen-decomposition from `math/linalg.rs`
     - KMO and Bartlett's sphericity tests
@@ -367,50 +367,50 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `MultivariateCommand::Pca` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5_
 
-  - [ ] 24.2 R `psych::principal` cross-checked fixtures and unit tests
+  - [x] 24.2 R `psych::principal` cross-checked fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 24.3 CLI integration test
+  - [x]* 24.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 25. Implement log-rank sample-size calculator (Req 30)
+- [x] 25. Implement log-rank sample-size calculator (Req 30)
   - [x] 25.1 Implement Schoenfeld required-events + sample size in `stats/sample_size.rs`
     - Inputs: median survivals per arm, accrual T_a, follow-up T_f, target power, allocation ratio, optional dropout rate
     - Wire `SampleSizeCommand::LogRank` into `cli.rs` and `handlers/stats.rs`; reuse existing `PowerResult` with `method = "log_rank"`
     - _Requirements: 30.1–30.x (Sample Size for Log-Rank, see requirements §Requirement 30)_
 
-  - [ ] 25.2 Cross-check against `gsDesign` / `survSNP` fixtures and unit tests
+  - [x] 25.2 Cross-check against `gsDesign` / `survSNP` fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 25.3 CLI integration test
+  - [x]* 25.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 26. Wire Phase 2 dispatch, renderers, and `analysis.yaml` step registration
-  - [ ] 26.1 Add text renderers for Phase 2 result types in `render/stats.rs`
+- [x] 26. Wire Phase 2 dispatch, renderers, and `analysis.yaml` step registration
+  - [x] 26.1 Add text renderers for Phase 2 result types in `render/stats.rs`
     - _Requirements: G1.4_
 
-  - [ ] 26.2 Register MEDIUM-tier step names in `schema/contract.rs`
+  - [x] 26.2 Register MEDIUM-tier step names in `schema/contract.rs`
     - Add: `anova.posthoc`, `anova.repeated`, `model.poisson`, `epi.dose_response`, `meta`, `agreement.kappa`, `agreement.bland_altman`, `multivariate.pca`, `sample_size.log_rank`
     - _Requirements: G3.1, G3.2_
 
-  - [ ] 26.3 Update README usage table for MEDIUM methods
+  - [x] 26.3 Update README usage table for MEDIUM methods
     - _Requirements: G6_
 
-- [ ] 27. **Checkpoint — Phase 2 complete**
+- [x] 27. **Checkpoint — Phase 2 complete**
   - Ensure all tests pass, ask the user if questions arise.
 
 ### Phase 3 — LOW-Priority Methods (Req 14, 15, 25, 26, 27, 28, 29)
 
-- [ ] 28. Add Python bridge scaffolding for LOW-tier methods
+- [x] 28. Add Python bridge scaffolding for LOW-tier methods
   - [x] 28.1 Add `scripts/python/ordinal_logit.py`, `multinomial_logit.py`, `lda.py`, `mixed_effects.py`, `competing_risks.py` modules
     - Each accepts a JSON request from `bridge_runner.py` and returns a JSON document deserializable into the corresponding `*Result` struct
     - _Requirements: G1.6, G7_
 
-  - [ ] 28.2 Define `UnsupportedEngine` Rust stub helpers in `stats/model/`, `stats/multivariate/lda.rs`, `stats/mixed.rs`, `stats/survival/competing.rs`
+  - [x] 28.2 Define `UnsupportedEngine` Rust stub helpers in `stats/model/`, `stats/multivariate/lda.rs`, `stats/mixed.rs`, `stats/survival/competing.rs`
     - Each Rust path returns the canonical `Err("This method requires --engine python. Native Rust implementation is planned but not yet available.")` (string is unit-tested for stability)
     - _Requirements: G1.6, G7_
 
-- [ ] 29. Implement ordinal logistic regression (Req 14)
+- [x] 29. Implement ordinal logistic regression (Req 14)
   - [x] 29.1 Wire `multilogit::ordinal_logit_csv(...)` Python bridge in `stats/model/ordinal.rs`
     - Use `statsmodels.miscmodels.ordinal_model.OrderedModel`
     - Brant test via per-cutpoint binary logits
@@ -418,26 +418,26 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `StatsModelCommand::Ordinal` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
 
-  - [ ] 29.2 Bridge fixtures and unit tests against statsmodels gold output
+  - [x] 29.2 Bridge fixtures and unit tests against statsmodels gold output
     - _Requirements: G4.1, G5.2_
 
-  - [ ]* 29.3 CLI integration test (with `--engine python`)
+  - [x]* 29.3 CLI integration test (with `--engine python`)
     - _Requirements: G4.2_
 
-- [ ] 30. Implement multinomial logistic regression (Req 15)
+- [x] 30. Implement multinomial logistic regression (Req 15)
   - [x] 30.1 Wire `multinomial_logit_csv(...)` Python bridge in `stats/model/multinomial.rs`
     - Use `statsmodels.discrete.discrete_model.MNLogit`; honor `--reference`
     - Reject when outcome has fewer than 3 categories
     - Wire `StatsModelCommand::Multinomial` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
 
-  - [ ] 30.2 Bridge fixtures and unit tests
+  - [x] 30.2 Bridge fixtures and unit tests
     - _Requirements: G4.1, G5.2_
 
-  - [ ]* 30.3 CLI integration test (with `--engine python`)
+  - [x]* 30.3 CLI integration test (with `--engine python`)
     - _Requirements: G4.2_
 
-- [ ] 31. Implement linear discriminant analysis (Req 25)
+- [x] 31. Implement linear discriminant analysis (Req 25)
   - [x] 31.1 Wire `lda_csv(...)` Python bridge in `stats/multivariate/lda.rs`
     - Use `sklearn.discriminant_analysis.LinearDiscriminantAnalysis`
     - Wilks' Λ, leave-one-out confusion matrix, standardized coefficients, group centroids
@@ -445,43 +445,43 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `MultivariateCommand::Lda` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5_
 
-  - [ ] 31.2 Bridge fixtures and unit tests
+  - [x] 31.2 Bridge fixtures and unit tests
     - _Requirements: G4.1, G5.2_
 
-  - [ ]* 31.3 CLI integration test
+  - [x]* 31.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 32. Implement cluster analysis — k-means + Ward hierarchical (Req 26)
-  - [ ] 32.1 Implement Lloyd's k-means with k-means++ init and 10 restarts in `stats/multivariate/cluster.rs`
+- [x] 32. Implement cluster analysis — k-means + Ward hierarchical (Req 26)
+  - [x] 32.1 Implement Lloyd's k-means with k-means++ init and 10 restarts in `stats/multivariate/cluster.rs`
     - Silhouette per observation and average
     - Drop zero-variance variables with warning; require `--seed` for reproducibility
     - Wire `MultivariateCommand::Cluster` (`--method kmeans`) into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 26.1, 26.2, 26.4, 26.5_
 
-  - [ ] 32.2 Implement Ward agglomerative hierarchical clustering via Lance-Williams update
+  - [x] 32.2 Implement Ward agglomerative hierarchical clustering via Lance-Williams update
     - Report merge distances and order; activated by `--method hierarchical`
     - _Requirements: 26.3, 26.5_
 
-  - [ ] 32.3 R `stats::kmeans` and `stats::hclust(method="ward.D2")` cross-checked fixtures and unit tests
+  - [x] 32.3 R `stats::kmeans` and `stats::hclust(method="ward.D2")` cross-checked fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 32.4 CLI integration test
+  - [x]* 32.4 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 33. Implement linear mixed-effects models (Req 27)
+- [x] 33. Implement linear mixed-effects models (Req 27)
   - [x] 33.1 Wire `mixed_lmm_csv(...)` Python bridge in `stats/mixed.rs`
     - Use `statsmodels.MixedLM` (REML); compute ICC = σ²_random / (σ²_random + σ²_residual)
     - 100-iteration cap with descriptive non-convergence diagnostics
     - Wire `StatsCommand::Mixed(MixedArgs)` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 27.1, 27.2, 27.3, 27.4_
 
-  - [ ] 33.2 Bridge fixtures and unit tests against `lme4::lmer` reference values
+  - [x] 33.2 Bridge fixtures and unit tests against `lme4::lmer` reference values
     - _Requirements: G4.1, G5.2_
 
-  - [ ]* 33.3 CLI integration test
+  - [x]* 33.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 34. Implement propensity score matching (Req 28)
+- [x] 34. Implement propensity score matching (Req 28)
   - [x] 34.1 Implement greedy 1:k no-replacement matching in `stats/psm.rs`
     - Reuse existing `logistic_csv` to estimate propensity scores; compute logit
     - Caliper c = `--caliper` × sd(logit); default ratio 1
@@ -490,46 +490,47 @@ All optional sub-tasks (test-related, marked with `*`) implement the proptest in
     - Wire `StatsCommand::Psm(PsmArgs)` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.5_
 
-  - [ ] 34.2 Cross-check against R `MatchIt` greedy nearest-neighbor fixtures and unit tests
+  - [x] 34.2 Cross-check against R `MatchIt` greedy nearest-neighbor fixtures and unit tests
     - _Requirements: G4.1, G5.1_
 
-  - [ ]* 34.3 CLI integration test
+  - [x]* 34.3 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 35. Implement competing risks analysis (Req 29)
+- [x] 35. Implement competing risks analysis (Req 29)
   - [x] 35.1 Implement cause-specific Cox per cause + CIF point estimates in `stats/survival/competing.rs`
     - Reuse existing `cox.rs` for cause-specific hazards
     - Aalen-Johansen point estimates of CIF (Rust); `--point-estimate-only` returns these without variance
     - _Requirements: 29.1, 29.2, 29.4, 29.5_
 
-  - [ ] 35.2 Wire Python bridge for full CIF variance and Gray's test
+  - [x] 35.2 Wire Python bridge for full CIF variance and Gray's test
     - Default engine for `--all-causes` and Gray's test is Python
     - Wire `StatsSurvivalCommand::Competing` into `cli.rs` and `handlers/stats.rs`
     - _Requirements: 29.2, 29.3_
 
-  - [ ] 35.3 Cross-check against `lifelines.CompetingRisksFitter` / R `cmprsk` fixtures and unit tests
+  - [x] 35.3 Cross-check against `lifelines.CompetingRisksFitter` / R `cmprsk` fixtures and unit tests
     - _Requirements: G4.1, G5.1, G5.2_
 
-  - [ ]* 35.4 CLI integration test
+  - [x]* 35.4 CLI integration test
     - _Requirements: G4.2_
 
-- [ ] 36. Wire Phase 3 dispatch, renderers, and `analysis.yaml` step registration
-  - [ ] 36.1 Add text renderers for Phase 3 result types in `render/stats.rs`
+- [x] 36. Wire Phase 3 dispatch, renderers, and `analysis.yaml` step registration
+  - [x] 36.1 Add text renderers for Phase 3 result types in `render/stats.rs`
     - _Requirements: G1.4_
 
-  - [ ] 36.2 Register LOW-tier step names in `schema/contract.rs`
+  - [x] 36.2 Register LOW-tier step names in `schema/contract.rs`
     - Add: `model.ordinal`, `model.multinomial`, `multivariate.lda`, `multivariate.cluster`, `mixed`, `psm`, `survival.competing`
     - _Requirements: G3.1, G3.2_
 
-  - [ ] 36.3 Update README usage table for LOW methods
+  - [x] 36.3 Update README usage table for LOW methods
     - _Requirements: G6_
 
-- [ ] 37. **Final checkpoint — full feature complete**
+- [x] 37. **Final checkpoint — full feature complete**
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
 
 - Tasks marked with `*` (proptest sub-tasks and CLI integration sub-tasks) are optional per the workflow — they implement the §G4 testing requirements and can be skipped for a faster MVP, but core implementation tasks are never optional.
+- Property tests cover only the five invariants explicitly listed in requirements §G4.3: paired-t sign-flip symmetry / df = n - 1 (task 4.3); ANOVA SS decomposition (task 5.3); OR/RR continuity-correction safety (task 9.4); 2×2 zero-cell / single-row edge cases (task 9.4); missing-value row-permutation invariance (task 2.4).
 - Every leaf task references either specific requirement clauses (e.g., 1.1, 9.4) or global criteria (G1–G7) for traceability.
 - Phase boundaries are checkpoints: do not start the next phase until prior phase tests are green.
 - Engine semantics from `design.md` §Engine Allocation (Final) govern all dispatch behavior. R engine returns `R engine not yet implemented for <method>` everywhere; this string is asserted by unit tests for stability.

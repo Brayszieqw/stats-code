@@ -39,7 +39,7 @@ impl ChatBubble {
     /// `term_width` should be the current terminal width, or 0 if unknown (defaults to 80).
     /// `unicode` controls whether to use rounded box-drawing chars or ASCII fallback.
     ///
-    /// Bubble width = min(content_width + 4, terminal_width − 4) per spec requirement 8.4.
+    /// Bubble width = `min(content_width` + 4, `terminal_width` − 4) per spec requirement 8.4.
     pub fn new(kind: BubbleKind, body: &str, term_width: usize, unicode: bool) -> Self {
         // Default to 80 if width unknown (0 or unreasonable)
         let effective_width = if term_width == 0 { 80 } else { term_width };

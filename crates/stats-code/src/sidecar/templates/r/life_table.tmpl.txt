@@ -1,0 +1,9 @@
+library(KMsurv)
+data <- read.csv("data.csv")
+result <- KMsurv::lifetab(
+  tis = data[["{{column.0.name}}"]],
+  ninit = nrow(data),
+  nlost = data[["{{column.1.name}}"]],
+  nevent = data[["{{column.1.name}}"]]
+)
+print(result)

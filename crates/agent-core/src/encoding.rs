@@ -59,7 +59,7 @@ fn try_utf16(bytes: &[u8]) -> Option<String> {
     }
 
     // No BOM — need even byte length for valid UTF-16
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
 

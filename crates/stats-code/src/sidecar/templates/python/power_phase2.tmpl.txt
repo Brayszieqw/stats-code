@@ -1,0 +1,17 @@
+import pandas as pd
+from scipy import stats
+
+data = pd.read_csv("data.csv")
+# columns referenced for parity context: {{column.0.name}}, {{column.1.name}}
+p_null = 0.20
+p_alt = 0.40
+alpha = 0.05
+power = 0.80
+n = 1
+while True:
+    critical = stats.binom.ppf(1 - alpha, n, p_null)
+    achieved_power = float(1 - stats.binom.cdf(critical, n, p_alt))
+    if achieved_power >= power:
+        break
+    n += 1
+print({"n": n, "critical": float(critical), "achieved_power": achieved_power})

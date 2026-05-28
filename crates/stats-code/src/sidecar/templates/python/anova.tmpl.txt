@@ -1,0 +1,9 @@
+import pandas as pd
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.anova import anova_lm
+
+data = pd.read_csv("data.csv")
+model = ols("{{column.0.name}} ~ C({{column.1.name}})", data=data).fit()
+result = anova_lm(model, typ=2)
+print(result)

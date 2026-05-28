@@ -1,6 +1,6 @@
 //! Windows Job Object 进程守护。
 //!
-//! 在 dev 模式下 launcher 会 spawn `npm run dev` 作为 Vite_Dev_Server 子进程，
+//! 在 dev 模式下 launcher 会 spawn `npm run dev` 作为 `Vite_Dev_Server` 子进程，
 //! 本模块负责把该子进程绑定到一个带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
 //! 的 Job Object 上。当 launcher 主进程因任何原因（正常退出 / panic /
 //! Ctrl+C / SIGKILL）退出时，内核会同步关闭进程的所有句柄，进而触发 Job
@@ -35,7 +35,7 @@ pub enum GuardError {
     /// `CreateJobObjectW` 失败。
     #[error("CreateJobObjectW failed: {0}")]
     JobCreate(#[source] io::Error),
-    /// `SetInformationJobObject` 设置 KILL_ON_JOB_CLOSE 失败。
+    /// `SetInformationJobObject` 设置 `KILL_ON_JOB_CLOSE` 失败。
     #[error("SetInformationJobObject failed: {0}")]
     SetInformation(#[source] io::Error),
     /// 子进程 spawn 失败。
@@ -58,7 +58,7 @@ pub enum GuardError {
 
 #[cfg(windows)]
 pub struct ProcessGuard {
-    /// Job Object 句柄。drop 时关闭，关闭即杀子进程（KILL_ON_JOB_CLOSE）。
+    /// Job Object 句柄。drop `时关闭，关闭即杀子进程（KILL_ON_JOB_CLOSE`）。
     /// `kill()` 主动回收时会先把它置空避免 Drop 二次 Close。
     job: HANDLE,
     /// 已 spawn 的子进程；持有它以便提供 PID 与显式 kill。

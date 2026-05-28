@@ -1,7 +1,7 @@
-//! OpenAI GPT LLM provider — thin adapter over `OpenAiCompatProvider`.
+//! `OpenAI` GPT LLM provider — thin adapter over `OpenAiCompatProvider`.
 //!
-//! Supports the official OpenAI API (`https://api.openai.com/v1`) with optional
-//! `OpenAI-Organization` header. Compatible with all OpenAI chat completion
+//! Supports the official `OpenAI` API (`https://api.openai.com/v1`) with optional
+//! `OpenAI-Organization` header. Compatible with all `OpenAI` chat completion
 //! models (gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo, etc.).
 
 use async_trait::async_trait;
@@ -16,12 +16,12 @@ pub use crate::llm::openai_compat::ConfigError;
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Configuration for the OpenAI provider.
+/// Configuration for the `OpenAI` provider.
 #[derive(Clone)]
 pub struct OpenAiConfig {
     /// API key (secret, never logged).
     pub api_key: SecretString,
-    /// Base URL for the OpenAI API (default `https://api.openai.com/v1`).
+    /// Base URL for the `OpenAI` API (default `https://api.openai.com/v1`).
     pub base_url: String,
     /// Model identifier (e.g. `gpt-4o`, `gpt-4o-mini`).
     pub model: String,
@@ -34,12 +34,13 @@ pub struct OpenAiConfig {
 }
 
 impl OpenAiConfig {
-    /// Default base URL for the official OpenAI hosted API.
+    /// Default base URL for the official `OpenAI` hosted API.
     pub const DEFAULT_BASE_URL: &'static str = "https://api.openai.com/v1/";
     /// Default model — small/cheap variant suitable for chat workloads.
     pub const DEFAULT_MODEL: &'static str = "gpt-4o-mini";
 
     /// Convenience constructor with sensible defaults.
+    #[must_use] 
     pub fn new(api_key: SecretString) -> Self {
         Self {
             api_key,
@@ -83,7 +84,7 @@ impl From<OpenAiConfig> for OpenAiCompatConfig {
 // Provider
 // ---------------------------------------------------------------------------
 
-/// OpenAI LLM provider.
+/// `OpenAI` LLM provider.
 ///
 /// Wraps `OpenAiCompatProvider` with `provider_id = "openai"`.
 /// `api_key` is wrapped in `SecretString` — never exposed via `Debug` or `Display`.
@@ -133,7 +134,7 @@ impl LlmProvider for OpenAiProvider {
 // Standalone config validation (for Property 28)
 // ---------------------------------------------------------------------------
 
-/// Validate an OpenAI configuration for production readiness.
+/// Validate an `OpenAI` configuration for production readiness.
 pub fn validate_config(provider: &str, config: &OpenAiConfig) -> Result<(), ConfigError> {
     let compat: OpenAiCompatConfig = config.clone().into();
     crate::llm::openai_compat::validate_config(

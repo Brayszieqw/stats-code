@@ -1,0 +1,5 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc lifetest data=work.data method=life intervals=0 to 100 by 10;
+   time {{column.0.name}}*{{column.1.name}}(0);
+run;

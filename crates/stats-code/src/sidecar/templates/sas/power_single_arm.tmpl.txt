@@ -1,0 +1,11 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+/* columns referenced for parity context: {{column.0.name}}, {{column.1.name}} */
+
+proc power;
+   onesamplefreq test=z method=normal
+      nullproportion=0.5
+      proportion=0.7
+      alpha=0.05
+      power=0.80
+      ntotal=.;
+run;

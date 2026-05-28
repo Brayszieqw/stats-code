@@ -5,7 +5,7 @@
 //! - Multiple skills match intent → `AgentEvent::ChoicePrompt` (ask user to choose)
 //! - Unique skill, all required args resolved → `AgentEvent::SkillCall` + `SkillResult` + `Interpretation`
 //! - Unique skill, missing required args → `AgentEvent::ChoicePrompt` (collect missing params)
-//! - Decision assistant on + SkillResult emitted → append at least one `ChoicePrompt`
+//! - Decision assistant on + `SkillResult` emitted → append at least one `ChoicePrompt`
 //!
 //! Event stream completeness (Property 13):
 //! - Successful skill dispatch produces exactly one `SkillResult` and at least one `Interpretation`
@@ -106,7 +106,7 @@ pub struct AgentOrchestrator<S: SessionStore, D: DatasetStore> {
 pub struct UserMessageInput {
     /// The raw text content of the user message.
     pub text: String,
-    /// Session settings snapshot (contains decision_assistant flag).
+    /// Session settings snapshot (contains `decision_assistant` flag).
     pub settings: SessionSettings,
 }
 
@@ -135,7 +135,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
     /// 2. If multiple skills match → emit `ChoicePrompt` (ask user to pick)
     /// 3. If unique skill but missing required args → emit `ChoicePrompt` (collect params)
     /// 4. If unique skill and all args present → run skill → emit `SkillResult` then `Interpretation`
-    /// 5. If decision_assistant is on and a SkillResult was emitted → append `ChoicePrompt`
+    /// 5. If `decision_assistant` is on and a `SkillResult` was emitted → append `ChoicePrompt`
     pub async fn handle_user_message(
         &self,
         sid: SessionId,
@@ -219,7 +219,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
 
         let system_prompt = format!(
             "你是一个统计分析智能体。根据用户消息识别意图并匹配统计技能。\n\
-             可用技能列表：\n{}\n\n\
+             可用技能列表：\n{skill_descriptions}\n\n\
              请以 JSON 格式返回：\n\
              {{\"skill_ids\": [匹配的skill_id列表], \"resolved_args\": {{已解析的参数}}, \
              \"has_query_intent\": bool, \"text_response\": \"如无匹配skill则返回文字回复\"}}\n\n\
@@ -227,8 +227,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
              - 如果用户意图明确对应某个技能，返回该 skill_id\n\
              - 如果可能匹配多个技能，返回所有候选 skill_id\n\
              - 如果用户只是闲聊或询问，返回空 skill_ids 和 text_response\n\
-             - resolved_args 中只包含用户消息中明确提到的参数值",
-            skill_descriptions
+             - resolved_args 中只包含用户消息中明确提到的参数值"
         );
 
         let request = LlmRequest {
@@ -264,9 +263,9 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
     /// Decide what action to take based on the recognized intent.
     ///
     /// Decision table (Property 10):
-    /// - Multiple skill IDs match → AskChoice (let user pick)
-    /// - Single skill, all required_args resolved → RunSkill
-    /// - Single skill, missing some required_args → AskChoice (collect missing)
+    /// - Multiple skill IDs match → `AskChoice` (let user pick)
+    /// - Single skill, all `required_args` resolved → `RunSkill`
+    /// - Single skill, missing some `required_args` → `AskChoice` (collect missing)
     /// - No skill matches → Respond with text
     /// - Decision assistant off + no explicit query → no suggestions
     pub(crate) fn decide_action(
@@ -327,7 +326,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         }
     }
 
-    /// Execute a skill via the SkillRunner.
+    /// Execute a skill via the `SkillRunner`.
     async fn execute_skill(
         &self,
         sid: SessionId,
@@ -374,7 +373,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         let dataset = session.datasets.iter().find(|d| d.dataset_id == dataset_id).ok_or_else(|| {
             ErrorPayload::new(
                 ErrorCode::SkillInvalidArgs,
-                format!("在当前会话中未找到 ID 为 {} 的数据集", dataset_id),
+                format!("在当前会话中未找到 ID 为 {dataset_id} 的数据集"),
             )
         })?;
 
@@ -417,8 +416,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         let display_name = self
             .skills
             .get(skill_id)
-            .map(|d| d.display_name.as_str())
-            .unwrap_or(skill_id);
+            .map_or(skill_id, |d| d.display_name.as_str());
 
         let result_json = serde_json::to_string_pretty(&result.payload)
             .unwrap_or_else(|_| "{}".to_string());
@@ -433,15 +431,14 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         };
 
         let system_prompt = format!(
-            "你是一个统计分析专家。请对以下 {} 的分析结果进行解读。\n\
+            "你是一个统计分析专家。请对以下 {display_name} 的分析结果进行解读。\n\
              要求：\n\
              - 解读必须覆盖所有适用维度：系数估计与显著性、模型整体拟合优度、效应量、\
                置信区间、风险/比值比、模型假设是否满足、检验功效\n\
              - 必须引用具体数值（如 p 值、AIC、HR、置信区间）\n\
              - 如有风险信号，明确标注并给出下一步建议\n\
              - 用中文回答\n\n\
-             分析结果：\n{}{}\n",
-            display_name, result_json, risk_info
+             分析结果：\n{result_json}{risk_info}\n"
         );
 
         let request = LlmRequest {
@@ -466,7 +463,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         }
     }
 
-    /// Generate a follow-up ChoicePrompt after a skill result (decision assistant mode).
+    /// Generate a follow-up `ChoicePrompt` after a skill result (decision assistant mode).
     fn generate_follow_up_prompt(
         &self,
         _skill_id: &str,
@@ -532,9 +529,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
 
         ChoicePrompt {
             prompt_id: uuid::Uuid::new_v4(),
-            question: format!(
-                "分析已完成。您接下来想：",
-            ),
+            question: "分析已完成。您接下来想：".to_string(),
             options,
             multi_select: false,
             allow_custom_text: true,
@@ -567,7 +562,7 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
             .join("\n")
     }
 
-    /// Build a ChoicePrompt for selecting among multiple matching skills.
+    /// Build a `ChoicePrompt` for selecting among multiple matching skills.
     fn build_skill_choice_prompt(&self, skill_ids: &[String]) -> ChoicePrompt {
         let options: Vec<ChoiceOption> = skill_ids
             .iter()
@@ -684,13 +679,12 @@ fn find_missing_args(desc: &SkillDescriptor, resolved_args: &Value) -> Vec<Strin
         .filter(|arg| {
             resolved_obj
                 .and_then(|obj| obj.get(arg.as_str()))
-                .map(|v| v.is_null())
-                .unwrap_or(true)
+                .map_or(true, serde_json::Value::is_null)
         })
         .collect()
 }
 
-/// Build a ChoicePrompt to collect missing required arguments from the user.
+/// Build a `ChoicePrompt` to collect missing required arguments from the user.
 fn build_missing_args_prompt(desc: &SkillDescriptor, missing: &[String]) -> ChoicePrompt {
     let properties = desc
         .input_schema

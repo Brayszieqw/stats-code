@@ -1,6 +1,10 @@
 # Feature: validation-correctness, Property 10: Exit Code Consistency
 """
-Property 10: run_validation.main() returns 1 iff any result has FAIL or ERROR.
+Property 10: run_validation.main() exits 0 iff results are all-pass + no
+``reference_software_unavailable`` SKIPs; otherwise it exits with the
+documented non-zero code from the Rust parity subcommand exit-code map
+(2 / 3 / 4 / 5). Per task 11.5 of the parity-and-multilang-sidecar spec
+the FAIL / ERROR branch maps to exit code 2 (Requirement 5.7).
 """
 import sys
 from pathlib import Path
@@ -38,7 +42,12 @@ _status_strategy = st.sampled_from(list(Status))
 @given(statuses=st.lists(_status_strategy, min_size=1, max_size=30))
 @settings(max_examples=200)
 def test_exit_code_matches_fail_or_error(statuses: list) -> None:
-    """Property 10: exit code 1 ↔ ∃ FAIL or ERROR in results."""
+    """Property 10: exit code 2 ↔ ∃ FAIL or ERROR in results.
+
+    The Rust parity subcommand maps fail rows onto exit code 2
+    (`ParityOutcome::FailRows`); this Python entry point mirrors that map
+    so CI gets the same cause class either way.
+    """
     results = [_make_result(s) for s in statuses]
     has_failure = any(s in (Status.FAIL, Status.ERROR) for s in statuses)
 
@@ -47,8 +56,8 @@ def test_exit_code_matches_fail_or_error(statuses: list) -> None:
         exit_code = run_validation.main(["--out", "/tmp/test_exit_code_out"])
 
     if has_failure:
-        assert exit_code == 1, (
-            f"Expected exit code 1 with statuses {statuses}, got {exit_code}"
+        assert exit_code == 2, (
+            f"Expected exit code 2 with statuses {statuses}, got {exit_code}"
         )
     else:
         assert exit_code == 0, (

@@ -264,24 +264,3 @@ fn prepare_ai_provider_uses_saved_credentials_without_mutating_env() {
 
     fs::remove_dir_all(root).expect("cleanup");
 }
-
-#[test]
-fn estimates_cost_from_pricing_table() {
-    let mut pricing = BTreeMap::new();
-    pricing.insert(
-        "gpt-5.4".to_string(),
-        ModelPricing {
-            input_per_million_usd: 5.0,
-            output_per_million_usd: 15.0,
-        },
-    );
-    let usage = ChatUsageTotals {
-        input_tokens: 100_000,
-        output_tokens: 20_000,
-        tool_calls: 0,
-        turns: 1,
-    };
-
-    let cost = estimate_session_cost_usd(&pricing, "gpt", &usage).expect("cost estimate");
-    assert!((cost - 0.8).abs() < 1e-9);
-}

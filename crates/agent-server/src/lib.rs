@@ -35,7 +35,7 @@ const DATASET_UPLOAD_BODY_LIMIT_BYTES: usize = 70 * 1024 * 1024;
 /// Prod 模式下额外为 router 安装一个 SPA fallback：未匹配 `/api/*` 的任意
 /// 路径由 [`handlers::static_assets::serve`] 从内嵌的 `web/dist/` 提供（见
 /// Requirement 6.2 / 6.3）。`dev-vite` feature 开启时跳过该 fallback，请求
-/// 透传给 launcher 启动的 Vite_Dev_Server。
+/// 透传给 launcher 启动的 `Vite_Dev_Server`。
 pub fn build_router(load_counter: LoadCounter, app_state: AppState) -> Router {
     let router = Router::new()
         // --- Routes ---
@@ -66,6 +66,21 @@ pub fn build_router(load_counter: LoadCounter, app_state: AppState) -> Router {
         )
         .route("/api/llm-status", get(handlers::llm_config::get_llm_status))
         .route("/api/llm-config", post(handlers::llm_config::post_llm_config))
+        // Parity & Multi-Lang Sidecar (tasks 10.2 / 10.3 / 10.4 / 10.5).
+        // Same-process axum handlers, no new ports / no WebSockets — the
+        // single-command-launcher contract (Requirement 10.3) is preserved.
+        .route(
+            "/api/coverage-matrix",
+            get(handlers::coverage::get_coverage_matrix),
+        )
+        .route(
+            "/api/sidecar/:algorithm_id",
+            get(handlers::sidecar::get_sidecar),
+        )
+        .route(
+            "/api/snapshot/export",
+            post(handlers::snapshot::post_snapshot_export),
+        )
         .with_state(app_state);
 
     // Prod 模式下安装 SPA fallback；dev-vite feature 开启时不安装，

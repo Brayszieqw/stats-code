@@ -202,3 +202,176 @@ def collect_metadata() -> RunMetadata:
         os=platform.platform(),
         reference_engine_versions=ref_versions,
     )
+
+
+# ---------------------------------------------------------------------------
+# Parity report row (Requirements 3.2 / 3.3 / 12.5)
+#
+# The structures below are the canonical Python mirror of the Rust
+# `ParityReportRow` defined in design.md. They live alongside the legacy
+# `ValidationResult` because the new parity reporter (task 11.4) consumes
+# `ParityRow`, while older method collectors still emit `ValidationResult`.
+# Both must keep working until the migration is complete.
+# ---------------------------------------------------------------------------
+
+
+class ParityVerdict(str, Enum):
+    """Verdict for one parity comparison row.
+
+    The set is exactly {pass, fail, skipped} per Requirement 3.3.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    SKIPPED = "skipped"
+
+
+class SkippedReason(str, Enum):
+    """Reason a parity row was emitted with verdict == skipped.
+
+    `REFERENCE_SOFTWARE_UNAVAILABLE` triggers a non-zero CI exit code per
+    Requirement 4.10. `UNCOVERED_CELL` is used when the Algorithm Coverage
+    Matrix records the cell as `none` and the run still has to materialize a
+    row (so the report stays a complete grid).
+    """
+
+    REFERENCE_SOFTWARE_UNAVAILABLE = "reference_software_unavailable"
+    UNCOVERED_CELL = "uncovered_cell"
+
+
+@dataclass(frozen=True)
+class ReferenceImplDescriptor:
+    """Identity of the reference implementation used for one parity row.
+
+    Mirrors the Rust `ReferenceImpl` struct in `coverage_matrix/mod.rs`.
+    `pkg` is None for SAS / SPSS PROC-style references, where the procedure
+    name lives in `name` and there is no separate package container.
+    """
+
+    name: str
+    pkg: Optional[str]
+    version: str
+
+
+@dataclass(frozen=True)
+class ParityRow:
+    """One row of the Parity Validation Report.
+
+    Field semantics:
+      - `stats_engine_value`   may be None when the row is skipped
+        (no Stats Engine call was made because the reference was unavailable).
+      - `reference_value_or_na` is None whenever the row has no reference
+        numeric (skipped rows or rows where the reference adapter returned
+        a non-numeric outcome). The reporter renders None as the literal
+        string `n/a` per Requirement 3.3.
+      - `absolute_difference`  is None iff `reference_value_or_na` is None.
+      - `relative_difference`  is None iff |reference_value_or_na| is at or
+        below `active_absolute_tolerance`, or `reference_value_or_na` is
+        None. The reporter renders None as the literal string `n/a`.
+      - `active_*_tolerance`   are the thresholds actually applied, after
+        the per-algorithm lookup against `tolerance_config.yaml`.
+      - `verdict`              is one of pass / fail / skipped exactly.
+      - `skipped_reason`       is None unless `verdict == ParityVerdict.SKIPPED`.
+
+    The dataclass is frozen so rows are hashable and may be safely
+    deduplicated or used as dict keys by the reporter.
+
+    Numeric fields are stored as plain `float` here. Rendering with at
+    least 12 significant digits is the reporter's job (task 11.4) and is
+    not enforced at construction time.
+    """
+
+    algorithm_id: str
+    algorithm_display_name: str
+    software: str  # one of "R" | "SAS" | "Python" | "SPSS"
+    reference_impl: ReferenceImplDescriptor
+    case_id: str
+    metric: str
+    stats_engine_value: Optional[float]
+    reference_value_or_na: Optional[float]
+    absolute_difference: Optional[float]
+    relative_difference: Optional[float]
+    active_absolute_tolerance: float
+    active_relative_tolerance: float
+    verdict: ParityVerdict
+    skipped_reason: Optional[SkippedReason] = None
+
+
+# ---------------------------------------------------------------------------
+# Parity report header (Requirements 3.6 / 3.7 / 12.4)
+#
+# Mirrors the Rust `ParityReportHeader` defined in design.md. Lives next to
+# `ParityRow` because the new `ParityReportGenerator` (task 11.4) consumes
+# both. Kept as a frozen dataclass so the reporter cannot mutate the header
+# mid-render and so two structurally equal headers compare equal.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParityReportHeader:
+    """Header section of the Parity Validation Report.
+
+    Field semantics (Requirements 3.6, 3.7, 12.4):
+      - ``commit_sha``                — Stats Code commit SHA producing the run.
+      - ``run_started_at_utc``        — ISO-8601 UTC timestamp string.
+      - ``host_os_family``            — One of ``"Windows" | "Linux" | "macOS"``.
+        Validation is the caller's responsibility; the reporter renders the
+        value verbatim. Stored as a string (not an enum) to match the JSON
+        contract `report.json` exposes to downstream tools.
+      - ``host_os_version``           — ≤ 32 characters, no host name / user
+        name / home directory (Requirement 9.2 — the exporter handles that).
+      - ``reference_software_versions`` — Mapping ``software -> version``
+        recording every Reference Software actually invoked in this run.
+        Stored ordered by caller; the reporter sorts by key when serialising
+        so output is deterministic across dict-insertion orders.
+      - ``coverage_matrix``           — The Algorithm Coverage Matrix DTO
+        embedded as JSON in the report (Requirement 3.7). The reporter
+        treats this as opaque and emits it verbatim; preserving the ``none``
+        marker is the matrix builder's job.
+      - ``tolerance_diff``            — List of tolerance entries modified
+        by the current PR (Requirement 12.4). Each entry is a dict with at
+        minimum ``algorithm``, ``previous``, ``new``, ``pr_id`` keys. List
+        order is preserved exactly as provided (the PR diff order is the
+        reader-friendly order).
+
+    The dataclass is frozen so the reporter cannot rebind a header field
+    mid-render. Frozen is the *attribute-binding* barrier here — the dict
+    and list members are by their nature mutable in place; rendering code
+    treats them as read-only.
+    """
+
+    commit_sha: str
+    run_started_at_utc: str
+    host_os_family: str
+    host_os_version: str
+    reference_software_versions: dict[str, str]
+    coverage_matrix: dict[str, Any]
+    tolerance_diff: list[dict[str, Any]]
+
+
+def compute_differences(
+    stats: float,
+    reference: Optional[float],
+    abs_tol: float,
+) -> tuple[Optional[float], Optional[float]]:
+    """Compute (absolute_difference, relative_difference) for one parity cell.
+
+    Rules (Requirements 3.3 and 12.5):
+      - If `reference is None`, both differences are None (no comparison).
+      - Else `absolute_difference = abs(stats - reference)`.
+      - If `abs(reference) <= abs_tol`, `relative_difference` is None
+        ("n/a"); the reference magnitude is too small to make a relative
+        comparison meaningful.
+      - Else `relative_difference = absolute_difference / abs(reference)`.
+
+    `abs_tol` MUST be non-negative; callers are expected to source it from
+    `ToleranceConfig.lookup(...)` which already enforces that invariant.
+    """
+
+    if reference is None:
+        return (None, None)
+
+    absolute_difference = abs(stats - reference)
+    if abs(reference) <= abs_tol:
+        return (absolute_difference, None)
+    return (absolute_difference, absolute_difference / abs(reference))

@@ -9,6 +9,9 @@ use agent_core::orchestrator::{AgentEvent, UserMessageInput};
 use agent_core::traits::dataset_store::DatasetStore;
 use agent_core::traits::session_store::SessionStore;
 use agent_core::traits::stt_provider::SttProvider;
+use api::sidecar::{
+    CoverageMatrixDto, ReferenceSoftware, SidecarSnippetDto, SnapshotExportResponse,
+};
 use tokio_stream::Stream;
 
 use crate::handlers::llm_config::{LlmConfigStore, LlmProbe};
@@ -29,6 +32,100 @@ pub trait MessageHandler: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Pin<Box<dyn Stream<Item = AgentEvent> + Send>>> + Send + '_>>;
 }
 
+// ---------------------------------------------------------------------------
+// Sidecar / coverage-matrix / snapshot provider traits (tasks 10.2 / 10.3 / 10.4)
+// ---------------------------------------------------------------------------
+//
+// These traits decouple the agent-server crate from the `stats-code` crate
+// so that the HTTP handlers can ship before (and independently of) the
+// concrete implementations. The launcher in `stats-code` injects concrete
+// providers when it constructs `AppState`; tests inject mocks.
+//
+// `agent-server` cannot depend on `stats-code` (the dependency arrow runs
+// the other way), and the handlers must surface 503 / 4xx behaviour
+// before the launcher wires the providers — hence each provider is
+// `Option<Arc<dyn ...>>`.
+
+/// Provides the embedded Algorithm Coverage Matrix snapshot for
+/// `GET /api/coverage-matrix` (Requirement 6.2).
+pub trait CoverageMatrixProvider: Send + Sync {
+    /// Return the matrix DTO. Implementations are expected to clone an
+    /// immutable, process-global value, so this is cheap.
+    fn get(&self) -> CoverageMatrixDto;
+}
+
+/// Failure modes surfaced by [`SidecarProvider::generate`]. Mapped to
+/// HTTP status codes by `handlers::sidecar::get_sidecar`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidecarProviderError {
+    /// The `algorithm_id` path parameter does not appear in the
+    /// Algorithm Coverage Matrix.
+    UnknownAlgorithm(String),
+    /// A required template file is missing for an `(algorithm, software)`
+    /// pair whose coverage state is `live`, `recorded`, or `sidecar_only`.
+    MissingTemplate {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// The redaction policy detected forbidden content in the rendered
+    /// snippet (e.g. an unredacted API key).
+    RedactionViolation(String),
+    /// The runtime sentinel (`SpawnPolicy::forbid_external_runtimes`)
+    /// detected a forbidden child-process spawn or shared-library load.
+    ForbiddenSpawn(String),
+    /// Internal generator failure not covered above.
+    Internal(String),
+}
+
+/// Generates an Equivalent Code Sidecar snippet for one
+/// `(algorithm_id, software)` cell (Requirement 1.3, 2.2).
+pub trait SidecarProvider: Send + Sync {
+    /// Render the snippet for the given cell against the active analysis
+    /// run. The `run_id` is passed through so the generator can pick up
+    /// per-run column metadata and the input dataset SHA256.
+    fn generate(
+        &self,
+        algorithm_id: &str,
+        software: ReferenceSoftware,
+        run_id: &str,
+    ) -> Result<SidecarSnippetDto, SidecarProviderError>;
+}
+
+/// Failure modes surfaced by [`SnapshotProvider::export`]. Mapped to
+/// HTTP status codes by `handlers::snapshot::post_snapshot_export`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotProviderError {
+    /// The `run_id` does not reference an existing analysis run.
+    UnknownRun(String),
+    /// The run's `status` is not `completed` (Requirement 7.8).
+    RunNotCompleted { actual_status: String },
+    /// The total artifact payload exceeds the 50 MB ceiling
+    /// (Requirement 7.7).
+    PayloadTooLarge {
+        measured_bytes: u64,
+        ceiling_bytes: u64,
+    },
+    /// The runtime sentinel detected a forbidden spawn or library load.
+    ForbiddenSpawn(String),
+    /// Internal exporter failure not covered above.
+    Internal(String),
+}
+
+/// Produces an Audit Snapshot `.zip` for the given run
+/// (Requirement 7.1, 7.2).
+pub trait SnapshotProvider: Send + Sync {
+    /// Export the snapshot for `run_id` to `destination`.
+    ///
+    /// The exporter writes to `<destination>.tmp` and atomically renames
+    /// on success; any error variant guarantees the destination is
+    /// untouched.
+    fn export(
+        &self,
+        run_id: &str,
+        destination: &str,
+    ) -> Result<SnapshotExportResponse, SnapshotProviderError>;
+}
+
 /// Shared application state passed to all handlers via axum's `State` extractor.
 ///
 /// Uses `Arc` internally so it can be cheaply cloned across request tasks.
@@ -42,10 +139,16 @@ pub struct AppState {
     pub stt_provider: Option<Arc<dyn SttProvider>>,
     /// The dataset store for file persistence and parsing (optional; not all deployments need it).
     pub dataset_store: Option<Arc<dyn DatasetStore>>,
-    /// The LLM config store for reading/writing LLM settings (optional; launcher injects TomlFileStore).
+    /// The LLM config store for reading/writing LLM settings (optional; launcher injects `TomlFileStore`).
     pub llm_config_store: Option<Arc<dyn LlmConfigStore>>,
     /// The LLM probe for connectivity testing (optional; launcher injects real implementation).
     pub llm_probe: Option<Arc<dyn LlmProbe>>,
+    /// Algorithm Coverage Matrix provider (`GET /api/coverage-matrix`).
+    pub coverage_matrix_provider: Option<Arc<dyn CoverageMatrixProvider>>,
+    /// Equivalent Code Sidecar provider (`GET /api/sidecar/{algorithm_id}`).
+    pub sidecar_provider: Option<Arc<dyn SidecarProvider>>,
+    /// Audit Snapshot provider (`POST /api/snapshot/export`).
+    pub snapshot_provider: Option<Arc<dyn SnapshotProvider>>,
 }
 
 impl AppState {
@@ -58,6 +161,9 @@ impl AppState {
             dataset_store: None,
             llm_config_store: None,
             llm_probe: None,
+            coverage_matrix_provider: None,
+            sidecar_provider: None,
+            snapshot_provider: None,
         }
     }
 
@@ -73,6 +179,9 @@ impl AppState {
             dataset_store: None,
             llm_config_store: None,
             llm_probe: None,
+            coverage_matrix_provider: None,
+            sidecar_provider: None,
+            snapshot_provider: None,
         }
     }
 }

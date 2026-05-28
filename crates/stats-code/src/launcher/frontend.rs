@@ -1,8 +1,8 @@
-//! Web_Frontend 伺服 / 启动入口（Requirements 6, 7）。
+//! `Web_Frontend` 伺服 / 启动入口（Requirements 6, 7）。
 //!
 //! 真正的实现分两条路径：
 //! - **prod 模式**（默认 feature）通过 rust-embed 把 `web/dist/` 嵌入二进制，
-//!   由 Agent_Backend 直接伺服；本模块的 [`ensure_frontend`] 仅返回
+//!   由 `Agent_Backend` 直接伺服；本模块的 [`ensure_frontend`] 仅返回
 //!   [`FrontendHandle::EmbeddedProd`]，不需要管理外部进程，公开 URL 即调用
 //!   方传入的 `backend_url`（Requirement 6.2, 6.3）。
 //! - **dev 模式**（feature `dev-vite`）spawn `npm run dev` 子进程，并通过
@@ -54,7 +54,7 @@ pub enum FrontendError {
 
 /// 确保前端可达；返回 [`FrontendHandle`]。
 ///
-/// prod 分支不依赖 `backend_url`（前端由 Agent_Backend 在同一端口下伺服），
+/// prod 分支不依赖 `backend_url`（前端由 `Agent_Backend` 在同一端口下伺服），
 /// 但参数保留以与 dev 分支签名对齐；调用方在 prod 分支下应直接以
 /// `backend_url` 作为对外公开的 URL。
 ///

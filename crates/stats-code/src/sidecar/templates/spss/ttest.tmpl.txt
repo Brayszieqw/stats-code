@@ -1,0 +1,4 @@
+GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
+DATASET NAME data WINDOW=FRONT.
+T-TEST GROUPS={{column.1.name}}(0 1) /VARIABLES={{column.0.name}}.
+

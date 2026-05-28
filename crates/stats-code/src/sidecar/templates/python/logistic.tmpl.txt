@@ -1,0 +1,9 @@
+import pandas as pd
+import statsmodels.api as sm
+from statsmodels.discrete.discrete_model import Logit
+
+data = pd.read_csv("data.csv")
+y = data["{{column.0.name}}"]
+X = sm.add_constant(data[["{{column.1.name}}"]])
+model = Logit(y, X).fit(disp=False)
+print(model.summary())

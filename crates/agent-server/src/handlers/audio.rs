@@ -53,7 +53,7 @@ pub struct PostAudioResponse {
 /// 3. Extract duration from `X-Audio-Duration-Secs` header (required)
 /// 4. Validate audio constraints (duration ≤ 60s, size ≤ 10MB)
 /// 5. Check session exists and is active (not archived)
-/// 6. Call SttProvider::transcribe to get (text, confidence)
+/// 6. Call `SttProvider::transcribe` to get (text, confidence)
 /// 7. Return transcription result as JSON
 ///    - If confidence ≥ 0.6, mark `auto_processed = true` (client may trigger message flow)
 ///    - If confidence < 0.6, mark `auto_processed = false` (client should confirm first)

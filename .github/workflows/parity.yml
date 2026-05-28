@@ -1,0 +1,88 @@
+name: Parity
+
+# Primary parity-gating workflow per Requirement 4.6.
+# Runs the CI Parity Suite on windows-latest and emits report.json + report.html
+# as a build artifact. Blocks the PR on any `fail` row or
+# `reference_software_unavailable` skipped row (Requirement 4.5, 4.10).
+
+on:
+  pull_request:
+    paths:
+      - crates/stats-code/src/**
+      - crates/stats-code/validation/**
+  push:
+    branches: [main, master]
+    paths:
+      - crates/stats-code/src/**
+      - crates/stats-code/validation/**
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  parity:
+    name: Parity Suite
+    runs-on: windows-latest
+    # Requirement 4.2: a 60-minute job-level timeout. On timeout GitHub Actions
+    # marks the status as `error` (not `failure`), which is non-blocking for
+    # branch protection — exactly the inconclusive state the requirement asks
+    # for.
+    timeout-minutes: 60
+    # Surface real failures (fail rows, reference_software_unavailable skips)
+    # to the PR check; the timeout-as-error path above is what keeps timeouts
+    # from blocking unrelated checks.
+    continue-on-error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-parity-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-parity-cargo-
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: crates/stats-code/validation/requirements.txt
+
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3'
+
+      - name: Install Python dependencies
+        run: pip install -r crates/stats-code/validation/requirements.txt
+
+      - name: Build Stats Code (release)
+        run: cargo build --release -p stats-code
+
+      # run_validation.py owns the exit-code surface (Requirement 5.4 / 5.7 /
+      # 12.6). Any `fail` row or `reference_software_unavailable` skipped row
+      # promotes the run to a non-zero exit code, which fails this step and
+      # blocks the PR (Requirement 4.5, 4.10).
+      - name: Run Parity Suite
+        run: python crates/stats-code/validation/run_validation.py --emit-report
+
+      # Always upload the report so reviewers can inspect failures even when
+      # the suite step failed (Requirement 3.5).
+      - name: Upload Parity Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-report-${{ github.sha }}
+          path: |
+            crates/stats-code/validation/reports/**/report.json
+            crates/stats-code/validation/reports/**/report.html
+          if-no-files-found: warn

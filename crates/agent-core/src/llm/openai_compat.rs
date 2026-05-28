@@ -1,7 +1,7 @@
 //! OpenAI-compatible LLM provider implementation.
 //!
-//! Implements the shared protocol used by both OpenAI's official API and
-//! OpenAI-compatible providers (DeepSeek, Together, Groq, Ollama, etc.).
+//! Implements the shared protocol used by both `OpenAI`'s official API and
+//! OpenAI-compatible providers (`DeepSeek`, Together, Groq, Ollama, etc.).
 //!
 //! Endpoint: `POST {base_url}/chat/completions`
 //! Request: `{model, messages, stream, max_tokens?, temperature?}`
@@ -29,8 +29,8 @@ use crate::traits::llm_provider::{LlmError, LlmEvent, LlmProvider, LlmRequest, L
 
 /// Configuration for an OpenAI-compatible LLM provider.
 ///
-/// Used by both `DeepSeekProvider` (DeepSeek's hosted API) and
-/// `OpenAiProvider` (OpenAI's official API) — the wire protocol is identical.
+/// Used by both `DeepSeekProvider` (`DeepSeek`'s hosted API) and
+/// `OpenAiProvider` (`OpenAI`'s official API) — the wire protocol is identical.
 #[derive(Clone)]
 pub struct OpenAiCompatConfig {
     /// API key (secret, never logged).

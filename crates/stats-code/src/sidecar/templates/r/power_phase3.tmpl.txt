@@ -1,0 +1,4 @@
+data <- read.csv("data.csv")
+# columns referenced for parity context: {{column.0.name}}, {{column.1.name}}
+result <- stats::power.t.test(n = NULL, delta = 0.5, sd = 1, sig.level = 0.05, power = 0.80)
+print(result)

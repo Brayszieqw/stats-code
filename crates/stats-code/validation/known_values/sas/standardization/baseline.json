@@ -1,0 +1,22 @@
+{
+  "expected_outputs": {
+    "crude_rate_per_1000": 7.85714285714,
+    "directly_standardized_rate_per_1000": 10.65,
+    "rate_old_per_1000": 20.0,
+    "rate_young_per_1000": 3.0
+  },
+  "input": {
+    "dataset_csv": "stratum,events,person_years,std_weight\nyoung,30,10000,0.55\nold,80,4000,0.45\n",
+    "spec": {
+      "events_col": "events",
+      "person_years_col": "person_years",
+      "proc_sas": "PROC STDRATE",
+      "stratum_col": "stratum",
+      "weight_col": "std_weight"
+    }
+  },
+  "input_dataset_sha256": "dc992947cf7836fe1d8fdb42304b2663a1024d2cb80a9c42a0c2df0d26e18627",
+  "recording_date": "2024-08-15",
+  "software": "SAS",
+  "version": "9.4M7"
+}

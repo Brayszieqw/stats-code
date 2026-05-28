@@ -697,3 +697,275 @@ ADAPTERS_FOR: dict[str, list[ReferenceAdapter]] = {
     "tableone":       [_scipy],
     "diagnostic_roc": [_sklearn],
 }
+
+
+# ---------------------------------------------------------------------------
+# Reference-Software adapters (task 11.2)
+#
+# These are a *separate* abstraction from the per-engine `ReferenceAdapter`
+# ABC above. The protocol below is keyed by Reference Software in the
+# Algorithm Coverage Matrix sense — `R`, `SAS`, `Python`, `SPSS` — and
+# answers a single question: "is this software runnable on the current
+# host?" (Requirements 4.3, 4.4, 4.9).
+#
+# The Live / Recorded split per the matrix:
+#   - R / Python   → Live: probe via `shutil.which` / `importlib.import_module`.
+#   - SAS / SPSS   → Recorded: always-available fixtures under
+#                    `validation/known_values/<sas|spss>/<algorithm>/<case>.json`.
+#
+# When `is_available()` returns False on a Live adapter, the orchestrator
+# (run_validation.py — task 11.5) emits the row with `verdict = skipped`
+# and `skipped_reason = reference_software_unavailable`. The routing logic
+# itself lives in the orchestrator; this module only provides the probes
+# plus a thin `run_case` stub.
+#
+# Stdlib only: `subprocess`, `importlib`, `shutil`, `json`. No new deps.
+# ---------------------------------------------------------------------------
+
+import importlib
+from typing import Optional, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ReferenceSoftwareAdapter(Protocol):
+    """Protocol every Reference-Software adapter implements.
+
+    Distinct from the per-engine ``ReferenceAdapter`` ABC defined earlier in
+    this module: that one is keyed by Python library (statsmodels, lifelines,
+    scipy, sklearn) and is used by the existing collectors. This Protocol is
+    keyed by Reference Software in the Algorithm Coverage Matrix sense
+    (``R`` / ``SAS`` / ``Python`` / ``SPSS``) and is used by the new parity
+    suite (task 11.5) to decide Live vs Recorded routing and to short-circuit
+    to ``skipped`` when a Live reference is missing on the host.
+    """
+
+    name: str  # "R" | "SAS" | "Python" | "SPSS"
+
+    def is_available(self) -> bool:
+        """True iff the Reference Software can be used on the current host."""
+        ...
+
+    def run_case(self, algorithm_id: str, case_path: Path) -> dict:
+        """Return expected outputs as a dict, or raise if unavailable.
+
+        For Recorded adapters this loads
+        ``validation/known_values/<software>/<algorithm>/<case>.json``
+        and returns its ``expected`` payload. For Live adapters this is a
+        stub in this task — the real orchestration lives in tasks 11.5 / 11.7.
+        """
+        ...
+
+
+class RscriptAdapter:
+    """Live R adapter: probes the ``Rscript`` binary on the host PATH.
+
+    Availability is cached on the instance because ``shutil.which`` is fast
+    but adapter instances are module-level singletons used by many rows in a
+    single suite run; re-probing per row is wasted work and would also make
+    the suite less deterministic when PATH is mutated mid-run.
+    """
+
+    name = "R"
+
+    def __init__(self) -> None:
+        self._available: Optional[bool] = None
+
+    def is_available(self) -> bool:
+        if self._available is None:
+            self._available = shutil.which("Rscript") is not None
+        return self._available
+
+    def run_case(self, algorithm_id: str, case_path: Path) -> dict:
+        if not self.is_available():
+            raise RuntimeError(
+                "Rscript is not on PATH; the orchestrator must short-circuit "
+                "to verdict=skipped, reason=reference_software_unavailable."
+            )
+        # Live routing through the existing per-engine adapters
+        # (RsurvivalAdapter, etc.) lives in task 11.5 / 11.7. This adapter
+        # currently provides only the availability probe.
+        raise NotImplementedError(
+            "RscriptAdapter.run_case is not implemented in task 11.2; "
+            "Live R routing arrives in task 11.5."
+        )
+
+
+class PythonAdapter:
+    """Live Python adapter: probes the in-process reference libraries.
+
+    The Python interpreter itself is always present (we are running in it),
+    but the parity suite depends on three libraries — ``statsmodels``,
+    ``scipy``, ``lifelines`` — declared in ``validation/requirements.txt``.
+    If any of them is missing the host cannot serve as a Live Python
+    reference, so we report unavailable and let the orchestrator emit
+    ``verdict = skipped`` per Requirement 4.9.
+
+    Availability is cached on the instance for the same reason as
+    ``RscriptAdapter``.
+    """
+
+    name = "Python"
+
+    # Libraries the Live Python reference path needs at runtime. Kept as a
+    # class attribute so a future task that adds (e.g.) ``scikit-learn`` to
+    # the set has a single place to update.
+    REQUIRED_LIBS: tuple[str, ...] = ("statsmodels", "scipy", "lifelines")
+
+    def __init__(self) -> None:
+        self._available: Optional[bool] = None
+
+    def is_available(self) -> bool:
+        if self._available is None:
+            self._available = all(
+                self._can_import(lib) for lib in self.REQUIRED_LIBS
+            )
+        return self._available
+
+    @staticmethod
+    def _can_import(module_name: str) -> bool:
+        try:
+            importlib.import_module(module_name)
+            return True
+        except ImportError:
+            return False
+
+    def run_case(self, algorithm_id: str, case_path: Path) -> dict:
+        if not self.is_available():
+            raise RuntimeError(
+                "Required Python reference library missing; the orchestrator "
+                "must short-circuit to verdict=skipped, "
+                "reason=reference_software_unavailable."
+            )
+        # Live in-process Python routing is wired up in task 11.5 by
+        # delegating to the existing StatsmodelsAdapter / ScipyAdapter /
+        # LifelinesAdapter instances. This adapter currently provides only
+        # the availability probe.
+        raise NotImplementedError(
+            "PythonAdapter.run_case is not implemented in task 11.2; "
+            "Live Python routing arrives in task 11.5."
+        )
+
+
+class _RecordedSoftwareAdapterBase:
+    """Shared implementation for the Recorded SAS / SPSS adapters.
+
+    No live runtime dependency exists for SAS or SPSS in this codebase, so
+    these adapters are *always* available. Their job is to load fixtures
+    laid out as::
+
+        validation/known_values/<software>/<algorithm>/<case>.json
+
+    where ``<software>`` is the lowercased ``name`` (``sas`` or ``spss``).
+    The JSON file is expected to follow the existing Recorded schema:
+    a top-level mapping containing at least an ``expected`` key whose value
+    is a mapping of metric → numeric value. Other top-level keys
+    (``input``, ``software``, ``version``, ``recording_date``,
+    ``input_dataset_sha256``) are passed through unchanged so the reporter
+    can render them in ``report.json``.
+    """
+
+    name: str  # set by subclass: "SAS" or "SPSS"
+
+    def __init__(self) -> None:
+        # known_values_dir is resolved once; the adapter is stateless beyond
+        # this read-only path.
+        self._known_values_dir = (
+            Path(__file__).resolve().parent.parent / "known_values" / self.name.lower()
+        )
+
+    def is_available(self) -> bool:
+        # Recorded references are bundled with the repo; they are available
+        # in every environment, including CI runners without commercial
+        # licenses (Requirement 4.4).
+        return True
+
+    def run_case(self, algorithm_id: str, case_path: Path) -> dict:
+        """Load the fixture and return its full payload as a dict.
+
+        ``case_path`` may be either:
+          - an absolute path to a fixture file (used by the orchestrator
+            once it has resolved the fixture index), or
+          - a path relative to ``known_values/<software>/<algorithm>/``,
+            in which case it is rebased onto that directory.
+
+        A bare case identifier (e.g. ``synthetic_n100_seed42``) is also
+        accepted and rebased to ``<algorithm>/<case>.json`` for
+        convenience in unit tests.
+        """
+        resolved = self._resolve_case_path(algorithm_id, case_path)
+        if not resolved.is_file():
+            raise FileNotFoundError(
+                f"{self.name} known-value fixture not found: {resolved}"
+            )
+        with open(resolved, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _resolve_case_path(self, algorithm_id: str, case_path: Path) -> Path:
+        if case_path.is_absolute():
+            return case_path
+        # Rebase relative paths under known_values/<software>/<algorithm>/.
+        base = self._known_values_dir / algorithm_id
+        # If the caller passed e.g. Path("synthetic_n100_seed42"), promote it
+        # to "<algorithm>/<case>.json".
+        if case_path.suffix == "":
+            return base / f"{case_path.name}.json"
+        return base / case_path
+
+
+class RecordedSasAdapter(_RecordedSoftwareAdapterBase):
+    """Recorded SAS reference adapter — always available."""
+
+    name = "SAS"
+
+
+class RecordedSpssAdapter(_RecordedSoftwareAdapterBase):
+    """Recorded SPSS reference adapter — always available."""
+
+    name = "SPSS"
+
+
+# ---------------------------------------------------------------------------
+# Reference-Software factory (task 11.2)
+# ---------------------------------------------------------------------------
+
+# Map of Reference Software → adapter constructor. Kept as a private dict so
+# `get_adapter` can validate the input string against a single source of
+# truth and so future Reference Software additions touch one place.
+_REFERENCE_SOFTWARE_ADAPTERS: dict[str, type] = {
+    "R": RscriptAdapter,
+    "Python": PythonAdapter,
+    "SAS": RecordedSasAdapter,
+    "SPSS": RecordedSpssAdapter,
+}
+
+
+def get_adapter(software: str) -> ReferenceSoftwareAdapter:
+    """Return a fresh adapter for the given Reference Software.
+
+    Parameters
+    ----------
+    software:
+        Exact, case-sensitive Reference Software identifier as it appears
+        in the Algorithm Coverage Matrix: one of ``"R"``, ``"Python"``,
+        ``"SAS"``, ``"SPSS"``.
+
+    Returns
+    -------
+    ReferenceSoftwareAdapter
+        A new adapter instance. Each call produces a fresh instance so
+        availability caches are not shared across orchestration runs.
+
+    Raises
+    ------
+    ValueError
+        If ``software`` is not one of the known Reference Software
+        identifiers.
+    """
+    try:
+        ctor = _REFERENCE_SOFTWARE_ADAPTERS[software]
+    except KeyError:
+        known = ", ".join(sorted(_REFERENCE_SOFTWARE_ADAPTERS))
+        raise ValueError(
+            f"unknown software: {software!r} (known: {known})"
+        ) from None
+    return ctor()

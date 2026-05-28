@@ -1,6 +1,6 @@
-//! DeepSeek LLM provider — thin adapter over `OpenAiCompatProvider`.
+//! `DeepSeek` LLM provider — thin adapter over `OpenAiCompatProvider`.
 //!
-//! DeepSeek's API is OpenAI-compatible (same `chat/completions` endpoint,
+//! `DeepSeek`'s API is OpenAI-compatible (same `chat/completions` endpoint,
 //! same SSE schema). This module wraps the shared adapter with DeepSeek-specific
 //! defaults and the `provider_id = "deepseek"` tag.
 
@@ -16,12 +16,12 @@ pub use crate::llm::openai_compat::ConfigError;
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Configuration for the DeepSeek provider.
+/// Configuration for the `DeepSeek` provider.
 #[derive(Clone)]
 pub struct DeepSeekConfig {
     /// API key (secret, never logged).
     pub api_key: SecretString,
-    /// Base URL for the DeepSeek API (e.g. `https://api.deepseek.com/v1`).
+    /// Base URL for the `DeepSeek` API (e.g. `https://api.deepseek.com/v1`).
     pub base_url: String,
     /// Model identifier (e.g. `deepseek-chat`).
     pub model: String,
@@ -32,12 +32,13 @@ pub struct DeepSeekConfig {
 }
 
 impl DeepSeekConfig {
-    /// Default base URL for the DeepSeek hosted API.
+    /// Default base URL for the `DeepSeek` hosted API.
     pub const DEFAULT_BASE_URL: &'static str = "https://api.deepseek.com/v1/";
     /// Default model.
     pub const DEFAULT_MODEL: &'static str = "deepseek-chat";
 
     /// Convenience constructor with sensible defaults.
+    #[must_use] 
     pub fn new(api_key: SecretString) -> Self {
         Self {
             api_key,
@@ -66,7 +67,7 @@ impl From<DeepSeekConfig> for OpenAiCompatConfig {
 // Provider
 // ---------------------------------------------------------------------------
 
-/// DeepSeek LLM provider.
+/// `DeepSeek` LLM provider.
 ///
 /// Wraps `OpenAiCompatProvider` with `provider_id = "deepseek"`.
 /// `api_key` is wrapped in `SecretString` — never exposed via `Debug` or `Display`.
@@ -116,7 +117,7 @@ impl LlmProvider for DeepSeekProvider {
 // Standalone config validation (for Property 28)
 // ---------------------------------------------------------------------------
 
-/// Validate a DeepSeek configuration for production readiness.
+/// Validate a `DeepSeek` configuration for production readiness.
 ///
 /// Returns `Ok(())` iff:
 /// 1. `provider` == "deepseek"

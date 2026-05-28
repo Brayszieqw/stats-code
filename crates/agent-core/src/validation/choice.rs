@@ -1,4 +1,4 @@
-//! Choice_Prompt answer validation (R4.5, R4.6) and recommendation validation (R5.5).
+//! `Choice_Prompt` answer validation (R4.5, R4.6) and recommendation validation (R5.5).
 
 use crate::models::{ChoiceAnswer, ChoicePrompt, ErrorCode, ErrorPayload};
 

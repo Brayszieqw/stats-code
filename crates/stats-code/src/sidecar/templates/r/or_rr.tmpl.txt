@@ -1,0 +1,4 @@
+library(epitools)
+data <- read.csv("data.csv")
+result <- epitools::oddsratio(data[["{{column.0.name}}"]], data[["{{column.1.name}}"]])
+print(result)

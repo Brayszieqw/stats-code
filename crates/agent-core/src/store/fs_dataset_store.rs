@@ -108,25 +108,23 @@ impl DatasetStore for FsDatasetStore {
         let file_name = dref
             .raw_path
             .file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| {
+            .and_then(|s| s.to_str()).map_or_else(|| "unknown".to_string(), |s| {
                 // Strip the "<dataset_id>__" prefix we added in save_raw.
                 if let Some(idx) = s.find("__") {
                     s[idx + 2..].to_string()
                 } else {
                     s.to_string()
                 }
-            })
-            .unwrap_or_else(|| "unknown".to_string());
+            });
 
         let extension = Path::new(&file_name)
             .extension()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_ascii_lowercase());
+            .map(str::to_ascii_lowercase);
 
         let summary = match extension.as_deref() {
-            Some("csv") | Some("tsv") => parse_text_table(&bytes, dref.dataset_id, file_name, extension.as_deref().unwrap_or("csv"))?,
-            Some("xlsx") | Some("xls") => DatasetSummary {
+            Some("csv" | "tsv") => parse_text_table(&bytes, dref.dataset_id, file_name, extension.as_deref().unwrap_or("csv"))?,
+            Some("xlsx" | "xls") => DatasetSummary {
                 dataset_id: dref.dataset_id,
                 file_name,
                 size_bytes,

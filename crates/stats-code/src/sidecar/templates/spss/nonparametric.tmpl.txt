@@ -1,0 +1,4 @@
+GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
+DATASET NAME data WINDOW=FRONT.
+NPAR TESTS /M-W={{column.0.name}} BY {{column.1.name}}(0 1).
+

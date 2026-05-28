@@ -14,11 +14,12 @@ use crate::models::skill::RiskSignal;
 /// - `payload.cox_ph_violated == true` (or `payload.ph_test.violated == true`) ⇒ [`RiskSignal::CoxPhAssumptionViolated`]
 ///
 /// Fields not present or not exceeding thresholds produce no corresponding signal.
+#[must_use] 
 pub fn detect_risk_signals(payload: &serde_json::Value) -> Vec<RiskSignal> {
     let mut signals = Vec::new();
 
     // Check p_value > 0.05
-    if let Some(p) = payload.get("p_value").and_then(|v| v.as_f64()) {
+    if let Some(p) = payload.get("p_value").and_then(serde_json::Value::as_f64) {
         if p > 0.05 {
             signals.push(RiskSignal::PValueAboveAlpha);
         }
@@ -26,33 +27,33 @@ pub fn detect_risk_signals(payload: &serde_json::Value) -> Vec<RiskSignal> {
 
     // Check VIF > 10 (multicollinearity)
     if let Some(vif) = payload.get("vif").and_then(|v| v.as_object()) {
-        if vif.values().any(|v| v.as_f64().map_or(false, |f| f > 10.0)) {
+        if vif.values().any(|v| v.as_f64().is_some_and(|f| f > 10.0)) {
             signals.push(RiskSignal::VifTooHigh);
         }
     }
 
     // Check power < 0.8
-    if let Some(power) = payload.get("power").and_then(|v| v.as_f64()) {
+    if let Some(power) = payload.get("power").and_then(serde_json::Value::as_f64) {
         if power < 0.8 {
             signals.push(RiskSignal::LowPower);
         }
     }
     // Also check achieved_power field (used by power analysis skill output)
-    if let Some(power) = payload.get("achieved_power").and_then(|v| v.as_f64()) {
+    if let Some(power) = payload.get("achieved_power").and_then(serde_json::Value::as_f64) {
         if power < 0.8 && !signals.contains(&RiskSignal::LowPower) {
             signals.push(RiskSignal::LowPower);
         }
     }
 
     // Check Cox PH assumption violated
-    if let Some(violated) = payload.get("cox_ph_violated").and_then(|v| v.as_bool()) {
+    if let Some(violated) = payload.get("cox_ph_violated").and_then(serde_json::Value::as_bool) {
         if violated {
             signals.push(RiskSignal::CoxPhAssumptionViolated);
         }
     }
     // Also check nested ph_test.violated (used by Cox regression output)
     if let Some(ph_test) = payload.get("ph_test").and_then(|v| v.as_object()) {
-        if let Some(violated) = ph_test.get("violated").and_then(|v| v.as_bool()) {
+        if let Some(violated) = ph_test.get("violated").and_then(serde_json::Value::as_bool) {
             if violated && !signals.contains(&RiskSignal::CoxPhAssumptionViolated) {
                 signals.push(RiskSignal::CoxPhAssumptionViolated);
             }

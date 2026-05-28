@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmProvider {
-    /// DeepSeek service (`provider = "deepseek"`).
+    /// `DeepSeek` service (`provider = "deepseek"`).
     DeepSeek,
     /// OpenAI-compatible service (`provider = "openai"`).
     OpenAi,

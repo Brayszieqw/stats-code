@@ -1,0 +1,5 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc freq data=work.data;
+   tables {{column.0.name}}*{{column.1.name}} / cmh relrisk;
+run;

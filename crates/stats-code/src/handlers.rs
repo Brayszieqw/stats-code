@@ -28,9 +28,8 @@ use run::{handle_run_script, render_run_script_text};
 use stats::handle_stats;
 
 use crate::bridge::Engine;
-use crate::chat::run_chat_repl;
 use crate::cli::{
-    AiCommand, AuditCommand, AuthCommand, ChatArgs, Cli, Command, ConfigCommand, DiagnosticCommand,
+    AiCommand, AuditCommand, AuthCommand, Cli, Command, ConfigCommand, DiagnosticCommand,
     ModelCommand, OpenCommand, ReportCommand, ReportVerifyArgs, RunCommand, SurvivalCommand,
     WorkflowCommand,
 };
@@ -62,13 +61,71 @@ pub fn run() -> StatsCodeResult<()> {
     let cli = Cli::parse();
     match &cli.command {
         None => {
-            let chat_args = ChatArgs::default();
-            Ok(run_chat_repl(&cli, &chat_args)?)
+            // The launcher path (no subcommand) is owned by `main.rs::main`,
+            // which dispatches to `Launcher::run` before reaching this code
+            // path. If we get here, something invoked `stats_code::run()`
+            // without going through `classify_invocation` first.
+            Err(
+                "internal: stats_code::run called without a subcommand; the launcher path is owned by main.rs"
+                    .into(),
+            )
         }
-        Some(Command::Chat(args)) => Ok(run_chat_repl(&cli, args)?),
         Some(Command::Report {
             command: ReportCommand::Verify(args),
         }) => run_report_verify_command(&cli, args),
+        // Feature: parity-and-multilang-sidecar, task 9.2.
+        // Dispatch the hidden `parity` Internal Subcommand to the
+        // wave-1 driver `parity::run_local::run_local`. The launcher
+        // path is not taken: no port bind, no browser launch, no
+        // single-instance lock (Requirement 5.8). The driver returns a
+        // deterministic exit code per design.md §6 "Exit codes":
+        // `0` AllPass, `2` FailRows, `3` UnknownFilter, `4`
+        // ToleranceConfigError, `5` MatrixInconsistent.
+        Some(Command::Parity(args)) => {
+            let code = crate::parity::run_local::run_local(args);
+            std::process::exit(code);
+        }
+        // Feature: parity-and-multilang-sidecar, task 15.2.
+        // The hidden `replay` Internal Subcommand is routed here so it
+        // bypasses `Launcher::run` entirely (no port bind, no browser, no
+        // instance lock) per Requirements 8.3 / 10.3. Task 15.2 wires the
+        // dispatch to the `snapshot::replay::execute_replay` driver landed
+        // in task 7.2 (Requirements 8.3, 8.4, 8.6, 8.7).
+        //
+        // Wave-1 contract: per the module-level doc on
+        // `snapshot::replay`, `execute_replay` consumes an
+        // already-extracted directory (`extracted_dir`); wave-2 will swap
+        // in an in-process zip reader. The CLI value `args.snapshot` is
+        // therefore passed as the extracted directory path. The
+        // reference-software probe is also delegated — wave-1 supplies an
+        // empty `installed_reference_software`, so any snapshot whose
+        // `versions.reference_software` is non-empty will trip Gate 2
+        // (`ReferenceSoftwareUnavailable`) and exit non-zero, which is
+        // the spec-correct behavior for "host lacks recorded software"
+        // (Requirement 8.6).
+        Some(Command::Replay(args)) => {
+            use crate::snapshot::replay::{execute_replay, ReplayPlan};
+
+            let plan = ReplayPlan {
+                extracted_dir: args.snapshot.clone(),
+                installed_reference_software: Vec::new(),
+            };
+
+            match execute_replay(plan) {
+                Ok(outcome) => {
+                    println!(
+                        "replay: {} step(s) replayed from {}",
+                        outcome.steps_replayed,
+                        args.snapshot.display()
+                    );
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("replay: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
         Some(_) => {
             let rendered = dispatch(&cli)?;
             println!("{rendered}");
@@ -116,15 +173,12 @@ fn report_verify_exit_code(result: &ReportVerifyResult, fail_on_warning: bool) -
 pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
     let Some(command) = &cli.command else {
         return Err(
-            "Interactive chat mode is handled directly by `stats-code` without a subcommand."
+            "internal: dispatch called without a subcommand; the launcher path is owned by main.rs"
                 .into(),
         );
     };
 
     let (name, request, response) = match command {
-        Command::Chat(_) => {
-            return Err("Interactive chat mode is handled directly by `stats-code chat`.".into())
-        }
         Command::Init(args) => {
             let result = handle_init_project(args)?;
             ("init", json!(args), serde_json::to_value(result)?)
@@ -300,6 +354,22 @@ pub fn dispatch(cli: &Cli) -> StatsCodeResult<String> {
             }
             return Ok(render_run_script_text(&result));
         }
+        // Feature: parity-and-multilang-sidecar, task 9.1.
+        // Reaching this arm is impossible: `handlers::run` intercepts the
+        // hidden `Command::Parity` variant before delegating to `dispatch`
+        // so it bypasses `Launcher::run` entirely (Requirement 5.8). The
+        // arm exists only to keep `match` exhaustive.
+        Command::Parity(_) => unreachable!(
+            "Command::Parity is intercepted by `handlers::run` before reaching `dispatch`"
+        ),
+        // Feature: parity-and-multilang-sidecar, task 7.1.
+        // Reaching this arm is impossible: `handlers::run` intercepts the
+        // hidden `Command::Replay` variant before delegating to `dispatch`
+        // so it bypasses `Launcher::run` entirely (Requirement 8.3). The
+        // arm exists only to keep `match` exhaustive.
+        Command::Replay(_) => unreachable!(
+            "Command::Replay is intercepted by `handlers::run` before reaching `dispatch`"
+        ),
     };
 
     if let Some(base_dir) = &cli.artifacts_dir {

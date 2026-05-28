@@ -1,0 +1,6 @@
+import pandas as pd
+from scipy import stats
+
+data = pd.read_csv("data.csv")
+result = stats.pearsonr(data["{{column.0.name}}"], data["{{column.1.name}}"])
+print(result)

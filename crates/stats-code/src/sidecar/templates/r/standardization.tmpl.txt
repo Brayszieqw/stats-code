@@ -1,0 +1,8 @@
+library(epitools)
+data <- read.csv("data.csv")
+result <- epitools::ageadjust.direct(
+  count = data[["{{column.0.name}}"]],
+  pop = data[["{{column.1.name}}"]],
+  stdpop = data[["{{column.1.name}}"]]
+)
+print(result)

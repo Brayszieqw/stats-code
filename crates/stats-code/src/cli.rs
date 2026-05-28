@@ -64,8 +64,6 @@ pub struct Cli {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     #[command(hide = true)]
-    Chat(ChatArgs),
-    #[command(hide = true)]
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -151,6 +149,58 @@ pub enum Command {
         #[command(subcommand)]
         command: StatsCommand,
     },
+    /// Internal parity validation subcommand
+    /// (Feature: parity-and-multilang-sidecar, task 9.1).
+    ///
+    /// Hidden from `stats-code --help` per Requirement 5.2 / 5.3 of the
+    /// parity-and-multilang-sidecar spec. Reachable via clap so internal
+    /// tooling and the CI Parity Suite can invoke it, but never surfaced
+    /// to end users. Dispatch in `handlers::run` bypasses `Launcher::run`
+    /// entirely (no port bind, no browser launch, no instance lock) per
+    /// Requirement 5.8.
+    #[command(hide = true)]
+    Parity(ParityArgs),
+    /// Internal replay subcommand
+    /// (Feature: parity-and-multilang-sidecar, task 7.1).
+    ///
+    /// Hidden from `stats-code --help` per Requirement 8.3 of the
+    /// parity-and-multilang-sidecar spec. Re-executes a recorded Audit
+    /// Snapshot end-to-end (preflight gates + Stats Engine re-run) so a
+    /// reviewer can reproduce a published run on their own host. Dispatch
+    /// in `handlers::run` bypasses `Launcher::run` entirely (no port bind,
+    /// no browser launch, no instance lock). The real driver lands in
+    /// task 7.2 — Wave-1 emits a placeholder and exits with code 0.
+    #[command(hide = true)]
+    Replay(ReplayArgs),
+}
+
+/// Arguments for the hidden `parity` Internal Subcommand
+/// (Feature: parity-and-multilang-sidecar, task 9.1).
+///
+/// _Requirements: 5.1, 5.5, 5.6, 5.7_
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct ParityArgs {
+    /// Restrict the run to a single Output-Level Algorithm by case-sensitive
+    /// exact-match id against the Algorithm Coverage Matrix.
+    /// Omitted ⇒ run over every algorithm in the matrix (Requirement 5.6).
+    #[arg(long)]
+    pub filter: Option<String>,
+}
+
+/// Arguments for the hidden `replay` Internal Subcommand
+/// (Feature: parity-and-multilang-sidecar, task 7.1).
+///
+/// Carries the path to a recorded Audit Snapshot zip whose workflow
+/// the Stats Code System should re-execute end-to-end on the local
+/// host. Wave-1 only wires the CLI variant — the actual replay
+/// driver (`snapshot::replay::execute_replay`) lands in task 7.2.
+///
+/// _Requirements: 8.3_
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+pub struct ReplayArgs {
+    /// Path to the Audit Snapshot zip to replay.
+    #[arg(value_name = "SNAPSHOT")]
+    pub snapshot: PathBuf,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -164,15 +214,6 @@ pub enum ConfigCommand {
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
 pub struct ConfigModelArgs {
     pub model: String,
-}
-
-#[derive(Debug, Clone, Default, Args, Serialize, Deserialize)]
-pub struct ChatArgs {
-    #[arg(long)]
-    pub no_tools: bool,
-
-    #[arg(long)]
-    pub new_session: bool,
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
@@ -1281,29 +1322,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_chat_subcommand_and_global_model() {
-        let cli = Cli::parse_from([
-            "stats-code",
-            "--model",
-            "gemini",
-            "--session",
-            "saved-session.json",
-            "chat",
-            "--no-tools",
-            "--new-session",
-        ]);
-        assert_eq!(cli.model, "gemini");
-        assert_eq!(cli.session, Some("saved-session.json".into()));
-        match cli.command {
-            Some(Command::Chat(args)) => {
-                assert!(args.no_tools);
-                assert!(args.new_session);
-            }
-            other => panic!("expected chat command, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn parses_diagnostic_roc_command() {
         let cli = Cli::parse_from([
             "stats-code",
@@ -1521,6 +1539,81 @@ mod tests {
                 assert!(args.print_only);
             }
             other => panic!("expected open report command, got {other:?}"),
+        }
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 9.1
+    // Validates: Requirement 5.2 — the `parity` Internal Subcommand must NOT
+    // appear in `stats-code --help` (single-command-launcher contract).
+    #[test]
+    fn parity_subcommand_is_hidden_from_help() {
+        use clap::CommandFactory;
+
+        let mut cmd = Cli::command();
+        let help = cmd.render_help().to_string();
+
+        assert!(
+            !help.contains("parity"),
+            "expected `--help` output to omit the hidden `parity` subcommand, but it was present.\n--- help ---\n{help}\n--- end help ---"
+        );
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 9.1
+    // Validates: Requirements 5.1, 5.5 — `parity --filter <algorithm>` parses
+    // into `Command::Parity(ParityArgs { filter: Some(_) })`.
+    #[test]
+    fn parses_parity_subcommand_with_filter() {
+        let cli = Cli::parse_from(["stats-code", "parity", "--filter", "tableone"]);
+        match cli.command {
+            Some(Command::Parity(args)) => {
+                assert_eq!(args.filter.as_deref(), Some("tableone"));
+            }
+            other => panic!("expected parity command, got {other:?}"),
+        }
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 9.1
+    // Validates: Requirement 5.6 — omitting `--filter` parses to a `parity`
+    // invocation with `filter == None`, signalling "run over every algorithm".
+    #[test]
+    fn parses_parity_subcommand_without_filter() {
+        let cli = Cli::parse_from(["stats-code", "parity"]);
+        match cli.command {
+            Some(Command::Parity(args)) => {
+                assert!(args.filter.is_none());
+            }
+            other => panic!("expected parity command without filter, got {other:?}"),
+        }
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 7.1
+    // Validates: Requirement 8.3 — the `replay` Internal Subcommand must NOT
+    // appear in `stats-code --help` (single-command-launcher contract).
+    #[test]
+    fn replay_subcommand_is_hidden_from_help() {
+        use clap::CommandFactory;
+
+        let mut cmd = Cli::command();
+        let help = cmd.render_help().to_string();
+
+        assert!(
+            !help.contains("replay"),
+            "expected `--help` output to omit the hidden `replay` subcommand, but it was present.\n--- help ---\n{help}\n--- end help ---"
+        );
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 7.1
+    // Validates: Requirement 8.3 — `replay <SNAPSHOT>` parses into
+    // `Command::Replay(ReplayArgs { snapshot })` carrying the user-supplied
+    // path verbatim.
+    #[test]
+    fn parses_replay_subcommand_with_snapshot_path() {
+        let cli = Cli::parse_from(["stats-code", "replay", "snapshot.zip"]);
+        match cli.command {
+            Some(Command::Replay(args)) => {
+                assert_eq!(args.snapshot, PathBuf::from("snapshot.zip"));
+            }
+            other => panic!("expected replay command, got {other:?}"),
         }
     }
 }

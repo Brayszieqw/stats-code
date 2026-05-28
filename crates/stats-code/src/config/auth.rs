@@ -234,18 +234,6 @@ pub(crate) fn auth_provider_from_kind(kind: ProviderKind) -> Option<AuthProvider
     }
 }
 
-pub(crate) fn parse_auth_provider_name(value: &str) -> Option<AuthProvider> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "openai" | "gpt" => Some(AuthProvider::Openai),
-        "gemini" => Some(AuthProvider::Gemini),
-        "deepseek" => Some(AuthProvider::Deepseek),
-        "dashscope" => Some(AuthProvider::Dashscope),
-        "moonshot" => Some(AuthProvider::Moonshot),
-        "xai" => Some(AuthProvider::Xai),
-        _ => None,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

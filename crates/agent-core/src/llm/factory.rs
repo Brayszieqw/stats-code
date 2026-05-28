@@ -16,9 +16,9 @@ use crate::traits::llm_provider::LlmProvider;
 /// Choose exactly one variant. The factory dispatches to the correct provider.
 #[derive(Clone)]
 pub enum LlmConfig {
-    /// DeepSeek's hosted API (OpenAI-compatible).
+    /// `DeepSeek`'s hosted API (OpenAI-compatible).
     DeepSeek(DeepSeekConfig),
-    /// OpenAI's official API (or any OpenAI-compatible endpoint with org support).
+    /// `OpenAI`'s official API (or any OpenAI-compatible endpoint with org support).
     OpenAi(OpenAiConfig),
 }
 

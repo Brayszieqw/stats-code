@@ -123,9 +123,7 @@ impl TomlFileStore {
 fn backup_path_for(original: &Path, unix_ns: u128) -> PathBuf {
     // `with_extension` 会把整段尾缀替换掉，因此手动追加扩展名以保留原 `.toml`。
     let mut name = original
-        .file_name()
-        .map(|s| s.to_os_string())
-        .unwrap_or_else(|| std::ffi::OsString::from("config.toml"));
+        .file_name().map_or_else(|| std::ffi::OsString::from("config.toml"), std::ffi::OsStr::to_os_string);
     name.push(format!(".bak.{unix_ns}"));
     match original.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir.join(name),
@@ -144,13 +142,10 @@ impl LlmConfigStore for TomlFileStore {
 
         // 2) 解析 TOML。
         let parsed: Result<LlmConfig, _> = toml::from_str(&raw);
-        let cfg = match parsed {
-            Ok(cfg) => cfg,
-            Err(_) => {
-                // 损坏文件 → 备份并视同未配置（design.md Error Handling）。
-                let _ = self.backup_corrupt_file();
-                return Ok(None);
-            }
+        let cfg = if let Ok(cfg) = parsed { cfg } else {
+            // 损坏文件 → 备份并视同未配置（design.md Error Handling）。
+            let _ = self.backup_corrupt_file();
+            return Ok(None);
         };
 
         // 3) `api_key` 为空字符串视同未配置（R10.2）。

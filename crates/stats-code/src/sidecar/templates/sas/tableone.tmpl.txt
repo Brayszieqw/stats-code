@@ -1,0 +1,4 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc means data=work.data; var {{column.0.name}}; class {{column.1.name}}; run;
+proc freq data=work.data; tables {{column.1.name}}; run;

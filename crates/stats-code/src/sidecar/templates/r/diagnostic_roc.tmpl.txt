@@ -1,0 +1,4 @@
+library(pROC)
+data <- read.csv("data.csv")
+result <- pROC::roc(response = data[["{{column.0.name}}"]], predictor = data[["{{column.1.name}}"]])
+print(result)

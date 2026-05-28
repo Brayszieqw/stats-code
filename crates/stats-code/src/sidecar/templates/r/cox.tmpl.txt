@@ -1,0 +1,4 @@
+library(survival)
+data <- read.csv("data.csv")
+fit <- survival::coxph(survival::Surv({{column.0.name}}, {{column.1.name}}) ~ 1, data = data)
+print(summary(fit))

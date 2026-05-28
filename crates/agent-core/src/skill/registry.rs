@@ -1,6 +1,6 @@
-//! Skill registry: registration, lookup, and enumeration of SkillDescriptors.
+//! Skill registry: registration, lookup, and enumeration of `SkillDescriptors`.
 //!
-//! Each skill maps an LLM tool-call to a Stats_Engine CLI subcommand (or native function).
+//! Each skill maps an LLM tool-call to a `Stats_Engine` CLI subcommand (or native function).
 //! The registry is pre-populated with the minimum set required by R10.5.
 
 use std::collections::HashMap;
@@ -61,6 +61,7 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     /// Create an empty registry.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -74,6 +75,7 @@ impl SkillRegistry {
     }
 
     /// Look up a skill by its ID.
+    #[must_use] 
     pub fn get(&self, skill_id: &str) -> Option<&SkillDescriptor> {
         self.skills.get(skill_id)
     }
@@ -84,17 +86,20 @@ impl SkillRegistry {
     }
 
     /// Number of registered skills.
+    #[must_use] 
     pub fn len(&self) -> usize {
         self.skills.len()
     }
 
     /// Whether the registry is empty.
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.skills.is_empty()
     }
 
     /// Create a registry pre-populated with the minimum skill set (R10.5):
-    /// model_linear, model_logistic, model_cox, survival_km, power, inspect.
+    /// `model_linear`, `model_logistic`, `model_cox`, `survival_km`, power, inspect.
+    #[must_use] 
     pub fn with_defaults() -> Self {
         let mut reg = Self::new();
 

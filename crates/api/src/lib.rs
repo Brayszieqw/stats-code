@@ -2,6 +2,7 @@ pub mod auth;
 mod client;
 mod error;
 mod providers;
+pub mod sidecar;
 mod sse;
 mod types;
 

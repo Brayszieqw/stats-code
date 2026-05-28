@@ -2,6 +2,13 @@
 reports/report.json
 reports/report.md
 
+# Build-rs–generated mirror of `crates/stats-code/src/coverage_matrix/matrix.toml`
+# with the live `release_version` injected (Feature: parity-and-multilang-sidecar,
+# Requirements 6.1, 6.2, 7.4 / task 1.3). Regenerated on every cargo build, so
+# committing it would create a dirty working tree on every version bump. The
+# pytest parity suite reads this file at CI runtime *after* `cargo build` runs.
+coverage_matrix.toml
+
 # Python bytecode / caches
 __pycache__/
 *.pyc

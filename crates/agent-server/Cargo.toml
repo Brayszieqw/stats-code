@@ -17,6 +17,7 @@ dev-vite = []
 
 [dependencies]
 agent-core = { path = "../agent-core" }
+api = { path = "../api" }
 async-trait = "0.1"
 axum = { version = "0.7", features = ["macros", "multipart"] }
 base64 = "0.22"

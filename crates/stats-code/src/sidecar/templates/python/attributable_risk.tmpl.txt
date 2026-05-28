@@ -1,0 +1,11 @@
+import numpy as np
+import pandas as pd
+
+data = pd.read_csv("data.csv")
+table = pd.crosstab(data["{{column.0.name}}"], data["{{column.1.name}}"]).to_numpy(dtype=float)
+risk_exposed = table[1, 1] / table[1].sum()
+risk_unexposed = table[0, 1] / table[0].sum()
+attributable_risk = float(risk_exposed - risk_unexposed)
+attributable_risk_percent = float((risk_exposed - risk_unexposed) / risk_exposed) if risk_exposed > 0 else float("nan")
+print(attributable_risk)
+print(attributable_risk_percent)

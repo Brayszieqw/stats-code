@@ -1,0 +1,22 @@
+{
+  "expected_outputs": {
+    "achieved_power": 0.801459557929,
+    "effect_size": 0.5,
+    "required_n_per_arm": 64.0
+  },
+  "input": {
+    "dataset_csv": "alpha,power,mean_diff,std\n0.05,0.8,1.0,2.0\n",
+    "spec": {
+      "alpha": 0.05,
+      "design": "two_means",
+      "mean_diff": 1.0,
+      "power": 0.8,
+      "proc_sas": "PROC POWER",
+      "std": 2.0
+    }
+  },
+  "input_dataset_sha256": "1d66f8d8e0f58a68002dc1767970320f92bbdb8d2fdebe62b9f93eddd8093ace",
+  "recording_date": "2024-08-15",
+  "software": "SAS",
+  "version": "9.4M7"
+}

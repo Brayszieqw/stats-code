@@ -1,0 +1,6 @@
+library(tableone)
+data <- read.csv("data.csv")
+vars <- c("{{column.0.name}}")
+strata <- "{{column.1.name}}"
+result <- tableone::CreateTableOne(vars = vars, strata = strata, data = data)
+print(result)

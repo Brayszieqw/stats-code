@@ -1,0 +1,10 @@
+import numpy as np
+import pandas as pd
+
+data = pd.read_csv("data.csv")
+counts = np.asarray(data["{{column.0.name}}"], dtype=float)
+populations = np.asarray(data["{{column.1.name}}"], dtype=float)
+stratum_rates = counts / populations
+weights = populations / populations.sum()
+direct_standardized_rate = float(np.sum(stratum_rates * weights))
+print(direct_standardized_rate)

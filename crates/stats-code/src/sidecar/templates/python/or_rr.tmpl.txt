@@ -1,0 +1,8 @@
+import pandas as pd
+from scipy.stats import contingency
+
+data = pd.read_csv("data.csv")
+table = pd.crosstab(data["{{column.0.name}}"], data["{{column.1.name}}"])
+result = contingency.odds_ratio(table.to_numpy())
+print(result.statistic)
+print(result.confidence_interval())

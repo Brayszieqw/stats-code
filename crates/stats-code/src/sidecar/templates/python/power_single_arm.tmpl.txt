@@ -1,0 +1,9 @@
+import pandas as pd
+from statsmodels.stats.proportion import proportions_ztest
+
+data = pd.read_csv("data.csv")
+# columns referenced for parity context: {{column.0.name}}, {{column.1.name}}
+successes = int(data["{{column.0.name}}"].sum())
+total = int(data["{{column.0.name}}"].count())
+result = proportions_ztest(count=successes, nobs=total, value=0.5)
+print(result)

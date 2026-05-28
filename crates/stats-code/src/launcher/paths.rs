@@ -22,7 +22,7 @@ use thiserror::Error;
 /// `%APPDATA%` 下用于 stats-code 的子目录名。
 pub const APP_DIR_NAME: &str = "stats-code";
 
-/// Lock_File 文件名（位于 `%APPDATA%\stats-code\` 下）。
+/// `Lock_File` 文件名（位于 `%APPDATA%\stats-code\` 下）。
 pub const LOCK_FILE_NAME: &str = "running.lock";
 
 /// LLM 配置文件名（位于 `%APPDATA%\stats-code\` 下）。
@@ -66,7 +66,7 @@ pub fn app_data_dir() -> Result<PathBuf, PathsError> {
     Ok(app_data_dir_in(&base))
 }
 
-/// 返回 Lock_File（`running.lock`）的绝对路径。
+/// 返回 `Lock_File`（`running.lock`）的绝对路径。
 ///
 /// # Errors
 /// 透传 [`app_data_dir`] 的错误。

@@ -1,0 +1,4 @@
+GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
+DATASET NAME data WINDOW=FRONT.
+KM {{column.0.name}} /STATUS={{column.1.name}}(1).
+

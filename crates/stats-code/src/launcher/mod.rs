@@ -32,16 +32,16 @@ use crate::launcher::port::ScanError;
 /// Launcher 主流程可能产生的错误，每个变体对应一个明确的进程退出码。
 ///
 /// 退出码分配（与 design.md Error Handling 表对齐）：
-/// - 2: AllPortsBusy
-/// - 3: LockIo
-/// - 4: ViteSpawnFailed
-/// - 5: ViteExitedEarly
+/// - 2: `AllPortsBusy`
+/// - 3: `LockIo`
+/// - 4: `ViteSpawnFailed`
+/// - 5: `ViteExitedEarly`
 /// - 1: Other（兜底）
 #[derive(Debug)]
 pub enum LauncherError {
     /// 端口扫描区间内所有端口均不可用 → exit 2。
     AllPortsBusy(String),
-    /// Lock_File I/O 错误 → exit 3。
+    /// `Lock_File` I/O 错误 → exit 3。
     LockIo(String),
     /// Vite 子进程启动失败（dev 模式）→ exit 4。
     ViteSpawnFailed(String),
@@ -142,8 +142,8 @@ impl Launcher {
 
     /// 启动 launcher 主流程。
     ///
-    /// 顺序：try_acquire → scan_first_bindable → 起 backend → ensure_frontend
-    /// → write_running → open browser → 阻塞等 Ctrl+C。
+    /// `顺序：try_acquire` → `scan_first_bindable` → 起 backend → `ensure_frontend`
+    /// → `write_running` → open browser → 阻塞等 Ctrl+C。
     ///
     /// 已有实例分支：直接 open(existing.url) 后退出 0。
     ///
@@ -161,8 +161,8 @@ impl Launcher {
         let outcome = lock::try_acquire(
             &lock_path,
             std::process::id(),
-            |pid| is_pid_alive(pid),
-            |url| is_port_reachable(url),
+            is_pid_alive,
+            is_port_reachable,
         )?;
 
         match outcome {
@@ -255,7 +255,7 @@ impl Launcher {
                             Err(e) => return Err(LauncherError::from(e)),
                         }
                     }
-                };
+                }
 
                 // 7. write_running
                 let record = LockFileV1::new(
@@ -448,7 +448,7 @@ impl agent_server::handlers::llm_config::LlmProbe for HttpLlmProbe {
         let url = if base_trimmed.ends_with("/models") {
             base_trimmed.to_string()
         } else {
-            format!("{}/models", base_trimmed)
+            format!("{base_trimmed}/models")
         };
 
         let client = reqwest::Client::builder()
@@ -492,7 +492,6 @@ pub enum Mode {
 /// clap 默认将枚举变体名渲染为小写形式作为 CLI 子命令名，因此此处保持
 /// 小写字符串字面量。任何对 `cli::Command` 的增删都需要同步更新此常量。
 pub const KNOWN_SUBCOMMANDS: &[&str] = &[
-    "chat",
     "config",
     "init",
     "doctor",
@@ -513,6 +512,17 @@ pub const KNOWN_SUBCOMMANDS: &[&str] = &[
     "workflow",
     "run",
     "stats",
+    // Feature: parity-and-multilang-sidecar, task 9.1.
+    // The `parity` Internal Subcommand is hidden from `--help`
+    // (Requirement 5.2) but must still route to the subcommand path so it
+    // bypasses `Launcher::run` entirely (Requirement 5.8).
+    "parity",
+    // Feature: parity-and-multilang-sidecar, task 7.1.
+    // The `replay` Internal Subcommand is hidden from `--help`
+    // (Requirement 8.3) but must still route to the subcommand path so it
+    // bypasses `Launcher::run` entirely (no port bind, no browser launch,
+    // no instance lock).
+    "replay",
 ];
 
 /// 根据进程 argv 决定走 Launcher 路径还是子命令分发路径。
@@ -647,6 +657,61 @@ mod invocation_tests {
 
             prop_assert_eq!(classify_invocation(&argv), Mode::Subcommand);
         }
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 15.2.
+    // Validates: Requirements 5.3, 5.8, 8.3, 10.3 — when argv carries the
+    // hidden `parity` Internal Subcommand, `classify_invocation` must
+    // return `Mode::Subcommand` so `main.rs` routes through `lib::run`
+    // (and ultimately `parity::run_local`) instead of `Launcher::run`.
+    // This is the "explicit not-launcher" branch the spec calls out:
+    // no `try_acquire(LockFile)`, no `scan_first_bindable`, no
+    // `open(url)` are reachable from `Mode::Subcommand`.
+    #[test]
+    fn classify_invocation_routes_parity_to_subcommand_path() {
+        let argv = vec!["stats-code".to_string(), "parity".to_string()];
+        assert_eq!(classify_invocation(&argv), Mode::Subcommand);
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 15.2.
+    // Validates: Requirements 5.3, 5.8 — `--filter <id>` after the
+    // `parity` token must not flip the dispatch back to the launcher
+    // path. `parity --filter tableone` is still a subcommand invocation
+    // and therefore bypasses `Launcher::run`.
+    #[test]
+    fn classify_invocation_routes_parity_with_filter_flag_to_subcommand_path() {
+        let argv = vec![
+            "stats-code".to_string(),
+            "parity".to_string(),
+            "--filter".to_string(),
+            "tableone".to_string(),
+        ];
+        assert_eq!(classify_invocation(&argv), Mode::Subcommand);
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 15.2.
+    // Validates: Requirements 8.3, 10.3 — when argv carries the hidden
+    // `replay` Internal Subcommand, `classify_invocation` must return
+    // `Mode::Subcommand`. Same launcher-bypass guarantee as parity:
+    // `replay <SNAPSHOT>` never reaches `Launcher::run`.
+    #[test]
+    fn classify_invocation_routes_replay_to_subcommand_path() {
+        let argv = vec![
+            "stats-code".to_string(),
+            "replay".to_string(),
+            "snapshot.zip".to_string(),
+        ];
+        assert_eq!(classify_invocation(&argv), Mode::Subcommand);
+    }
+
+    // Feature: parity-and-multilang-sidecar, task 15.2.
+    // Validates: Requirement 10.3 — empty argv (the bare
+    // `stats-code` invocation) must still route to the launcher,
+    // confirming task 15.2's wiring did not regress the no-arg path.
+    #[test]
+    fn classify_invocation_routes_empty_argv_to_launcher() {
+        let argv = vec!["stats-code".to_string()];
+        assert_eq!(classify_invocation(&argv), Mode::Launcher);
     }
 }
 
@@ -810,7 +875,7 @@ impl agent_server::state::MessageHandler for LlmConfigurableMessageHandler {
                             Err(e) => {
                                 let error_payload = agent_core::models::ErrorPayload::new(
                                     agent_core::models::ErrorCode::LlmUnavailable,
-                                    format!("LLM 配置初始化失败: {}", e),
+                                    format!("LLM 配置初始化失败: {e}"),
                                 );
                                 let events = vec![
                                     agent_core::orchestrator::AgentEvent::Error(error_payload),

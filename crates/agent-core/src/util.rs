@@ -10,8 +10,9 @@
 ///
 /// Algorithm:
 /// 1. Try to decode bytes as UTF-8. If it fails, use `String::from_utf8_lossy`
-/// 2. If the resulting string's byte length ≤ max_len, return it as-is
-/// 3. Otherwise, find the largest index ≤ max_len that is a char boundary and truncate there
+/// 2. If the resulting string's byte length ≤ `max_len`, return it as-is
+/// 3. Otherwise, find the largest index ≤ `max_len` that is a char boundary and truncate there
+#[must_use] 
 pub fn stderr_excerpt(bytes: &[u8], max_len: usize) -> String {
     let s = match std::str::from_utf8(bytes) {
         Ok(valid) => valid.to_owned(),
@@ -31,7 +32,8 @@ pub fn stderr_excerpt(bytes: &[u8], max_len: usize) -> String {
     s[..end].to_owned()
 }
 
-/// Convenience wrapper with default max_len of 4096 bytes.
+/// Convenience wrapper with default `max_len` of 4096 bytes.
+#[must_use] 
 pub fn stderr_excerpt_default(bytes: &[u8]) -> String {
     stderr_excerpt(bytes, 4096)
 }

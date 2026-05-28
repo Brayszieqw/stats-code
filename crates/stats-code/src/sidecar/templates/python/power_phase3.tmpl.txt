@@ -1,0 +1,8 @@
+import pandas as pd
+from statsmodels.stats.power import TTestIndPower
+
+data = pd.read_csv("data.csv")
+# columns referenced for parity context: {{column.0.name}}, {{column.1.name}}
+analysis = TTestIndPower()
+result = analysis.solve_power(effect_size=0.5, alpha=0.05, power=0.80, ratio=1.0)
+print(result)

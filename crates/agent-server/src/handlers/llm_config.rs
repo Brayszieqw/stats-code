@@ -104,7 +104,7 @@ pub async fn get_llm_status(State(state): State<AppState>) -> Json<LlmStatusResp
 /// 测试注入 mock。
 #[async_trait::async_trait]
 pub trait LlmProbe: Send + Sync {
-    /// 使用给定的 provider + api_key + base_url + model 发起一次连通性探测。
+    /// 使用给定的 provider + `api_key` + `base_url` + model 发起一次连通性探测。
     /// Ok(()) → key 有效；Err(msg) → key 无效或网络不通。
     async fn probe(
         &self,
@@ -133,7 +133,7 @@ pub struct LlmProbeFailedResponse {
 
 /// 核心业务逻辑：探测后决定是否落盘。
 ///
-/// - `probe` Ok → 写入 config_store 并返回 `Ok(())`
+/// - `probe` Ok → 写入 `config_store` 并返回 `Ok(())`
 /// - `probe` Err → 不写入并返回 `Err(message)`
 ///
 /// 这是纯服务函数，不直接操作 HTTP。

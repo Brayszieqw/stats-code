@@ -1,0 +1,5 @@
+library(epiR)
+data <- read.csv("data.csv")
+tab <- table(data[["{{column.0.name}}"]], data[["{{column.1.name}}"]])
+result <- epiR::epi.2by2(dat = tab, method = "cohort.count")
+print(result)

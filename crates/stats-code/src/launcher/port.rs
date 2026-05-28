@@ -24,7 +24,7 @@ pub struct ScanRange {
     pub end_exclusive: u16,
 }
 
-/// Stats_Code_Launcher 的默认扫描区间 `8080..8200`。
+/// `Stats_Code_Launcher` 的默认扫描区间 `8080..8200`。
 pub const DEFAULT_RANGE: ScanRange = ScanRange {
     start: 8080,
     end_exclusive: 8200,

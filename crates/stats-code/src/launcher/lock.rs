@@ -1,4 +1,4 @@
-//! Lock_File 单实例守护骨架。
+//! `Lock_File` 单实例守护骨架。
 //!
 //! 本文件目前实现 `LockFileV1` schema 与其 (de)serialize 助手（task 3.2）；
 //! `try_acquire` / `write_running` / RAII drop 行为在 task 3.5、3.6 中补齐，
@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Lock_File 当前 schema 版本号。读到不一致时视为 stale。
+/// `Lock_File` 当前 schema 版本号。读到不一致时视为 stale。
 pub const LOCK_SCHEMA_VERSION: u32 = 1;
 
-/// Lock_File 持久化结构体（详见 design.md Data Models 节）。
+/// `Lock_File` 持久化结构体（详见 design.md Data Models 节）。
 ///
 /// 字段语义：
 /// - `schema_version`：当前固定为 [`LOCK_SCHEMA_VERSION`]，反序列化时不匹配视为
@@ -32,7 +32,7 @@ pub struct LockFileV1 {
 }
 
 impl LockFileV1 {
-    /// 按当前 schema 版本构造一条 Lock_File 记录。
+    /// 按当前 schema 版本构造一条 `Lock_File` 记录。
     #[must_use]
     pub fn new(
         pid: u32,
@@ -52,15 +52,15 @@ impl LockFileV1 {
     /// 序列化为单行紧凑 JSON 字符串。落盘时由 `write_running` 调用。
     ///
     /// # Errors
-    /// 仅在 serde_json 内部错误（实际上 `LockFileV1` 不含会触发失败的字段，
+    /// 仅在 `serde_json` 内部错误（实际上 `LockFileV1` 不含会触发失败的字段，
     /// 任何错误都视为 I/O 异常）发生时返回 [`LockError::Io`]。
     pub fn to_json(&self) -> Result<String, LockError> {
         serde_json::to_string(self).map_err(|err| {
-            LockError::Io(io::Error::new(io::ErrorKind::Other, err))
+            LockError::Io(io::Error::other(err))
         })
     }
 
-    /// 从 Lock_File 文本反序列化。
+    /// 从 `Lock_File` 文本反序列化。
     ///
     /// 本函数把以下两类失败统一映射为 [`LockError::ParseStale`]：
     /// - JSON 语法错误（文件内容损坏）；
@@ -83,7 +83,7 @@ impl LockFileV1 {
     }
 }
 
-/// Lock_File RAII 句柄；drop 时尝试删除自身写入的文件。
+/// `Lock_File` RAII 句柄；drop 时尝试删除自身写入的文件。
 ///
 /// 调用方在获取 `Acquired(handle)` 后应先调用 [`write_running`] 把当前实例
 /// 的 PID/URL 写入磁盘，再持有 handle 直到主进程关闭。Drop 时自动删除文件，
@@ -96,7 +96,7 @@ pub struct LockHandle {
 }
 
 impl LockHandle {
-    /// 把当前运行实例的信息写入 Lock_File（落盘 JSON）。
+    /// 把当前运行实例的信息写入 `Lock_File（落盘` JSON）。
     ///
     /// # Errors
     /// 当写入文件系统失败时返回 [`LockError::Io`]。
@@ -131,12 +131,12 @@ pub enum AcquireOutcome {
     Existing { url: String, pid: u32 },
 }
 
-/// Lock_File 操作错误。
+/// `Lock_File` 操作错误。
 #[derive(Debug)]
 pub enum LockError {
     /// 与 `%APPDATA%` 文件系统交互失败。
     Io(io::Error),
-    /// Lock_File 内容损坏 / `schema_version` 不匹配，应视为 stale 处理。
+    /// `Lock_File` 内容损坏 / `schema_version` 不匹配，应视为 stale 处理。
     ParseStale(String),
 }
 
@@ -164,11 +164,11 @@ impl From<io::Error> for LockError {
     }
 }
 
-/// 尝试获取 Lock_File。
+/// 尝试获取 `Lock_File`。
 ///
-/// 行为（与 design.md「Lock_File 状态机」对齐）：
+/// 行为（与 `design.md「Lock_File` 状态机」对齐）：
 /// - 文件不存在 → `Acquired(handle)`
-/// - 解析失败（JSON 损坏 / schema_version 不匹配）→ 删除并 `Acquired(handle)`
+/// - 解析失败（JSON 损坏 / `schema_version` 不匹配）→ 删除并 `Acquired(handle)`
 /// - 解析成功且 alive → `Existing { url, pid }`
 /// - 解析成功但 stale（pid 不存活或端口不可达）→ 删除并 `Acquired(handle)`
 ///
@@ -233,7 +233,7 @@ where
     }
 }
 
-/// 纯逻辑判定一条 Lock_File 记录是否仍然存活（布尔输入版本）。
+/// 纯逻辑判定一条 `Lock_File` 记录是否仍然存活（布尔输入版本）。
 ///
 /// 真值表：`pid_alive ∧ port_open`，即两个证据缺一就视为 stale（详见
 /// design.md「单实例只信『PID + 端口可达』联合证据」与 Requirement 8.2）。

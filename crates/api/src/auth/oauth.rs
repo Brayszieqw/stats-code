@@ -336,7 +336,7 @@ fn generate_random_token(bytes: usize) -> io::Result<String> {
 }
 
 fn fill_random_bytes(buffer: &mut [u8]) -> io::Result<()> {
-    getrandom::getrandom(buffer).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+    getrandom::getrandom(buffer).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn credentials_home_dir() -> io::Result<PathBuf> {

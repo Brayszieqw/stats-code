@@ -17,7 +17,7 @@ pub(crate) use paths::{
 #[allow(unused_imports)]
 pub(crate) use auth::{
     auth_provider_from_kind, handle_auth_doctor, handle_auth_set, has_non_empty_env,
-    load_auth_store, parse_auth_provider_name, save_auth_store, supported_auth_providers,
+    load_auth_store, save_auth_store, supported_auth_providers,
     StoredAuthStore, StoredProviderCredential,
 };
 
@@ -38,9 +38,7 @@ pub(crate) use settings::{load_stats_code_settings, save_stats_code_settings, St
 
 // pricing.rs
 #[allow(unused_imports)]
-pub(crate) use pricing::{
-    estimate_session_cost_usd, ChatUsageTotals, ModelPricing, SavedChatSession,
-};
+pub(crate) use pricing::ModelPricing;
 
 // ai_provider.rs
 #[allow(unused_imports)]

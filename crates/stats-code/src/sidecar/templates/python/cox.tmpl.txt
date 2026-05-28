@@ -1,0 +1,7 @@
+import pandas as pd
+from lifelines import CoxPHFitter
+
+data = pd.read_csv("data.csv")
+fitter = CoxPHFitter()
+fitter.fit(data, duration_col="{{column.0.name}}", event_col="{{column.1.name}}")
+print(fitter.summary)

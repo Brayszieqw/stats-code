@@ -1,0 +1,9 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc stdrate data=work.data
+             refdata=work.data
+             method=direct
+             stat=rate(mult=100000);
+   population event={{column.0.name}} total={{column.1.name}};
+   reference  event={{column.0.name}} total={{column.1.name}};
+run;

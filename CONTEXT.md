@@ -115,9 +115,10 @@
 
 ## 历史用法（已废弃）
 
-- `start.ps1` 双窗口启动脚本 → **删除**，由 `stats-code` 单命令取代
-- `package-release.ps1` 旧版打包（只装 CLI 不带前端）→ **删除**，由新的 `release.ps1` 重写
-- 公开的 `stats-code init / doctor / workflow run / chat` 用法 → 用户不再直接敲，但代码保留供 `SkillInvoker::StatsCli` 内部使用
+- `start.ps1` 双窗口启动脚本 → **已删除**，由 `stats-code` 单命令取代
+- `package-release.ps1` 旧版打包（只装 CLI 不带前端）→ **已删除**，由新的 `release.ps1` 重写
+- 公开的 `stats-code init / doctor / workflow run` 用法 → 用户不再直接敲，但代码保留供 `SkillInvoker::StatsCli` 内部使用
+- `stats-code chat` 终端 REPL → **已删除**（v0.x），chat 模块与 ui/ TUI 子系统一并移除；`SkillInvoker::StatsCli` 注册表不调用 chat 子命令
 
 ## Spec 位置
 

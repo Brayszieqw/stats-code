@@ -1,0 +1,6 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc ttest data=work.data;
+   class {{column.1.name}};
+   var {{column.0.name}};
+run;

@@ -1,4 +1,4 @@
-//! Agent_Backend 启动骨架（占位）。
+//! `Agent_Backend` 启动骨架（占位）。
 //!
 //! 真正的实现在 task 2.3 / 2.5 / 8.1 中完成；当前仅声明纯函数 / 防御性
 //! 校验的签名，让模块树编译。
@@ -11,7 +11,7 @@ use std::net::TcpListener;
 pub enum RunMode {
     /// prod：前端通过 rust-embed 内嵌伺服。
     Prod,
-    /// dev：前端通过外部 Vite_Dev_Server 子进程提供。
+    /// dev：前端通过外部 `Vite_Dev_Server` 子进程提供。
     Dev,
 }
 
@@ -20,17 +20,17 @@ pub enum RunMode {
 /// 纯函数：根据 [`RunMode`] 与实际 bind 的 backend 端口（`port`，即
 /// design.md 中的 `Actual_Port`）拼出展示给用户的启动日志。
 ///
-/// - **prod**：用户可见 URL 即 Agent_Backend URL，形如
+/// - **prod**：用户可见 URL 即 `Agent_Backend` URL，形如
 ///   `http://127.0.0.1:<port>/`。
-/// - **dev**：用户可见 URL 是 Vite_Dev_Server 的 `http://127.0.0.1:5173/`
+/// - **dev**：用户可见 URL 是 `Vite_Dev_Server` 的 `http://127.0.0.1:5173/`
 ///   （由 `npm run dev` 默认监听端口，并把 `/api/*` 反代到 backend），
 ///   backend 端口仅作信息性标注随后附上。
 ///
-/// 该函数被 design.md 的 *Property 3: 启动 URL 与日志包含 Actual_Port*
+/// 该函数被 design.md 的 *Property 3: 启动 URL 与日志包含 `Actual_Port`*
 /// 约束：用 `url::Url::parse` 解析返回值中第一个出现的 URL 时
-/// - host_str 必为 `Some("127.0.0.1")`
+/// - `host_str` 必为 `Some("127.0.0.1")`
 /// - path 必为 `"/"`
-/// - port_or_known_default 必为 `Some(port)`（prod）或 `Some(5173)`（dev）
+/// - `port_or_known_default` 必为 `Some(port)`（prod）或 `Some(5173)`（dev）
 ///
 /// _Validates: Requirements 1.5, 4.4, 5.1, 5.2_
 #[must_use]
@@ -50,7 +50,7 @@ pub fn format_ready_line(port: u16, mode: RunMode) -> String {
     }
 }
 
-/// 启动 Agent_Backend（占位）。
+/// 启动 `Agent_Backend（占位`）。
 ///
 /// # Errors
 /// 真实实现会把 `axum::serve` 的运行错误回传。当前占位实现立即返回 `Ok(())`

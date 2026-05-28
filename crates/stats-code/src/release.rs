@@ -7,13 +7,14 @@
 //! The PowerShell mirror lives at `scripts/lib/archive-name.ps1` and must
 //! produce a byte-identical filename for the same input version string.
 
-/// Returns the Distribution_Archive filename for the given version.
+/// Returns the `Distribution_Archive` filename for the given version.
 ///
 /// Template: `stats-code-{version}-windows-x64.zip`.
 ///
 /// This helper performs no validation on `version`; callers (e.g. the
 /// release script) are responsible for supplying a value that matches the
 /// `crates/stats-code` Cargo version.
+#[must_use] 
 pub fn archive_name(version: &str) -> String {
     format!("stats-code-{version}-windows-x64.zip")
 }

@@ -64,10 +64,10 @@ pub struct Base64DatasetRequest {
 /// 2. Validate file extension (csv, tsv, xlsx, xls)
 /// 3. Validate file size ≤ 50 MB
 /// 4. Check session upload quota (≤ 200 MB total)
-/// 5. Save raw file via DatasetStore
+/// 5. Save raw file via `DatasetStore`
 /// 6. Parse dataset
 /// 7. Validate parsed dataset is non-empty
-/// 8. Return DatasetSummary
+/// 8. Return `DatasetSummary`
 pub async fn post_dataset(
     State(state): State<AppState>,
     Path(sid): Path<Uuid>,
@@ -143,8 +143,7 @@ pub async fn post_dataset(
         return Err(AppError(ErrorPayload {
             error_code: ErrorCode::DatasetTooLarge,
             message: format!(
-                "数据文件过大：文件大小 {} 字节，超过上限 {} 字节",
-                file_size, MAX_FILE_SIZE
+                "数据文件过大：文件大小 {file_size} 字节，超过上限 {MAX_FILE_SIZE} 字节"
             ),
             details: None,
         }));
@@ -204,7 +203,7 @@ pub async fn post_dataset(
 
 /// `GET /api/sessions/:sid/datasets/:did` — retrieve a dataset summary.
 ///
-/// Returns the DatasetSummary for a previously uploaded dataset within a session.
+/// Returns the `DatasetSummary` for a previously uploaded dataset within a session.
 pub async fn get_dataset(
     State(state): State<AppState>,
     Path((sid, did)): Path<(Uuid, Uuid)>,

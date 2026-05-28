@@ -1,0 +1,6 @@
+proc import datafile="data.csv" out=work.data dbms=csv replace; run;
+
+proc logistic data=work.data;
+   model {{column.0.name}}(event='1') = {{column.1.name}} / outroc=roc;
+   roc;
+run;

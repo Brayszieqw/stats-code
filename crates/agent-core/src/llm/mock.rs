@@ -37,6 +37,7 @@ impl MockLlm {
     ///
     /// Each call to `chat_stream` pops the next response from the front.
     /// If the queue is empty, `LlmError::Unavailable` is returned.
+    #[must_use] 
     pub fn new(responses: Vec<MockLlmResponse>) -> Self {
         Self {
             responses: Arc::new(Mutex::new(VecDeque::from(responses))),
@@ -44,6 +45,7 @@ impl MockLlm {
     }
 
     /// Convenience constructor: each text becomes a `[TextDelta(text), Done]` stream.
+    #[must_use] 
     pub fn with_texts(texts: Vec<&str>) -> Self {
         let responses = texts
             .into_iter()
@@ -58,6 +60,7 @@ impl MockLlm {
     }
 
     /// Returns how many responses remain in the queue.
+    #[must_use] 
     pub fn remaining(&self) -> usize {
         self.responses.lock().unwrap().len()
     }

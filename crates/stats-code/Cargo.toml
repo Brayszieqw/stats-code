@@ -26,14 +26,15 @@ csv = "1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml = "0.9"
+# Round-trip-preserving YAML parser for `workflow.yaml` inside Audit Snapshots
+# (Feature: parity-and-multilang-sidecar, task 5.1). serde_yaml above does not
+# preserve comments / key order / whitespace, so it cannot satisfy the
+# byte-identical round-trip contract of Requirement 11.4. yaml-rust2 exposes a
+# raw token / event stream that lets us rebuild the original byte sequence.
+yaml-rust2 = "=0.11.0"
 thiserror = "2"
 toml = "0.8"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-colored = "3.1.1"
-rustyline = "15"
-crossterm = "0.28"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
-icy_sixel = "0.1"
 calamine = "0.34.0"
 tempfile = "3"
 # 解析 `%APPDATA%` 等平台标准目录（Requirement 8.1, 9.4），
@@ -61,13 +62,28 @@ mime_guess = "2"
 # `Win32_System_JobObjects` 提供 CreateJobObjectW / SetInformationJobObject /
 # AssignProcessToJobObject 与 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 等常量；
 # `Win32_System_Threading` 提供进程句柄相关定义；
-# `Win32_Foundation` 提供 HANDLE / BOOL / CloseHandle 等基本类型与 API。
+# `Win32_Foundation` 提供 HANDLE / BOOL / CloseHandle 等基本类型与 API；
+# `Win32_Security` 是 windows-sys 0.59 中 CreateJobObjectW / CreateJobObjectA
+# 函数签名（参数 `*const SECURITY_ATTRIBUTES`）所需的 feature gate。0.61 把
+# 该 gate 移除了，但目前我们锁定 0.59 仍需显式启用，否则 process_guard 模块
+# 无法解析符号。
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
 ] }
+
+[build-dependencies]
+# Build-time TOML parsing for the Algorithm Coverage Matrix presence guard
+# (Feature: parity-and-multilang-sidecar, task 2.1, Requirement 2.2).
+# `build.rs` reads `src/coverage_matrix/matrix.toml` and asserts that every
+# (algorithm × software) cell whose `coverage` ∈ {live, recorded, sidecar_only}
+# has a matching `src/sidecar/templates/<software>/<id>.tmpl.txt` file, and
+# that every `none` cell has *no* such file. Pinning the same major version
+# the runtime dep already uses keeps the lockfile entry shared.
+toml = "0.8"
 
 [dev-dependencies]
 proptest = "1"

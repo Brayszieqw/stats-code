@@ -1,0 +1,25 @@
+{
+  "expected_outputs": {
+    "log_odds_ratio": 0.810930216216,
+    "odds_ratio": 2.25,
+    "or_ci_lower": 0.994279971565,
+    "or_ci_upper": 5.09162423541,
+    "relative_risk": 2.0,
+    "risk_exposed": 0.2,
+    "risk_unexposed": 0.1,
+    "se_log_odds_ratio": 0.416666666667
+  },
+  "input": {
+    "dataset_csv": "exposed,outcome\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,1\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n1,0\n0,1\n0,1\n0,1\n0,1\n0,1\n0,1\n0,1\n0,1\n0,1\n0,1\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n0,0\n",
+    "spec": {
+      "exposure_col": "exposed",
+      "outcome_col": "outcome",
+      "proc_sas": "PROC FREQ /CMH",
+      "proc_spss": "CROSSTABS /STATISTICS=RISK CMH"
+    }
+  },
+  "input_dataset_sha256": "83d920994eb87689beeb884c3312c69f272bb5e9153446e0d723dcb4ed87d5c2",
+  "recording_date": "2024-08-15",
+  "software": "SAS",
+  "version": "9.4M7"
+}

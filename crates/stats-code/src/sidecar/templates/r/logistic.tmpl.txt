@@ -1,0 +1,7 @@
+data <- read.csv("data.csv")
+fit <- stats::glm(
+  {{column.0.name}} ~ {{column.1.name}},
+  family = binomial(link = "logit"),
+  data = data
+)
+print(summary(fit))

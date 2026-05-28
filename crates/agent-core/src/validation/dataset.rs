@@ -7,6 +7,7 @@ use crate::models::{DatasetSummary, ErrorCode, ErrorPayload};
 /// Returns `true` iff the file extension (case-insensitive) is in { csv, tsv, xlsx, xls }.
 ///
 /// The extension is extracted from the last `.` in `name`.
+#[must_use] 
 pub fn is_supported_dataset_extension(name: &str) -> bool {
     let ext = match name.rsplit('.').next() {
         Some(e) if name.contains('.') => e,
@@ -23,14 +24,14 @@ pub fn validate_dataset_size(size_bytes: u64, row_count: u64) -> Result<(), Erro
     if size_bytes > MAX_SIZE {
         return Err(ErrorPayload {
             error_code: ErrorCode::DatasetTooLarge,
-            message: format!("数据文件过大：文件大小 {} 字节，超过上限 {} 字节", size_bytes, MAX_SIZE),
+            message: format!("数据文件过大：文件大小 {size_bytes} 字节，超过上限 {MAX_SIZE} 字节"),
             details: None,
         });
     }
     if row_count > MAX_ROWS {
         return Err(ErrorPayload {
             error_code: ErrorCode::DatasetTooLarge,
-            message: format!("数据文件过大：行数 {}，超过上限 {} 行", row_count, MAX_ROWS),
+            message: format!("数据文件过大：行数 {row_count}，超过上限 {MAX_ROWS} 行"),
             details: None,
         });
     }

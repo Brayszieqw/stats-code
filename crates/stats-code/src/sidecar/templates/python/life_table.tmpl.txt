@@ -1,0 +1,9 @@
+import pandas as pd
+from lifelines.utils import survival_table_from_events
+
+data = pd.read_csv("data.csv")
+result = survival_table_from_events(
+    death_times=data["{{column.0.name}}"],
+    event_observed=data["{{column.1.name}}"],
+)
+print(result)

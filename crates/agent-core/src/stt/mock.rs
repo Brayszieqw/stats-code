@@ -37,6 +37,7 @@ impl MockStt {
     ///
     /// Each call to `transcribe` pops the next response from the front.
     /// If the queue is empty, `SttError::Unavailable` is returned.
+    #[must_use] 
     pub fn new(responses: Vec<MockSttResponse>) -> Self {
         Self {
             responses: Arc::new(Mutex::new(VecDeque::from(responses))),
@@ -44,6 +45,7 @@ impl MockStt {
     }
 
     /// Convenience constructor: single successful response.
+    #[must_use] 
     pub fn with_text(text: &str, confidence: f32) -> Self {
         Self::new(vec![MockSttResponse::Ok {
             text: text.to_string(),
@@ -52,6 +54,7 @@ impl MockStt {
     }
 
     /// Returns how many responses remain in the queue.
+    #[must_use] 
     pub fn remaining(&self) -> usize {
         self.responses.lock().unwrap().len()
     }

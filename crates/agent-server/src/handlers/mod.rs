@@ -1,10 +1,13 @@
 //! HTTP request handlers for the agent server.
 
 pub mod audio;
+pub mod coverage;
 pub mod dataset;
 pub mod llm_config;
 pub mod message;
 pub mod session;
+pub mod sidecar;
+pub mod snapshot;
 
 /// Prod 模式静态资源 handler（Requirement 6.2 / 6.3）。
 ///

@@ -1,0 +1,11 @@
+import pandas as pd
+from sklearn.metrics import roc_curve
+
+data = pd.read_csv("data.csv")
+fpr, tpr, thresholds = roc_curve(
+    y_true=data["{{column.0.name}}"],
+    y_score=data["{{column.1.name}}"],
+)
+print(fpr)
+print(tpr)
+print(thresholds)

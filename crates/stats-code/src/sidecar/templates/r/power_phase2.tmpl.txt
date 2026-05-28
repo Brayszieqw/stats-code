@@ -1,0 +1,5 @@
+library(clinfun)
+data <- read.csv("data.csv")
+# columns referenced for parity context: {{column.0.name}}, {{column.1.name}}
+result <- clinfun::ph2simon(pu = 0.20, pa = 0.40, ep1 = 0.05, ep2 = 0.20)
+print(result)

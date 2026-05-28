@@ -49,3 +49,35 @@ struct_excessive_bools = "allow"
 items_after_statements = "allow"
 # clap Args types are passed by value by design
 needless_pass_by_value = "allow"
+# Statistical functions naturally have many parameters (data, columns, alpha, strategy, ...)
+too_many_arguments = "allow"
+# Math code uses short similar variable names (x, xi, x_bar, x_sq) by convention
+similar_names = "allow"
+# match arms that return the same value are often clearer written out explicitly
+# for exhaustiveness documentation in dispatch/render functions
+match_same_arms = "allow"
+# Statistics code uses index-based loops for matrix/vector algorithms where
+# enumerate() would obscure the math
+needless_range_loop = "allow"
+# format!() + push_str is sometimes clearer than write!() in report builders
+format_push_string = "allow"
+# `let x = match ... { ... None => return ... }` patterns are common in early-return
+# heavy statistical validation code; `let else` is newer syntax not universally preferred
+manual_let_else = "allow"
+# Variables prefixed with _ are sometimes used for documentation purposes in match arms
+used_underscore_binding = "allow"
+# Complex future/stream return types in async trait impls are unavoidable without TAIT
+type_complexity = "allow"
+# manual_assert: build.rs uses if + panic! with multi-line format strings that
+# read better than assert!() for build-time diagnostics
+manual_assert = "allow"
+# if_same_then_else: UTF-8 codepoint length functions intentionally separate
+# the < 0x80 and < 0xC0 branches for documentation clarity
+if_same_then_else = "allow"
+# missing_fields_in_debug: HTTP client fields are intentionally excluded from Debug
+missing_fields_in_debug = "allow"
+# unused_self: methods that will gain state access in future iterations
+unused_self = "allow"
+# unnecessary_wraps: Result return types kept for API consistency even when
+# the function currently cannot fail
+unnecessary_wraps = "allow"

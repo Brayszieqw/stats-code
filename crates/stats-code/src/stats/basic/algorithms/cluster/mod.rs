@@ -276,7 +276,7 @@ fn kmeans(data: &[Vec<f64>], k: usize, mut seed: u64) -> (Vec<usize>, Vec<Vec<f6
                 for j in 0..p {
                     sums[cluster][j] /= counts[cluster] as f64;
                 }
-                centroids[cluster] = sums[cluster].clone();
+                centroids[cluster].clone_from(&sums[cluster]);
             }
         }
         if !changed {

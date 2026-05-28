@@ -6,9 +6,9 @@
 //!    or `AGENT_CONFIG` env var. Falls back to mem-only no-LLM mode for
 //!    development if `AGENT_DEV_NO_LLM=1` and no config file is present.
 //! 3. Validate LLM configuration eagerly (R13.6) — abort with non-zero exit
-//!    code on missing/invalid api_key, base_url, or model.
-//! 4. Wire up SessionStore, DatasetStore, SkillRunner, LlmProvider, and
-//!    AgentOrchestrator into AppState.
+//!    code on missing/invalid `api_key`, `base_url`, or model.
+//! 4. Wire up `SessionStore`, `DatasetStore`, `SkillRunner`, `LlmProvider`, and
+//!    `AgentOrchestrator` into `AppState`.
 //! 5. Build router and serve.
 
 use std::path::PathBuf;
@@ -74,13 +74,10 @@ async fn main() -> ExitCode {
 
     // 3. Bind addr / concurrency from config or defaults
     let bind_addr = config
-        .as_ref()
-        .map(|c| c.server.bind.clone())
-        .unwrap_or_else(|| "0.0.0.0:8080".to_string());
+        .as_ref().map_or_else(|| "0.0.0.0:8080".to_string(), |c| c.server.bind.clone());
     let concurrency_threshold = config
         .as_ref()
-        .map(|c| c.server.max_concurrent_sessions)
-        .unwrap_or(50);
+        .map_or(50, |c| c.server.max_concurrent_sessions);
 
     // 4. Build SessionStore
     let session_store: Arc<dyn SessionStore> = match &config {
@@ -211,9 +208,10 @@ fn resolve_config_path() -> Option<PathBuf> {
     None
 }
 
-/// Build a SessionStore from the config string.
+/// Build a `SessionStore` from the config string.
 /// - "mem"            → in-memory store (development)
 /// - "sled:<path>"    → sled-backed persistent store
+#[allow(clippy::unused_async)] // kept async for future sled async initialization
 async fn build_session_store(spec: &str) -> Result<Arc<dyn SessionStore>, String> {
     if spec == "mem" {
         return Ok(Arc::new(MemSessionStore::new()));

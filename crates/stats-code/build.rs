@@ -512,8 +512,7 @@ fn emit_runtime_deps(manifest_dir: &Path, out_dir: &Path) {
     let deps = stats_code
         .get("dependencies")
         .and_then(|v| v.as_array())
-        .map(|a| a.as_slice())
-        .unwrap_or(&[]);
+        .map_or(&[][..], Vec::as_slice);
 
     let mut runtime_deps: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();

@@ -679,7 +679,7 @@ fn find_missing_args(desc: &SkillDescriptor, resolved_args: &Value) -> Vec<Strin
         .filter(|arg| {
             resolved_obj
                 .and_then(|obj| obj.get(arg.as_str()))
-                .map_or(true, serde_json::Value::is_null)
+                .is_none_or(serde_json::Value::is_null)
         })
         .collect()
 }

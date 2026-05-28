@@ -278,13 +278,13 @@ impl Launcher {
                 browser::open(&public_url, self.args.no_browser, &mut stdout)?;
 
                 // 10. 阻塞等 Ctrl+C（dev 模式下同时监听 Vite 早退）
-                if _frontend_guard.is_some() {
+                if let Some(ref guard) = _frontend_guard {
                     // Dev 模式：spawn 一个线程监听 Vite 子进程退出
                     let (vite_exit_tx, vite_exit_rx) = std::sync::mpsc::channel::<()>();
                     // 注意：_frontend_guard 持有 ProcessGuard，但 wait_child 需要
                     // &mut self。由于 ProcessGuard 的 child stdout/stderr 已被 take，
                     // child.wait() 仅等待 OS handle。这里通过子线程监听 child pid 退出。
-                    let vite_pid = _frontend_guard.as_ref().unwrap().child_pid();
+                    let vite_pid = guard.child_pid();
                     std::thread::Builder::new()
                         .name("vite-exit-monitor".into())
                         .spawn(move || {

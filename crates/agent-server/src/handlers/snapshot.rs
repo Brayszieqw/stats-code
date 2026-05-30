@@ -196,6 +196,10 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error_code"], "RunNotCompleted");
         assert_eq!(v["actual_status"], "running");
+        assert!(
+            v["message"].as_str().unwrap().contains("running"),
+            "message should contain the actual status"
+        );
     }
 
     #[tokio::test]
@@ -222,6 +226,10 @@ mod tests {
         assert_eq!(v["error_code"], "PayloadTooLarge");
         assert_eq!(v["measured_bytes"], 60 * 1024 * 1024);
         assert_eq!(v["ceiling_bytes"], 50 * 1024 * 1024);
+        assert!(
+            v["message"].as_str().unwrap().contains("exceeds"),
+            "message should describe the ceiling violation"
+        );
     }
 
     #[tokio::test]

@@ -240,13 +240,18 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error_code"], "UnknownAlgorithm");
         assert_eq!(v["algorithm_id"], "does-not-exist");
+        assert!(
+            v["message"].as_str().unwrap().contains("does-not-exist"),
+            "message should reference the unknown id"
+        );
     }
 
     #[tokio::test]
     async fn returns_400_for_invalid_software_query_token() {
         // axum's Query extractor rejects unknown enum tags with 400;
-        // we just confirm the contract surfaces that as 400 rather than
-        // reaching the provider.
+        // we confirm the contract surfaces that as 400 rather than
+        // reaching the provider, and that the body contains a useful
+        // indication of the rejected value.
         let mut state = AppState::new(Arc::new(MemSessionStore::new()));
         state.sidecar_provider = Some(Arc::new(FixedProvider(Ok(live_snippet()))));
         let app = build_app(state);
@@ -262,6 +267,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // The rejection body should mention the problematic value so
+        // the caller can diagnose the issue (Requirement 1.3).
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.is_empty(),
+            "400 response body must not be empty"
+        );
+        // axum's Query rejection includes the unknown variant and the
+        // set of valid values, which is sufficient for diagnosis.
+        assert!(
+            body.contains("Octave"),
+            "400 body should reference the rejected value 'Octave': {body}"
+        );
+        assert!(
+            body.contains("R") && body.contains("SAS") && body.contains("Python") && body.contains("SPSS"),
+            "400 body should list valid software values: {body}"
+        );
     }
 
     #[tokio::test]

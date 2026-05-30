@@ -659,3 +659,289 @@ mod tests {
         }
     }
 }
+
+/// Syntactic-shape unit tests for every (algorithm × software) template
+/// (task 3.5).
+///
+/// For each covered cell — i.e. every `(algorithm_id, software)` whose
+/// matrix coverage value is **not** `none` — we render a snippet with a
+/// fixed deterministic input and assert the rendered `Snippet.text`
+/// embeds the contractually required tokens:
+///
+/// 1. the literal `data.csv`,
+/// 2. the supplied 64-hex lowercase `dataset_sha256`,
+/// 3. every input column name, and
+/// 4. the matrix-recorded primary identifier for that cell (the callable
+///    for R / Python, the `PROC` / command for SAS / SPSS), plus the
+///    recorded package where one is applicable.
+///
+/// No R / SAS / Python / SPSS runtime is ever spawned — these are pure
+/// static string assertions over the generated text. The walk is driven
+/// off [`CoverageMatrix::get_loaded`], so adding a new algorithm to the
+/// matrix automatically extends this coverage with no edits here.
+///
+/// _Requirements: 2.2, 2.5_
+#[cfg(test)]
+mod template_shape_tests {
+    use super::*;
+    use crate::coverage_matrix::ReferenceImpl;
+
+    /// Canonical 64-hex lowercase SHA256 fixture (deterministic input).
+    const SHA256: &str =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    /// All four reference softwares, canonical order.
+    const SOFTWARES: [ReferenceSoftware; 4] = [
+        ReferenceSoftware::R,
+        ReferenceSoftware::SAS,
+        ReferenceSoftware::Python,
+        ReferenceSoftware::SPSS,
+    ];
+
+    /// Fixed deterministic column set: two columns named `outcome` and
+    /// `group`. Every wave-1 template references at most
+    /// `{{column.0.…}}` and `{{column.1.…}}`, so two columns are
+    /// sufficient for all of them to render without a column-index error.
+    fn fixed_columns() -> Vec<Column> {
+        vec![
+            Column {
+                name: "outcome".into(),
+                dtype: ColumnDtype::Numeric,
+            },
+            Column {
+                name: "group".into(),
+                dtype: ColumnDtype::Categorical,
+            },
+        ]
+    }
+
+    /// Case-insensitive substring test. SAS / SPSS templates spell their
+    /// procedures in a different case than the uppercase matrix tokens
+    /// (e.g. matrix `PROC FREQ` vs template `proc freq`), so identifier
+    /// matching is case-folded.
+    fn contains_ci(haystack: &str, needle: &str) -> bool {
+        haystack
+            .to_ascii_lowercase()
+            .contains(&needle.to_ascii_lowercase())
+    }
+
+    /// Primary identifier token(s) that MUST appear in the rendered body
+    /// for a cell, derived from its [`ReferenceImpl`].
+    ///
+    /// The matrix records a *decorated* identifier (fully-qualified dotted
+    /// path, `PROC X /OPTION`, multi-statement `A;B`) that the template
+    /// abbreviates. We therefore extract the stable primary token(s):
+    ///
+    /// * **R** — the callable is written `pkg::fn` and appears verbatim,
+    ///   so the whole callable is the token.
+    /// * **Python** — the template imports/uses the *leaf* symbol; the
+    ///   fully-qualified path is abbreviated (e.g. `scipy.stats.ttest_ind`
+    ///   → `stats.ttest_ind`). Three cells record `manual` (a hand-rolled
+    ///   numpy/scipy implementation with no library callable); for those
+    ///   the callable cannot appear, so we fall back to the recorded
+    ///   package, which the template always imports.
+    /// * **SAS** — `PROC <NAME>` for each `;`-separated procedure. Trailing
+    ///   options (`/CMH`, `METHOD=LIFE`) are dropped because the template
+    ///   spells them out separately from the `proc <name>` header.
+    /// * **SPSS** — the command name up to the first `/option`, for each
+    ///   `;`-separated command (e.g. `CROSSTABS /STATISTICS=RISK CMH` →
+    ///   `CROSSTABS`).
+    fn required_identifier_tokens(
+        reference: &ReferenceImpl,
+        software: ReferenceSoftware,
+    ) -> Vec<String> {
+        match software {
+            ReferenceSoftware::R => {
+                vec![reference
+                    .callable
+                    .clone()
+                    .expect("R cell records a callable")]
+            }
+            ReferenceSoftware::Python => {
+                let callable = reference.callable.as_deref().unwrap_or("");
+                if callable.is_empty() || callable == "manual" || callable == "n/a" {
+                    // Manual implementation: no library callable to assert.
+                    // The package (numpy / scipy) is always imported, so it
+                    // is the strongest token available for this cell.
+                    vec![reference
+                        .package
+                        .clone()
+                        .expect("manual Python cell records a package")]
+                } else {
+                    let leaf = callable.rsplit('.').next().unwrap_or(callable);
+                    vec![leaf.to_string()]
+                }
+            }
+            ReferenceSoftware::SAS => {
+                let proc = reference.proc.as_deref().expect("SAS cell records a proc");
+                proc.split(';')
+                    .map(str::trim)
+                    .filter(|piece| !piece.is_empty())
+                    .map(|piece| {
+                        piece
+                            .split_whitespace()
+                            .take(2)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .collect()
+            }
+            ReferenceSoftware::SPSS => {
+                let proc = reference
+                    .proc
+                    .as_deref()
+                    .expect("SPSS cell records a proc");
+                proc.split(';')
+                    .map(str::trim)
+                    .filter(|piece| !piece.is_empty())
+                    .map(|piece| piece.split('/').next().unwrap_or(piece).trim().to_string())
+                    .collect()
+            }
+        }
+    }
+
+    /// Recorded package token expected in R / Python bodies, with the one
+    /// documented spelling exception: the matrix records `scikit-learn`
+    /// (the `PyPI` distribution name) but the import statement spells it
+    /// `sklearn`. SAS / SPSS built-in PROCs carry no package, so they
+    /// return `None` and the package assertion is skipped for them.
+    fn expected_package_token(
+        reference: &ReferenceImpl,
+        software: ReferenceSoftware,
+    ) -> Option<String> {
+        match software {
+            ReferenceSoftware::R | ReferenceSoftware::Python => {
+                reference.package.as_deref().map(|pkg| match pkg {
+                    "scikit-learn" => "sklearn".to_string(),
+                    other => other.to_string(),
+                })
+            }
+            ReferenceSoftware::SAS | ReferenceSoftware::SPSS => None,
+        }
+    }
+
+    #[test]
+    fn every_covered_cell_template_has_expected_syntactic_shape() {
+        let matrix = CoverageMatrix::get_loaded();
+        let columns = fixed_columns();
+        let params = RenderParams::new();
+
+        let mut covered = 0usize;
+
+        for entry in matrix.algorithms() {
+            for software in SOFTWARES {
+                let coverage = matrix
+                    .coverage(&entry.id, software)
+                    .expect("matrix invariant: every (algorithm, software) cell exists");
+
+                // Only covered cells render a snippet; `none` cells are
+                // exercised by the sibling `Uncovered` tests.
+                if matches!(coverage, CoverageState::None_) {
+                    continue;
+                }
+                covered += 1;
+
+                let snippet = generate_snippet(
+                    &entry.id, &params, &columns, SHA256, software, &[], None,
+                )
+                .unwrap_or_else(|e| {
+                    panic!("({}, {software:?}) failed to render: {e}", entry.id)
+                });
+
+                let text = match snippet {
+                    SidecarSnippet::Snippet { text, .. } => text,
+                    SidecarSnippet::Uncovered { .. } => panic!(
+                        "({}, {software:?}) is covered ({coverage:?}) but produced an Uncovered sentinel",
+                        entry.id
+                    ),
+                };
+
+                // 1. `data.csv` literal (Requirement 2.5).
+                assert!(
+                    text.contains("data.csv"),
+                    "({}, {software:?}) snippet must reference the data.csv literal",
+                    entry.id
+                );
+
+                // 2. dataset SHA256 (Requirement 2.5).
+                assert!(
+                    text.contains(SHA256),
+                    "({}, {software:?}) snippet must embed the dataset sha256",
+                    entry.id
+                );
+
+                // 3. every input column name (Requirement 2.5).
+                for column in &columns {
+                    assert!(
+                        text.contains(&column.name),
+                        "({}, {software:?}) snippet must reference column {:?}",
+                        entry.id,
+                        column.name
+                    );
+                }
+
+                // 4. matrix-recorded primary identifier token(s)
+                //    (Requirement 2.2 — the snippet uses the designated
+                //    Reference Implementation for the cell).
+                let reference = entry
+                    .reference
+                    .get(&software)
+                    .expect("matrix invariant: every cell records a ReferenceImpl");
+
+                for token in required_identifier_tokens(reference, software) {
+                    assert!(
+                        contains_ci(&text, &token),
+                        "({}, {software:?}) snippet must contain the recorded identifier {:?}",
+                        entry.id,
+                        token
+                    );
+                }
+
+                // 4b. recorded package, where one applies (R / Python).
+                if let Some(package) = expected_package_token(reference, software) {
+                    assert!(
+                        contains_ci(&text, &package),
+                        "({}, {software:?}) snippet must reference the recorded package {:?}",
+                        entry.id,
+                        package
+                    );
+                }
+            }
+        }
+
+        // Sanity: the data-driven walk must actually have run. The wave-1
+        // matrix has 17 algorithms × 4 software − 5 `none` cells = 63
+        // covered cells; we assert a non-empty walk rather than a fixed
+        // count so adding a new algorithm extends coverage automatically.
+        assert!(covered > 0, "expected at least one covered cell to assert against");
+    }
+
+    /// Focused anchor example (Cox PH, R) documenting the exact shape the
+    /// data-driven test enforces for one representative cell.
+    #[test]
+    fn cox_r_snippet_embeds_survival_coxph_and_inputs() {
+        let columns = fixed_columns();
+        let snippet = generate_snippet(
+            "cox",
+            &RenderParams::new(),
+            &columns,
+            SHA256,
+            ReferenceSoftware::R,
+            &[],
+            None,
+        )
+        .expect("cox × R must render");
+
+        let SidecarSnippet::Snippet { text, .. } = snippet else {
+            panic!("cox × R must be a covered Snippet");
+        };
+
+        assert!(text.contains("data.csv"));
+        assert!(text.contains(SHA256));
+        assert!(text.contains("outcome"));
+        assert!(text.contains("group"));
+        assert!(text.contains("survival::coxph"));
+        assert!(text.contains("library(survival)"));
+        assert!(!text.contains('\r'), "snippet must stay LF-only");
+    }
+}

@@ -21,7 +21,9 @@
 //!
 //! _Requirements: 5.1, 5.4–5.7, 6.6, 12.1, 12.2, 12.3, 12.6_
 
+pub mod report;
 pub mod run_local;
 pub mod tolerance;
 
+pub use report::{aggregate_exit_code, ParityReportRow, ParityVerdict, REASON_REFERENCE_UNAVAILABLE};
 pub use run_local::run_local;

@@ -422,6 +422,175 @@ impl CoverageMatrix {
     }
 }
 
+// ─── Structural consistency check (task 1.4) ────────────────────────────
+
+/// A single inconsistency between the Algorithm Coverage Matrix and the
+/// actual test surface. Each variant identifies the offending
+/// `(algorithm_id, software)` cell and the nature of the mismatch.
+///
+/// _Requirements: 4.7, 6.1, 6.2, 6.5, 6.6_
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsistencyError {
+    /// A `live` cell has no corresponding Live test case.
+    MissingLiveCase {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// A `recorded` cell has no corresponding Known-Values Table.
+    MissingKnownValues {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// A `sidecar_only` cell has no corresponding sidecar template.
+    MissingTemplate {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// A `none` cell unexpectedly has a sidecar template present.
+    UnexpectedTemplate {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// A `none` cell unexpectedly has a Live test case present.
+    UnexpectedLiveCase {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+    /// A `none` cell unexpectedly has a Known-Values Table present.
+    UnexpectedKnownValues {
+        algorithm_id: String,
+        software: ReferenceSoftware,
+    },
+}
+
+impl std::fmt::Display for ConsistencyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingLiveCase { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `live` but has no Live test case")
+            }
+            Self::MissingKnownValues { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `recorded` but has no Known-Values Table")
+            }
+            Self::MissingTemplate { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `sidecar_only` but has no sidecar template")
+            }
+            Self::UnexpectedTemplate { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `none` but has a sidecar template")
+            }
+            Self::UnexpectedLiveCase { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `none` but has a Live test case")
+            }
+            Self::UnexpectedKnownValues { algorithm_id, software } => {
+                write!(f, "cell ({algorithm_id}, {software:?}) is `none` but has a Known-Values Table")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConsistencyError {}
+
+/// Describes the test surface available for consistency checking.
+///
+/// Each set contains `(algorithm_id, software)` pairs that are present in
+/// the corresponding surface. The checker walks every cell of the matrix
+/// and cross-references these sets to detect mismatches.
+///
+/// _Requirements: 4.7, 6.1, 6.2, 6.5, 6.6_
+#[derive(Debug, Clone, Default)]
+pub struct TestSurface {
+    /// `(algorithm_id, software)` pairs that have a sidecar template.
+    pub templates: BTreeSet<(String, ReferenceSoftware)>,
+    /// `(algorithm_id, software)` pairs that have a Live test case.
+    pub live_cases: BTreeSet<(String, ReferenceSoftware)>,
+    /// `(algorithm_id, software)` pairs that have a Known-Values Table.
+    pub recorded_tables: BTreeSet<(String, ReferenceSoftware)>,
+}
+
+/// Check the structural consistency of a [`CoverageMatrix`] against a
+/// [`TestSurface`].
+///
+/// Returns an empty `Vec` when the matrix and the surface are consistent.
+/// Otherwise returns one [`ConsistencyError`] per offending cell, in
+/// matrix-declared order (algorithm order × `{R, SAS, Python, SPSS}`).
+///
+/// The rules enforced are:
+///
+/// - `live` → the cell must appear in `surface.live_cases`.
+/// - `recorded` → the cell must appear in `surface.recorded_tables`.
+/// - `sidecar_only` → the cell must appear in `surface.templates`.
+/// - `none` → the cell must NOT appear in `surface.templates`,
+///   `surface.live_cases`, or `surface.recorded_tables`.
+///
+/// _Requirements: 4.7, 6.1, 6.2, 6.5, 6.6_
+#[must_use]
+pub fn check_consistency(
+    matrix: &CoverageMatrix,
+    surface: &TestSurface,
+) -> Vec<ConsistencyError> {
+    let mut errors = Vec::new();
+
+    for entry in &matrix.algorithms {
+        for &software in &REQUIRED_SOFTWARE {
+            let Some(&state) = entry.coverage.get(&software) else {
+                // Missing cell — already caught by `parse`; skip here.
+                continue;
+            };
+
+            let key = (entry.id.clone(), software);
+
+            match state {
+                CoverageState::Live => {
+                    if !surface.live_cases.contains(&key) {
+                        errors.push(ConsistencyError::MissingLiveCase {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                }
+                CoverageState::Recorded => {
+                    if !surface.recorded_tables.contains(&key) {
+                        errors.push(ConsistencyError::MissingKnownValues {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                }
+                CoverageState::SidecarOnly => {
+                    if !surface.templates.contains(&key) {
+                        errors.push(ConsistencyError::MissingTemplate {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                }
+                CoverageState::None_ => {
+                    if surface.templates.contains(&key) {
+                        errors.push(ConsistencyError::UnexpectedTemplate {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                    if surface.live_cases.contains(&key) {
+                        errors.push(ConsistencyError::UnexpectedLiveCase {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                    if surface.recorded_tables.contains(&key) {
+                        errors.push(ConsistencyError::UnexpectedKnownValues {
+                            algorithm_id: entry.id.clone(),
+                            software,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,5 +882,413 @@ SPSS   = { proc = "P", version = "1" }
             missing_software: "SPSS".into(),
         };
         assert!(format!("{inc}").contains("SPSS"));
+    }
+
+    // ─── Task 1.5: Additional unit tests for CoverageMatrix parser ───
+
+    #[test]
+    fn non_utf8_input_returns_toml_error() {
+        // Invalid UTF-8 sequence: 0xFF is never valid in UTF-8.
+        let bad_bytes: &[u8] = &[0xFF, 0xFE, 0x00, 0x01];
+        let err = parse(bad_bytes).expect_err("non-UTF-8 must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}");
+                assert!(
+                    msg.contains("UTF-8"),
+                    "error message should mention UTF-8, got: {msg}"
+                );
+            }
+            other => panic!("expected ParseError::Toml for non-UTF-8, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_algorithm_id_returns_missing_field() {
+        // An algorithm block with an empty `id` string triggers the
+        // `MissingField` path in our hand-rolled validation.
+        let empty_id = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = ""
+display_name = "Empty ID"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(empty_id.as_bytes()).expect_err("empty id must error");
+        match err {
+            ParseError::MissingField { field, .. } => {
+                assert_eq!(field, "id");
+            }
+            other => panic!("expected ParseError::MissingField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn valid_toml_with_all_coverage_states_parses() {
+        // Exercises all four CoverageState variants in a single matrix.
+        let all_states = r#"
+schema_version = 1
+release_version = "1.2.3"
+
+[[algorithm]]
+id = "alpha"
+display_name = "Alpha"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "sidecar_only"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "stats::alpha", pkg = "stats", version = "4.4.0" }
+SAS    = { proc = "PROC ALPHA", version = "9.4M8" }
+Python = { fn = "scipy.stats.alpha", pkg = "scipy", version = "1.13.0" }
+SPSS   = { proc = "ALPHA", version = "29.0.1" }
+"#;
+        let matrix = parse(all_states.as_bytes()).expect("all-states TOML must parse");
+        assert_eq!(matrix.schema_version, 1);
+        assert_eq!(matrix.release_version, "1.2.3");
+        assert_eq!(matrix.algorithms.len(), 1);
+
+        let entry = &matrix.algorithms[0];
+        assert_eq!(entry.id, "alpha");
+        assert_eq!(entry.display_name, "Alpha");
+        assert!(!entry.iterative);
+        assert_eq!(entry.coverage[&ReferenceSoftware::R], CoverageState::Live);
+        assert_eq!(entry.coverage[&ReferenceSoftware::SAS], CoverageState::Recorded);
+        assert_eq!(entry.coverage[&ReferenceSoftware::Python], CoverageState::SidecarOnly);
+        assert_eq!(entry.coverage[&ReferenceSoftware::SPSS], CoverageState::None_);
+    }
+
+    #[test]
+    fn missing_schema_version_returns_toml_error() {
+        // Top-level `schema_version` is required by serde; omitting it
+        // triggers a deserialization error.
+        let no_schema = r#"
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(no_schema.as_bytes()).expect_err("missing schema_version must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}");
+                assert!(
+                    msg.contains("schema_version"),
+                    "error should mention schema_version, got: {msg}"
+                );
+            }
+            other => panic!("expected ParseError::Toml, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_release_version_returns_toml_error() {
+        // Top-level `release_version` is required by serde.
+        let no_release = r#"
+schema_version = 1
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(no_release.as_bytes()).expect_err("missing release_version must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}");
+                assert!(
+                    msg.contains("release_version"),
+                    "error should mention release_version, got: {msg}"
+                );
+            }
+            other => panic!("expected ParseError::Toml, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_software_key_returns_toml_error() {
+        // A coverage map key that is not one of {R, SAS, Python, SPSS}
+        // is rejected by serde's enum deserialization.
+        let bad_key = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+Julia = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(bad_key.as_bytes()).expect_err("unknown software key must error");
+        match err {
+            ParseError::Toml(_) => {}
+            other => panic!("expected ParseError::Toml for unknown software key, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_algorithms_list_parses_successfully() {
+        // A matrix with zero algorithms is structurally valid (no
+        // invariant requires at least one algorithm).
+        let empty = r#"
+schema_version = 1
+release_version = "0.5.0"
+"#;
+        let matrix = parse(empty.as_bytes()).expect("empty algorithms list must parse");
+        assert_eq!(matrix.algorithms.len(), 0);
+        assert_eq!(matrix.release_version, "0.5.0");
+    }
+
+    #[test]
+    fn multiple_algorithms_parse_and_preserve_order() {
+        let multi = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "first"
+display_name = "First"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "f1", pkg = "p1", version = "1" }
+SAS    = { proc = "P1", version = "1" }
+Python = { fn = "f1", pkg = "p1", version = "1" }
+SPSS   = { proc = "P1", version = "1" }
+
+[[algorithm]]
+id = "second"
+display_name = "Second"
+iterative = true
+[algorithm.coverage]
+R = "sidecar_only"
+SAS = "none"
+Python = "sidecar_only"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "f2", pkg = "p2", version = "2" }
+SAS    = { proc = "P2", version = "2" }
+Python = { fn = "f2", pkg = "p2", version = "2" }
+SPSS   = { proc = "P2", version = "2" }
+"#;
+        let matrix = parse(multi.as_bytes()).expect("multi-algorithm TOML must parse");
+        assert_eq!(matrix.algorithms.len(), 2);
+        assert_eq!(matrix.algorithms[0].id, "first");
+        assert!(!matrix.algorithms[0].iterative);
+        assert_eq!(matrix.algorithms[1].id, "second");
+        assert!(matrix.algorithms[1].iterative);
+    }
+
+    #[test]
+    fn reference_impl_fields_parsed_correctly() {
+        // Verify that callable, proc, package, and version are all
+        // correctly deserialized from the TOML.
+        let toml_text = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::lm", pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC REG", version = "9.4M8" }
+Python = { fn = "statsmodels.api.OLS", pkg = "statsmodels", version = "0.14.1" }
+SPSS   = { proc = "REGRESSION", version = "29.0.1" }
+"#;
+        let matrix = parse(toml_text.as_bytes()).expect("reference impl TOML must parse");
+        let entry = &matrix.algorithms[0];
+
+        let r_ref = &entry.reference[&ReferenceSoftware::R];
+        assert_eq!(r_ref.callable.as_deref(), Some("stats::lm"));
+        assert_eq!(r_ref.package.as_deref(), Some("stats"));
+        assert_eq!(r_ref.version, "4.4.1");
+        assert!(r_ref.proc.is_none());
+
+        let sas_ref = &entry.reference[&ReferenceSoftware::SAS];
+        assert_eq!(sas_ref.proc.as_deref(), Some("PROC REG"));
+        assert_eq!(sas_ref.version, "9.4M8");
+        assert!(sas_ref.callable.is_none());
+        assert!(sas_ref.package.is_none());
+
+        let py_ref = &entry.reference[&ReferenceSoftware::Python];
+        assert_eq!(py_ref.callable.as_deref(), Some("statsmodels.api.OLS"));
+        assert_eq!(py_ref.package.as_deref(), Some("statsmodels"));
+        assert_eq!(py_ref.version, "0.14.1");
+    }
+
+    #[test]
+    fn missing_version_in_reference_returns_toml_error() {
+        // The `version` field in ReferenceImpl is required (no `default`
+        // attribute). Omitting it triggers a serde error.
+        let no_version = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(no_version.as_bytes()).expect_err("missing version must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}");
+                assert!(
+                    msg.contains("version"),
+                    "error should mention version, got: {msg}"
+                );
+            }
+            other => panic!("expected ParseError::Toml, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn duplicate_software_cell_is_rejected() {
+        // The same software key (`R`) is declared twice inside a single
+        // `[algorithm.coverage]` table. Per Requirement 6.1 a cell must
+        // appear exactly once per software; with the current TOML
+        // representation the underlying parser rejects the duplicate key
+        // before deserialization completes, so the failure surfaces as the
+        // structured `ParseError::Toml` variant (carrying the toml span /
+        // message) rather than a panic or a partial `CoverageMatrix`. The
+        // hand-rolled `ParseError::DuplicateCell` variant is reserved for a
+        // future list-of-pairs schema that could re-enable ambiguity.
+        let dup_cell = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+R = "recorded"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(dup_cell.as_bytes()).expect_err("duplicate coverage cell must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}").to_lowercase();
+                assert!(
+                    msg.contains("duplicate"),
+                    "error should identify the duplicate key, got: {msg}"
+                );
+                // No partial value escapes: the duplicate is rejected at the
+                // TOML layer, so `parse` never returns a `CoverageMatrix`.
+            }
+            other => panic!("expected ParseError::Toml for duplicate cell, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn duplicate_reference_cell_is_rejected() {
+        // Same guarantee for the `[algorithm.reference]` table: declaring
+        // `Python` twice is a duplicate-key parse error, not a silent
+        // last-write-wins merge.
+        let dup_ref = r#"
+schema_version = 1
+release_version = "0.5.0"
+
+[[algorithm]]
+id = "demo"
+display_name = "Demo"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "live"
+Python = "live"
+SPSS = "live"
+[algorithm.reference]
+R      = { fn = "f", pkg = "p", version = "1" }
+SAS    = { proc = "P", version = "1" }
+Python = { fn = "f", pkg = "p", version = "1" }
+Python = { fn = "g", pkg = "q", version = "2" }
+SPSS   = { proc = "P", version = "1" }
+"#;
+        let err = parse(dup_ref.as_bytes()).expect_err("duplicate reference cell must error");
+        match err {
+            ParseError::Toml(ref e) => {
+                let msg = format!("{e}").to_lowercase();
+                assert!(
+                    msg.contains("duplicate"),
+                    "error should identify the duplicate key, got: {msg}"
+                );
+            }
+            other => panic!("expected ParseError::Toml for duplicate reference cell, got {other:?}"),
+        }
     }
 }

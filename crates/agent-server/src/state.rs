@@ -10,7 +10,8 @@ use agent_core::traits::dataset_store::DatasetStore;
 use agent_core::traits::session_store::SessionStore;
 use agent_core::traits::stt_provider::SttProvider;
 use api::sidecar::{
-    CoverageMatrixDto, ReferenceSoftware, SidecarSnippetDto, SnapshotExportResponse,
+    CoverageMatrixDto, ReferenceSoftware, SidecarRenderRequest, SidecarSnippetDto,
+    SnapshotExportResponse,
 };
 use tokio_stream::Stream;
 
@@ -55,7 +56,7 @@ pub trait CoverageMatrixProvider: Send + Sync {
 }
 
 /// Failure modes surfaced by [`SidecarProvider::generate`]. Mapped to
-/// HTTP status codes by `handlers::sidecar::get_sidecar`.
+/// HTTP status codes by `handlers::sidecar::post_sidecar`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarProviderError {
     /// The `algorithm_id` path parameter does not appear in the
@@ -67,6 +68,10 @@ pub enum SidecarProviderError {
         algorithm_id: String,
         software: ReferenceSoftware,
     },
+    /// The request carried a column dtype outside the closed set
+    /// `{numeric, categorical, date, string}`, or a malformed dataset
+    /// SHA256 / template placeholder. Carries a human-readable reason.
+    InvalidRequest(String),
     /// The redaction policy detected forbidden content in the rendered
     /// snippet (e.g. an unredacted API key).
     RedactionViolation(String),
@@ -79,15 +84,19 @@ pub enum SidecarProviderError {
 
 /// Generates an Equivalent Code Sidecar snippet for one
 /// `(algorithm_id, software)` cell (Requirement 1.3, 2.2).
+///
+/// The sidecar is a pure function of its inputs, so the provider takes the
+/// column metadata, dataset SHA256, and parameters directly from the
+/// request rather than resolving them from server-side run state. The SPA
+/// already holds all of these, which lets the endpoint be fully functional
+/// without a run-state store.
 pub trait SidecarProvider: Send + Sync {
-    /// Render the snippet for the given cell against the active analysis
-    /// run. The `run_id` is passed through so the generator can pick up
-    /// per-run column metadata and the input dataset SHA256.
+    /// Render the snippet for `(algorithm_id, request.software)` using the
+    /// caller-supplied column metadata, dataset SHA256, and parameters.
     fn generate(
         &self,
         algorithm_id: &str,
-        software: ReferenceSoftware,
-        run_id: &str,
+        request: &SidecarRenderRequest,
     ) -> Result<SidecarSnippetDto, SidecarProviderError>;
 }
 

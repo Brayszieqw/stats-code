@@ -1,49 +1,41 @@
-//! `GET /api/sidecar/{algorithm_id}?software=...&run_id=...` —
+//! `POST /api/sidecar/{algorithm_id}` —
 //! returns the Equivalent Code Sidecar snippet DTO for one
-//! `(algorithm_id, software)` cell of the active analysis run
-//! (task 10.3).
+//! `(algorithm_id, software)` cell (task 10.3).
 //!
 //! - The handler delegates to [`crate::state::SidecarProvider`]; the
 //!   launcher in `stats-code` injects a concrete provider that calls
 //!   `stats_code::sidecar::generate_snippet`.
+//! - The Equivalent Code Sidecar is a pure function of
+//!   `(algorithm_id, software, columns, dataset_sha256, params)`, so the
+//!   SPA posts those fields directly in a [`SidecarRenderRequest`] body —
+//!   no server-side run state is consulted. This is what lets the endpoint
+//!   render real snippets end-to-end.
 //! - 200 carries a [`SidecarSnippetDto`] for **all four** coverage
 //!   states (Requirement 1.5/1.6/6.4): `none` returns the DTO with
 //!   `coverage_value = "none"` and no `text`, letting the SPA render
 //!   the placeholder client-side without a special status code.
-//! - 4xx is reserved for caller-side errors (unknown algorithm, unknown
-//!   software, redaction violation, forbidden spawn) — see the match
+//! - 4xx is reserved for caller-side errors (unknown algorithm, invalid
+//!   request, redaction violation, forbidden spawn) — see the match
 //!   arms below.
 //!
 //! Validates: Requirements 1.3 (transport), 1.5 (uncovered DTO),
 //! 2.2 (snippet generation contract), 6.2 (matrix-driven dispatch),
 //! 10.3 (same-process axum handler).
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Deserialize;
 
-use api::sidecar::ReferenceSoftware;
+use api::sidecar::SidecarRenderRequest;
 
 use crate::state::{AppState, SidecarProviderError};
 
-/// Query string parameters for `GET /api/sidecar/{algorithm_id}`.
-#[derive(Debug, Deserialize)]
-pub struct SidecarQuery {
-    /// Reference software for the requested tab. Serialized form is
-    /// exactly `R | SAS | Python | SPSS`.
-    pub software: ReferenceSoftware,
-    /// Identifier of the analysis run whose column metadata and
-    /// dataset SHA256 are baked into the snippet header.
-    pub run_id: String,
-}
-
-/// `GET /api/sidecar/{algorithm_id}` handler.
-pub async fn get_sidecar(
+/// `POST /api/sidecar/{algorithm_id}` handler.
+pub async fn post_sidecar(
     State(state): State<AppState>,
     Path(algorithm_id): Path<String>,
-    Query(query): Query<SidecarQuery>,
+    Json(request): Json<SidecarRenderRequest>,
 ) -> Response {
     let Some(provider) = state.sidecar_provider.as_ref() else {
         return (
@@ -56,7 +48,7 @@ pub async fn get_sidecar(
             .into_response();
     };
 
-    match provider.generate(&algorithm_id, query.software, &query.run_id) {
+    match provider.generate(&algorithm_id, &request) {
         Ok(dto) => (StatusCode::OK, Json(dto)).into_response(),
         Err(SidecarProviderError::UnknownAlgorithm(id)) => (
             StatusCode::NOT_FOUND,
@@ -77,6 +69,14 @@ pub async fn get_sidecar(
                 "message": "no sidecar template for algorithm/software pair",
                 "algorithm_id": id,
                 "software": software,
+            })),
+        )
+            .into_response(),
+        Err(SidecarProviderError::InvalidRequest(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error_code": "InvalidRequest",
+                "message": msg,
             })),
         )
             .into_response(),
@@ -113,10 +113,12 @@ mod tests {
     use std::sync::Arc;
 
     use agent_core::store::MemSessionStore;
-    use api::sidecar::{CoverageValueDto, ReferenceSoftware, SidecarSnippetDto};
+    use api::sidecar::{
+        CoverageValueDto, ReferenceSoftware, SidecarRenderRequest, SidecarSnippetDto,
+    };
     use axum::body::Body;
     use axum::http::Request;
-    use axum::routing::get;
+    use axum::routing::post;
     use axum::Router;
     use tower::ServiceExt;
 
@@ -128,8 +130,7 @@ mod tests {
         fn generate(
             &self,
             _algorithm_id: &str,
-            _software: ReferenceSoftware,
-            _run_id: &str,
+            _request: &SidecarRenderRequest,
         ) -> Result<SidecarSnippetDto, SidecarProviderError> {
             self.0.clone()
         }
@@ -137,8 +138,27 @@ mod tests {
 
     fn build_app(state: AppState) -> Router {
         Router::new()
-            .route("/api/sidecar/:algorithm_id", get(get_sidecar))
+            .route("/api/sidecar/:algorithm_id", post(post_sidecar))
             .with_state(state)
+    }
+
+    fn request_body(software: &str) -> Body {
+        let body = serde_json::json!({
+            "software": software,
+            "dataset_sha256": "a".repeat(64),
+            "columns": [{ "name": "age", "dtype": "numeric" }],
+            "params": {},
+        });
+        Body::from(serde_json::to_vec(&body).unwrap())
+    }
+
+    fn post_request(algorithm_id: &str, software: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/sidecar/{algorithm_id}"))
+            .header("content-type", "application/json")
+            .body(request_body(software))
+            .unwrap()
     }
 
     fn live_snippet() -> SidecarSnippetDto {
@@ -170,13 +190,7 @@ mod tests {
         let app = build_app(state);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/api/sidecar/tableone?software=R&run_id=run-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(post_request("tableone", "R"))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -195,13 +209,7 @@ mod tests {
         let app = build_app(state);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/api/sidecar/tableone?software=SPSS&run_id=run-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(post_request("tableone", "SPSS"))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -223,13 +231,7 @@ mod tests {
         let app = build_app(state);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/api/sidecar/does-not-exist?software=R&run_id=run-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(post_request("does-not-exist", "R"))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -247,46 +249,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returns_400_for_invalid_software_query_token() {
-        // axum's Query extractor rejects unknown enum tags with 400;
-        // we confirm the contract surfaces that as 400 rather than
-        // reaching the provider, and that the body contains a useful
-        // indication of the rejected value.
+    async fn returns_400_for_invalid_request() {
+        let mut state = AppState::new(Arc::new(MemSessionStore::new()));
+        state.sidecar_provider = Some(Arc::new(FixedProvider(Err(
+            SidecarProviderError::InvalidRequest("unknown column dtype: blob".into()),
+        ))));
+        let app = build_app(state);
+
+        let resp = app
+            .oneshot(post_request("tableone", "R"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error_code"], "InvalidRequest");
+        assert!(v["message"].as_str().unwrap().contains("dtype"));
+    }
+
+    #[tokio::test]
+    async fn returns_400_for_invalid_software_token_in_body() {
+        // serde rejects an unknown `software` enum tag in the JSON body
+        // with a 4xx before the handler runs.
         let mut state = AppState::new(Arc::new(MemSessionStore::new()));
         state.sidecar_provider = Some(Arc::new(FixedProvider(Ok(live_snippet()))));
         let app = build_app(state);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/api/sidecar/tableone?software=Octave&run_id=run-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(post_request("tableone", "Octave"))
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-
-        // The rejection body should mention the problematic value so
-        // the caller can diagnose the issue (Requirement 1.3).
-        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body = String::from_utf8_lossy(&bytes);
         assert!(
-            !body.is_empty(),
-            "400 response body must not be empty"
-        );
-        // axum's Query rejection includes the unknown variant and the
-        // set of valid values, which is sufficient for diagnosis.
-        assert!(
-            body.contains("Octave"),
-            "400 body should reference the rejected value 'Octave': {body}"
-        );
-        assert!(
-            body.contains("R") && body.contains("SAS") && body.contains("Python") && body.contains("SPSS"),
-            "400 body should list valid software values: {body}"
+            resp.status().is_client_error(),
+            "unknown software tag must be a 4xx, got {}",
+            resp.status()
         );
     }
 
@@ -296,13 +295,7 @@ mod tests {
         let app = build_app(state);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/api/sidecar/tableone?software=R&run_id=run-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(post_request("tableone", "R"))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);

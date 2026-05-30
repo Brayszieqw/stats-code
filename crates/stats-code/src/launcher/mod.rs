@@ -219,20 +219,17 @@ impl Launcher {
                 app_state.message_handler = Some(dynamic_handler);
 
                 // 注入 Parity & Multi-Lang Sidecar 三个 provider。
-                // coverage-matrix 完整可用（数据源是编译期内嵌矩阵）；
-                // sidecar / snapshot 依赖按 run_id 反查的 run-state store，
-                // 该子系统尚未落地，故注入 UnavailableRunDataSource，使两端点
-                // 返回结构化错误而非伪造空列元数据（见 providers.rs 文档）。
-                let run_source: Arc<dyn providers::RunDataSource> =
-                    Arc::new(providers::UnavailableRunDataSource);
+                // coverage-matrix 与 sidecar 都完整可用：coverage-matrix 的
+                // 数据源是编译期内嵌矩阵；sidecar 是纯函数，列元数据 /
+                // 数据集 SHA256 / 参数全部由前端在请求体里带来，无需 run-state。
+                // snapshot 导出依赖按 run 持久化的 workflow / artifacts，
+                // 该 run-state store 尚未落地，故注入 Unavailable 版本，
+                // 端点返回结构化错误而非伪造空 run（见 providers.rs 文档）。
                 app_state.coverage_matrix_provider =
                     Some(Arc::new(providers::EmbeddedCoverageMatrixProvider));
-                app_state.sidecar_provider = Some(Arc::new(
-                    providers::RunBackedSidecarProvider::new(run_source.clone()),
-                ));
-                app_state.snapshot_provider = Some(Arc::new(
-                    providers::RunBackedSnapshotProvider::new(run_source),
-                ));
+                app_state.sidecar_provider = Some(Arc::new(providers::LiveSidecarProvider));
+                app_state.snapshot_provider =
+                    Some(Arc::new(providers::UnavailableSnapshotProvider));
 
                 let load_counter = agent_server::middleware::load_shedding::LoadCounter::new(50);
                 let app = agent_server::build_router(load_counter, app_state);

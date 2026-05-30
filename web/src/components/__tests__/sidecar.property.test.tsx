@@ -66,8 +66,17 @@ const arbVersion: fc.Arbitrary<string> = fc.tuple(
   fc.integer({ min: 0, max: 99 }),
 ).map(([a, b, c]) => `${a}.${b}.${c}`);
 
-// Snippet text: non-empty printable strings (may include newlines, unicode)
-const arbSnippetText: fc.Arbitrary<string> = fc.string({ minLength: 1, maxLength: 200 });
+// Snippet text: printable strings whose visible text is non-blank.
+//
+// `toHaveTextContent` normalizes/collapses whitespace, so a whitespace-only
+// body (e.g. `" "`) has empty normalized text and cannot be asserted against
+// the raw string. A real sidecar body is never whitespace-only — the snippet
+// always carries the LF-terminated header banner — so restricting the
+// generator to bodies with at least one non-space character keeps the oracle
+// faithful to production without masking any behaviour under test.
+const arbSnippetText: fc.Arbitrary<string> = fc
+  .string({ minLength: 1, maxLength: 200 })
+  .filter((s) => s.trim().length > 0);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -142,7 +151,6 @@ describe('Property 8: SPA active-tab rendering reflects matrix coverage', () => 
             ({ software, enabled = true }: {
               algorithmId: string;
               software: ReferenceSoftware;
-              runId: string;
               enabled?: boolean;
             }) => {
               if (!enabled) return { loading: false };
@@ -163,60 +171,64 @@ describe('Property 8: SPA active-tab rendering reflects matrix coverage', () => 
           const { unmount } = render(
             <EquivalentCodeSidecar
               algorithmId={algorithmId}
-              runId="run-1"
+              columns={[{ name: 'col0', dtype: 'numeric' }]}
               datasetSha256={sha256}
               releaseVersion={version}
             />,
           );
 
-          // Click the target tab if it's not R (default)
-          if (activeTab !== 'R') {
-            act(() => {
-              screen.getByTestId(`sidecar-tab-${activeTab}`).click();
-            });
-          }
-
-          // Assert based on coverage state
-          if (coverageState === 'none') {
-            // `none` → placeholder rendered, no snippet text
-            expect(
-              screen.getByTestId('sidecar-placeholder'),
-            ).toBeInTheDocument();
-            expect(
-              screen.queryByTestId('sidecar-snippet'),
-            ).not.toBeInTheDocument();
-            // Copy button disabled
-            expect(
-              screen.getByTestId('copy-to-clipboard-button'),
-            ).toBeDisabled();
-          } else {
-            // Non-none → snippet rendered
-            expect(
-              screen.getByTestId('sidecar-snippet'),
-            ).toBeInTheDocument();
-            expect(
-              screen.getByTestId('sidecar-snippet'),
-            ).toHaveTextContent(snippetBody);
-
-            if (coverageState === 'sidecar_only') {
-              // sidecar_only → inline notice present, names the software
-              const notice = screen.getByTestId('sidecar-notice');
-              expect(notice).toBeInTheDocument();
-              expect(notice.textContent).toContain(activeTab);
-            } else {
-              // live / recorded → no notice
-              expect(
-                screen.queryByTestId('sidecar-notice'),
-              ).not.toBeInTheDocument();
+          // Guarantee the rendered tree is torn down even when an
+          // assertion throws mid-iteration; otherwise the leaked DOM from a
+          // failed shrink step makes the next iteration see duplicate
+          // `sidecar-*` nodes ("multiple elements found").
+          try {
+            // Click the target tab if it's not R (default)
+            if (activeTab !== 'R') {
+              act(() => {
+                screen.getByTestId(`sidecar-tab-${activeTab}`).click();
+              });
             }
 
-            // Copy button enabled
-            expect(
-              screen.getByTestId('copy-to-clipboard-button'),
-            ).not.toBeDisabled();
-          }
+            // Assert based on coverage state
+            if (coverageState === 'none') {
+              // `none` → placeholder rendered, no snippet text
+              expect(
+                screen.getByTestId('sidecar-placeholder'),
+              ).toBeInTheDocument();
+              expect(
+                screen.queryByTestId('sidecar-snippet'),
+              ).not.toBeInTheDocument();
+              // Copy button disabled
+              expect(
+                screen.getByTestId('copy-to-clipboard-button'),
+              ).toBeDisabled();
+            } else {
+              // Non-none → snippet rendered
+              expect(screen.getByTestId('sidecar-snippet')).toBeInTheDocument();
+              expect(screen.getByTestId('sidecar-snippet')).toHaveTextContent(
+                snippetBody.trim(),
+              );
 
-          unmount();
+              if (coverageState === 'sidecar_only') {
+                // sidecar_only → inline notice present, names the software
+                const notice = screen.getByTestId('sidecar-notice');
+                expect(notice).toBeInTheDocument();
+                expect(notice.textContent).toContain(activeTab);
+              } else {
+                // live / recorded → no notice
+                expect(
+                  screen.queryByTestId('sidecar-notice'),
+                ).not.toBeInTheDocument();
+              }
+
+              // Copy button enabled
+              expect(
+                screen.getByTestId('copy-to-clipboard-button'),
+              ).not.toBeDisabled();
+            }
+          } finally {
+            unmount();
+          }
         },
       ),
       { numRuns: 50 },

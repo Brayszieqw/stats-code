@@ -44,7 +44,7 @@ import {
   type ReferenceSoftware,
 } from '../lib/coverageMatrix';
 import { useCoverageMatrix } from '../lib/coverageMatrixContext';
-import { useSidecar } from '../hooks/useSidecar';
+import { useSidecar, type SidecarColumn } from '../hooks/useSidecar';
 import { CopyToClipboard } from './CopyToClipboard';
 import { SidecarFooter } from './SidecarFooter';
 
@@ -103,10 +103,16 @@ export function SidecarPlaceholder({
 export interface EquivalentCodeSidecarProps {
   /** Output-Level Algorithm identifier; must match a row in the matrix. */
   algorithmId: string;
-  /** Stable id of the analysis run that produced the result. */
-  runId: string;
   /** 64-character lowercase hexadecimal SHA256 of the input dataset. */
   datasetSha256: string;
+  /**
+   * Input column metadata in dataset order. Drives the `{{column.<i>.…}}`
+   * placeholders and the snippet header; posted to the server with each
+   * snippet request.
+   */
+  columns: SidecarColumn[];
+  /** Algorithm parameters as `{{params.<key>}}` string substitutions. */
+  params?: Record<string, string>;
   /** Stats Code release version that emitted the snippet. */
   releaseVersion: string;
 }
@@ -129,8 +135,9 @@ function resolveCellState(
 
 export function EquivalentCodeSidecar({
   algorithmId,
-  runId,
   datasetSha256,
+  columns,
+  params,
   releaseVersion,
 }: EquivalentCodeSidecarProps): ReactElement {
   // R is the default active tab on first render (Requirement 1.2 / 6.3).
@@ -155,7 +162,9 @@ export function EquivalentCodeSidecar({
   const sidecar = useSidecar({
     algorithmId,
     software: activeTab,
-    runId,
+    datasetSha256,
+    columns,
+    params,
     enabled:
       !matrixLoading &&
       matrixError === undefined &&

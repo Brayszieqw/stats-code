@@ -119,6 +119,43 @@ pub struct SidecarSnippetDto {
     pub release_version: String,
 }
 
+/// One input column carried in a [`SidecarRenderRequest`].
+///
+/// `dtype` is one of the four lowercase tokens the Sidecar Code Generator
+/// understands (`numeric | categorical | date | string`); unknown tokens
+/// are rejected server-side so a malformed column never silently renders
+/// the wrong dtype.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SidecarColumnDto {
+    pub name: String,
+    pub dtype: String,
+}
+
+/// Request body of `POST /api/sidecar/{algorithm_id}`.
+///
+/// The Equivalent Code Sidecar is a **pure function** of
+/// `(algorithm_id, software, columns, dataset_sha256, params)` — it needs
+/// no server-side run state. The SPA already holds every field (the
+/// algorithm id and params come from the configurator, the columns and
+/// dataset SHA256 come from the dataset-upload response), so it posts them
+/// directly and the server renders the snippet without any run-store
+/// lookup. This is what makes the sidecar functional end-to-end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SidecarRenderRequest {
+    /// Reference software for the requested tab.
+    pub software: ReferenceSoftware,
+    /// 64-character lowercase hexadecimal SHA256 of the input dataset.
+    pub dataset_sha256: String,
+    /// Input column metadata in dataset order (drives `{{column.<i>.…}}`
+    /// placeholders and the snippet header).
+    #[serde(default)]
+    pub columns: Vec<SidecarColumnDto>,
+    /// Algorithm parameters as `{{params.<key>}}` substitutions. Values are
+    /// pre-stringified by the caller.
+    #[serde(default)]
+    pub params: BTreeMap<String, String>,
+}
+
 /// Request body of `POST /api/snapshot/export`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotExportRequest {

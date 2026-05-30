@@ -3,9 +3,9 @@
  *
  * Covers:
  *   - `enabled = false` → no fetch, hook stays at `{ loading: false }`.
- *   - `enabled = true` → fetches once, exposes the snippet.
- *   - Same `(algorithmId, software, runId)` revisited → cached, no second fetch.
- *   - Different key → triggers a new fetch.
+ *   - `enabled = true` → POSTs once, exposes the snippet.
+ *   - Same inputs revisited → cached, no second fetch.
+ *   - Different inputs → triggers a new fetch.
  *   - Non-2xx response → `state.error` populated.
  *   - Mid-flight key change → stale response does not clobber the new state.
  *
@@ -15,11 +15,34 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 
-import { useSidecar, type SidecarSnippet } from './useSidecar';
+import {
+  useSidecar,
+  type SidecarColumn,
+  type SidecarParams,
+  type SidecarSnippet,
+} from './useSidecar';
 
 // ---------------------------------------------------------------------------
 // Sample fixtures
 // ---------------------------------------------------------------------------
+
+const SHA = 'a'.repeat(64);
+
+const COLUMNS: SidecarColumn[] = [
+  { name: 'group', dtype: 'categorical' },
+  { name: 'age', dtype: 'numeric' },
+];
+
+/** Build the params bag with sensible defaults; override per test. */
+function params(overrides: Partial<SidecarParams> = {}): SidecarParams {
+  return {
+    algorithmId: 'tableone',
+    software: 'R',
+    datasetSha256: SHA,
+    columns: COLUMNS,
+    ...overrides,
+  };
+}
 
 function snippet(overrides: Partial<SidecarSnippet> = {}): SidecarSnippet {
   return {
@@ -27,7 +50,7 @@ function snippet(overrides: Partial<SidecarSnippet> = {}): SidecarSnippet {
     software: 'R',
     coverage_value: 'live',
     text: '# header\nlibrary(tableone)\n',
-    sha256_of_dataset: 'a'.repeat(64),
+    sha256_of_dataset: SHA,
     release_version: '0.5.0',
     ...overrides,
   };
@@ -50,12 +73,7 @@ describe('useSidecar — enabled = false', () => {
 
     const { result } = renderHook(() =>
       useSidecar(
-        {
-          algorithmId: 'tableone',
-          software: 'R',
-          runId: 'run-1',
-          enabled: false,
-        },
+        params({ enabled: false }),
         fetchImpl as unknown as typeof fetch,
       ),
     );
@@ -76,22 +94,26 @@ describe('useSidecar — enabled = false', () => {
 // ---------------------------------------------------------------------------
 
 describe('useSidecar — enabled = true', () => {
-  it('fetches the sidecar snippet exactly once and exposes it', async () => {
+  it('POSTs the sidecar render request exactly once and exposes the snippet', async () => {
     const expected = snippet();
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      // Path + query layout.
-      expect(url).toMatch(/^\/api\/sidecar\/tableone\?/);
-      expect(url).toContain('software=R');
-      expect(url).toContain('run_id=run-1');
+      // The algorithm id is a path segment; the rest travels in the body.
+      expect(url).toBe('/api/sidecar/tableone');
+      expect(init?.method).toBe('POST');
+      const body = JSON.parse(String(init?.body)) as {
+        software: string;
+        dataset_sha256: string;
+        columns: SidecarColumn[];
+      };
+      expect(body.software).toBe('R');
+      expect(body.dataset_sha256).toBe(SHA);
+      expect(body.columns).toEqual(COLUMNS);
       return jsonResponse(expected);
     });
 
     const { result } = renderHook(() =>
-      useSidecar(
-        { algorithmId: 'tableone', software: 'R', runId: 'run-1' },
-        fetchImpl as unknown as typeof fetch,
-      ),
+      useSidecar(params(), fetchImpl as unknown as typeof fetch),
     );
 
     expect(result.current.loading).toBe(true);
@@ -111,19 +133,13 @@ describe('useSidecar — enabled = true', () => {
 // ---------------------------------------------------------------------------
 
 describe('useSidecar — cache', () => {
-  it('does not refetch when the same key is revisited within the same hook instance', async () => {
+  it('does not refetch when the same inputs are revisited within the same hook instance', async () => {
     const expected = snippet();
     const fetchImpl = vi.fn(async () => jsonResponse(expected));
 
     const { result, rerender } = renderHook(
-      (params: {
-        algorithmId: string;
-        software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
-      }) => useSidecar(params, fetchImpl as unknown as typeof fetch),
-      {
-        initialProps: { algorithmId: 'tableone', software: 'R', runId: 'run-1' },
-      },
+      (p: SidecarParams) => useSidecar(p, fetchImpl as unknown as typeof fetch),
+      { initialProps: params() },
     );
 
     await waitFor(() => {
@@ -131,47 +147,41 @@ describe('useSidecar — cache', () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
-    // Move to a different key — triggers a new fetch.
-    rerender({ algorithmId: 'tableone', software: 'Python', runId: 'run-1' });
+    // Move to a different software — triggers a new fetch.
+    rerender(params({ software: 'Python' }));
     await waitFor(() => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 
-    // Now revisit the original key — the cache must absorb it without
+    // Now revisit the original inputs — the cache must absorb it without
     // calling fetch a third time.
-    rerender({ algorithmId: 'tableone', software: 'R', runId: 'run-1' });
+    rerender(params({ software: 'R' }));
     await waitFor(() => {
       expect(result.current.snippet?.software).toBe('R');
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('treats a different key as a new fetch', async () => {
+  it('treats different software as a new fetch', async () => {
     const r = snippet({ software: 'R', text: '# R\n' });
     const py = snippet({ software: 'Python', text: '# Python\n' });
 
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('software=Python')) return jsonResponse(py);
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { software: string };
+      if (body.software === 'Python') return jsonResponse(py);
       return jsonResponse(r);
     });
 
     const { result, rerender } = renderHook(
-      (params: {
-        algorithmId: string;
-        software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
-      }) => useSidecar(params, fetchImpl as unknown as typeof fetch),
-      {
-        initialProps: { algorithmId: 'tableone', software: 'R', runId: 'run-1' },
-      },
+      (p: SidecarParams) => useSidecar(p, fetchImpl as unknown as typeof fetch),
+      { initialProps: params() },
     );
 
     await waitFor(() => {
       expect(result.current.snippet?.software).toBe('R');
     });
 
-    rerender({ algorithmId: 'tableone', software: 'Python', runId: 'run-1' });
+    rerender(params({ software: 'Python' }));
 
     await waitFor(() => {
       expect(result.current.snippet?.software).toBe('Python');
@@ -191,10 +201,7 @@ describe('useSidecar — errors', () => {
     );
 
     const { result } = renderHook(() =>
-      useSidecar(
-        { algorithmId: 'tableone', software: 'R', runId: 'run-1' },
-        fetchImpl as unknown as typeof fetch,
-      ),
+      useSidecar(params(), fetchImpl as unknown as typeof fetch),
     );
 
     await waitFor(() => {
@@ -212,50 +219,48 @@ describe('useSidecar — errors', () => {
 // ---------------------------------------------------------------------------
 
 describe('useSidecar — cancellation', () => {
-  it('discards an in-flight response when the key changes mid-flight', async () => {
+  it('discards an in-flight response when the inputs change mid-flight', async () => {
     // Hold the first request open until we explicitly resolve it.
     let releaseFirst: ((value: Response) => void) | null = null;
     const firstResponse = snippet({ software: 'R', text: '# stale R\n' });
-    const secondResponse = snippet({ software: 'Python', text: '# fresh Python\n' });
-
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('software=R')) {
-        return new Promise<Response>((resolve, reject) => {
-          releaseFirst = resolve;
-          // Honor abort so the test does not hang forever if the consumer
-          // aborts; rejection with an AbortError-shaped DOMException matches
-          // production fetch semantics.
-          const signal = init?.signal;
-          if (signal) {
-            signal.addEventListener('abort', () => {
-              reject(
-                typeof DOMException !== 'undefined'
-                  ? new DOMException('aborted', 'AbortError')
-                  : Object.assign(new Error('aborted'), { name: 'AbortError' }),
-              );
-            });
-          }
-        });
-      }
-      return jsonResponse(secondResponse);
+    const secondResponse = snippet({
+      software: 'Python',
+      text: '# fresh Python\n',
     });
 
-    const { result, rerender } = renderHook(
-      (params: {
-        algorithmId: string;
-        software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
-      }) => useSidecar(params, fetchImpl as unknown as typeof fetch),
-      {
-        initialProps: { algorithmId: 'tableone', software: 'R', runId: 'run-1' },
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { software: string };
+        if (body.software === 'R') {
+          return new Promise<Response>((resolve, reject) => {
+            releaseFirst = resolve;
+            const signal = init?.signal;
+            if (signal) {
+              signal.addEventListener('abort', () => {
+                reject(
+                  typeof DOMException !== 'undefined'
+                    ? new DOMException('aborted', 'AbortError')
+                    : Object.assign(new Error('aborted'), {
+                        name: 'AbortError',
+                      }),
+                );
+              });
+            }
+          });
+        }
+        return jsonResponse(secondResponse);
       },
+    );
+
+    const { result, rerender } = renderHook(
+      (p: SidecarParams) => useSidecar(p, fetchImpl as unknown as typeof fetch),
+      { initialProps: params() },
     );
 
     expect(result.current.loading).toBe(true);
 
-    // Switch to a different key while the first fetch is still pending.
-    rerender({ algorithmId: 'tableone', software: 'Python', runId: 'run-1' });
+    // Switch to a different software while the first fetch is still pending.
+    rerender(params({ software: 'Python' }));
 
     await waitFor(() => {
       expect(result.current.snippet?.software).toBe('Python');

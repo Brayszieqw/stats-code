@@ -19,22 +19,24 @@
 //! process-global, compile-time-embedded [`CoverageMatrix`] into the
 //! wire DTO. No per-run state is required, so the endpoint is complete.
 //!
-//! ## Sidecar / snapshot
+//! ## Sidecar
 //!
-//! [`RunBackedSidecarProvider`] and [`RunBackedSnapshotProvider`] depend on
-//! a [`RunDataSource`] that can resolve a `run_id` to the per-run column
-//! metadata, dataset bytes, workflow, and artifacts that
-//! `sidecar::generate_snippet` (Requirement 2.5) and
-//! `snapshot::export_snapshot` (Requirement 7.2) require. That run-state
-//! store does not yet exist in the product (the design's "in-memory
-//! `RunStore`" was never built), so the launcher injects
-//! [`UnavailableRunDataSource`], which reports a structured
-//! "run state unavailable" error. This keeps the endpoints honest — they
-//! surface a clear 4xx/5xx instead of fabricating empty column lists that
-//! would violate Requirement 2.5 — while leaving a single seam
-//! ([`RunDataSource`]) to implement once a real run store lands.
-
-use std::sync::Arc;
+//! [`LiveSidecarProvider`] is fully functional and stateless. The
+//! Equivalent Code Sidecar is a pure function of
+//! `(algorithm_id, software, columns, dataset_sha256, params)`, all of
+//! which the SPA already holds and posts directly in the request body, so
+//! the provider renders real snippets via
+//! [`sidecar::generate_snippet`](crate::sidecar::generate_snippet) with no
+//! run-state store.
+//!
+//! ## Snapshot
+//!
+//! [`UnavailableSnapshotProvider`] returns a structured error. The
+//! deterministic exporter is implemented and unit-tested, but it needs a
+//! materialized `RunSnapshot` (workflow steps, per-step artifacts, dataset
+//! bytes) that no run-state store currently persists. Wiring it is a
+//! separate run-store feature; until then the endpoint reports the gap
+//! honestly instead of fabricating an empty run.
 
 use agent_server::state::{
     CoverageMatrixProvider, SidecarProvider, SidecarProviderError, SnapshotProvider,
@@ -42,11 +44,13 @@ use agent_server::state::{
 };
 use api::sidecar::{
     AlgorithmEntryDto, CoverageMatrixDto, CoverageValueDto, ReferenceImplDto,
-    ReferenceSoftware as DtoSoftware, SidecarSnippetDto, SnapshotExportResponse,
+    ReferenceSoftware as DtoSoftware, SidecarRenderRequest, SidecarSnippetDto,
+    SnapshotExportResponse,
 };
 
-use crate::coverage_matrix::{
-    CoverageMatrix, CoverageState, ReferenceImpl, ReferenceSoftware,
+use crate::coverage_matrix::{CoverageMatrix, CoverageState, ReferenceImpl, ReferenceSoftware};
+use crate::sidecar::{
+    generate_snippet, Column, ColumnDtype, GenerateError, RenderParams, SidecarSnippet,
 };
 
 // ---------------------------------------------------------------------------
@@ -143,132 +147,169 @@ impl CoverageMatrixProvider for EmbeddedCoverageMatrixProvider {
 }
 
 // ---------------------------------------------------------------------------
-// RunDataSource — the seam the sidecar / snapshot providers need
+// SidecarProvider — fully functional, stateless
 // ---------------------------------------------------------------------------
 
-/// Resolves a `run_id` to the per-run state required to render a sidecar
-/// snippet or export an audit snapshot.
-///
-/// This is the single integration seam between the HTTP providers and a
-/// future run-state store. A real implementation must return the input
-/// column metadata, the dataset SHA256, the resolved analysis parameters
-/// (sidecar), and the full materialized run (snapshot). Until that store
-/// exists, [`UnavailableRunDataSource`] is injected.
-pub trait RunDataSource: Send + Sync {
-    /// Whether run-state lookups are supported in this deployment.
-    fn is_available(&self) -> bool;
+/// Map a column dtype token from the wire request onto the in-crate
+/// [`ColumnDtype`]. Returns `None` for any token outside the closed set
+/// `{numeric, categorical, date, string}` so a malformed request is
+/// rejected rather than silently rendering the wrong dtype.
+fn parse_dtype(token: &str) -> Option<ColumnDtype> {
+    match token {
+        "numeric" => Some(ColumnDtype::Numeric),
+        "categorical" => Some(ColumnDtype::Categorical),
+        "date" => Some(ColumnDtype::Date),
+        "string" => Some(ColumnDtype::String),
+        _ => None,
+    }
 }
 
-/// The no-op run data source injected while no run-state store exists.
+/// Map the wire [`DtoSoftware`] onto the in-crate [`ReferenceSoftware`].
+fn software_from_dto(sw: DtoSoftware) -> ReferenceSoftware {
+    match sw {
+        DtoSoftware::R => ReferenceSoftware::R,
+        DtoSoftware::SAS => ReferenceSoftware::SAS,
+        DtoSoftware::Python => ReferenceSoftware::Python,
+        DtoSoftware::SPSS => ReferenceSoftware::SPSS,
+    }
+}
+
+/// Map an in-crate [`CoverageState`] onto the wire [`CoverageValueDto`]
+/// for the snippet response.
+fn coverage_value_dto(state: CoverageState) -> CoverageValueDto {
+    coverage_to_dto(state)
+}
+
+/// Concrete Equivalent Code Sidecar provider.
 ///
-/// Every lookup is unavailable, so the sidecar / snapshot providers
-/// surface a structured error rather than fabricate run state.
+/// Stateless and fully functional: it renders the snippet from the data
+/// carried in the [`SidecarRenderRequest`] (algorithm id, software,
+/// columns, dataset SHA256, params) by calling the pure
+/// [`sidecar::generate_snippet`](crate::sidecar::generate_snippet). No
+/// run-state store is consulted, so the endpoint produces real snippets
+/// today.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct UnavailableRunDataSource;
+pub struct LiveSidecarProvider;
 
-impl RunDataSource for UnavailableRunDataSource {
-    fn is_available(&self) -> bool {
-        false
-    }
-}
-
-const RUN_STATE_UNAVAILABLE_MSG: &str =
-    "analysis run-state store is not yet available in this build; \
-     sidecar snippet generation and snapshot export require per-run \
-     column metadata, dataset bytes, and artifacts that no run store \
-     currently provides";
-
-// ---------------------------------------------------------------------------
-// SidecarProvider — gated on RunDataSource availability
-// ---------------------------------------------------------------------------
-
-/// Generates Equivalent Code Sidecar snippets for the active run.
-///
-/// Functional once a [`RunDataSource`] that resolves real per-run column
-/// metadata and dataset SHA256 is supplied. With
-/// [`UnavailableRunDataSource`] every call returns
-/// [`SidecarProviderError::Internal`] carrying [`RUN_STATE_UNAVAILABLE_MSG`].
-pub struct RunBackedSidecarProvider {
-    run_source: Arc<dyn RunDataSource>,
-}
-
-impl RunBackedSidecarProvider {
-    /// Construct a sidecar provider backed by the given run data source.
-    #[must_use]
-    pub fn new(run_source: Arc<dyn RunDataSource>) -> Self {
-        Self { run_source }
-    }
-}
-
-impl SidecarProvider for RunBackedSidecarProvider {
+impl SidecarProvider for LiveSidecarProvider {
     fn generate(
         &self,
         algorithm_id: &str,
-        _software: DtoSoftware,
-        _run_id: &str,
+        request: &SidecarRenderRequest,
     ) -> Result<SidecarSnippetDto, SidecarProviderError> {
-        // Validate the algorithm id against the embedded matrix first so a
-        // genuinely unknown id surfaces as 404 regardless of run-state
-        // availability.
+        // Validate the dataset SHA256 shape up front: `format_header`
+        // debug-asserts a 64-char lowercase hex string, and a malformed
+        // value is a caller error (400) rather than an internal fault.
+        let sha = &request.dataset_sha256;
+        if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(SidecarProviderError::InvalidRequest(format!(
+                "dataset_sha256 must be 64 lowercase hex chars, got {} chars",
+                sha.len()
+            )));
+        }
+
+        // Parse columns, rejecting any unknown dtype token.
+        let mut columns = Vec::with_capacity(request.columns.len());
+        for col in &request.columns {
+            let dtype = parse_dtype(&col.dtype).ok_or_else(|| {
+                SidecarProviderError::InvalidRequest(format!(
+                    "unknown column dtype {:?} for column {:?}; \
+                     expected one of numeric|categorical|date|string",
+                    col.dtype, col.name
+                ))
+            })?;
+            columns.push(Column {
+                name: col.name.clone(),
+                dtype,
+            });
+        }
+
+        let mut params = RenderParams::new();
+        for (k, v) in &request.params {
+            params.insert(k.clone(), v.clone());
+        }
+
+        let software = software_from_dto(request.software);
+
+        // The Sidecar Code Generator is the authoritative source of the
+        // coverage value for the response, so resolve it once here for the
+        // snippet DTO regardless of which variant `generate_snippet`
+        // returns.
         let matrix = CoverageMatrix::get_loaded();
-        if matrix.lookup(algorithm_id).is_none() {
-            return Err(SidecarProviderError::UnknownAlgorithm(
-                algorithm_id.to_string(),
-            ));
-        }
+        let coverage = matrix.coverage(algorithm_id, software);
 
-        if !self.run_source.is_available() {
-            return Err(SidecarProviderError::Internal(
-                RUN_STATE_UNAVAILABLE_MSG.to_string(),
-            ));
+        match generate_snippet(algorithm_id, &params, &columns, sha, software, &[], None) {
+            Ok(SidecarSnippet::Snippet {
+                text,
+                sha256_of_dataset,
+                release_version,
+                ..
+            }) => Ok(SidecarSnippetDto {
+                algorithm_id: algorithm_id.to_string(),
+                software: request.software,
+                coverage_value: coverage
+                    .map_or(CoverageValueDto::None_, coverage_value_dto),
+                text: Some(text),
+                sha256_of_dataset,
+                release_version,
+            }),
+            Ok(SidecarSnippet::Uncovered { .. }) => Ok(SidecarSnippetDto {
+                algorithm_id: algorithm_id.to_string(),
+                software: request.software,
+                coverage_value: CoverageValueDto::None_,
+                text: None,
+                sha256_of_dataset: sha.clone(),
+                release_version: matrix.release_version().to_string(),
+            }),
+            Err(GenerateError::UnknownAlgorithm { algorithm_id }) => {
+                Err(SidecarProviderError::UnknownAlgorithm(algorithm_id))
+            }
+            Err(GenerateError::MissingTemplate { algorithm_id, .. }) => {
+                Err(SidecarProviderError::MissingTemplate {
+                    algorithm_id,
+                    software: request.software,
+                })
+            }
+            Err(GenerateError::Render(e)) => Err(SidecarProviderError::InvalidRequest(
+                format!("template render failed: {e}"),
+            )),
+            Err(GenerateError::ForbiddenSpawn(e)) => {
+                Err(SidecarProviderError::ForbiddenSpawn(e.to_string()))
+            }
         }
-
-        // A real RunDataSource would resolve columns / dataset SHA256 /
-        // params here and call `sidecar::generate_snippet`. The seam is
-        // intentionally left for the run-store feature.
-        Err(SidecarProviderError::Internal(
-            RUN_STATE_UNAVAILABLE_MSG.to_string(),
-        ))
     }
 }
 
 // ---------------------------------------------------------------------------
-// SnapshotProvider — gated on RunDataSource availability
+// SnapshotProvider — gated on a run-state store that does not yet exist
 // ---------------------------------------------------------------------------
 
-/// Exports Audit Snapshots for completed runs.
+const SNAPSHOT_UNAVAILABLE_MSG: &str =
+    "audit snapshot export requires a per-run state store (workflow steps, \
+     per-step artifacts, dataset bytes) that this build does not yet \
+     persist; the exporter is implemented and unit-tested but no run store \
+     currently feeds it";
+
+/// Audit Snapshot provider.
 ///
-/// Functional once a [`RunDataSource`] can materialize a
-/// `snapshot::RunSnapshot`. With [`UnavailableRunDataSource`] every call
-/// returns [`SnapshotProviderError::Internal`].
-pub struct RunBackedSnapshotProvider {
-    run_source: Arc<dyn RunDataSource>,
-}
+/// The deterministic exporter ([`snapshot::export_snapshot`]) is fully
+/// implemented and unit-tested, but it requires a materialized
+/// `RunSnapshot` (workflow, per-step artifacts, dataset bytes) that no
+/// run-state store currently persists. Until that store lands, this
+/// provider returns a structured [`SnapshotProviderError::Internal`]
+/// rather than fabricating an empty run, which keeps the endpoint honest.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UnavailableSnapshotProvider;
 
-impl RunBackedSnapshotProvider {
-    /// Construct a snapshot provider backed by the given run data source.
-    #[must_use]
-    pub fn new(run_source: Arc<dyn RunDataSource>) -> Self {
-        Self { run_source }
-    }
-}
-
-impl SnapshotProvider for RunBackedSnapshotProvider {
+impl SnapshotProvider for UnavailableSnapshotProvider {
     fn export(
         &self,
         _run_id: &str,
         _destination: &str,
     ) -> Result<SnapshotExportResponse, SnapshotProviderError> {
-        if !self.run_source.is_available() {
-            return Err(SnapshotProviderError::Internal(
-                RUN_STATE_UNAVAILABLE_MSG.to_string(),
-            ));
-        }
-
-        // A real RunDataSource would materialize a `RunSnapshot` here and
-        // call `snapshot::export_snapshot`.
         Err(SnapshotProviderError::Internal(
-            RUN_STATE_UNAVAILABLE_MSG.to_string(),
+            SNAPSHOT_UNAVAILABLE_MSG.to_string(),
         ))
     }
 }
@@ -340,11 +381,16 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_unknown_algorithm_is_404_even_without_run_state() {
-        let provider =
-            RunBackedSidecarProvider::new(Arc::new(UnavailableRunDataSource));
+    fn sidecar_unknown_algorithm_is_404() {
+        let provider = LiveSidecarProvider;
+        let req = SidecarRenderRequest {
+            software: DtoSoftware::R,
+            dataset_sha256: "0".repeat(64),
+            columns: vec![],
+            params: std::collections::BTreeMap::new(),
+        };
         let err = provider
-            .generate("no_such_algorithm", DtoSoftware::R, "run-1")
+            .generate("no_such_algorithm", &req)
             .expect_err("unknown algorithm must error");
         assert_eq!(
             err,
@@ -353,31 +399,107 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_known_algorithm_reports_run_state_unavailable() {
-        let provider =
-            RunBackedSidecarProvider::new(Arc::new(UnavailableRunDataSource));
-        // `tableone` is present in the embedded matrix.
+    fn sidecar_renders_real_snippet_for_covered_cell() {
+        let provider = LiveSidecarProvider;
+        let sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let req = SidecarRenderRequest {
+            software: DtoSoftware::R,
+            dataset_sha256: sha.to_string(),
+            // Wave-1 templates reference up to `{{column.1.…}}`, so supply
+            // two columns (the realistic tableone shape: a grouping column
+            // plus an analysis variable).
+            columns: vec![
+                api::sidecar::SidecarColumnDto {
+                    name: "group".to_string(),
+                    dtype: "categorical".to_string(),
+                },
+                api::sidecar::SidecarColumnDto {
+                    name: "age".to_string(),
+                    dtype: "numeric".to_string(),
+                },
+            ],
+            params: std::collections::BTreeMap::new(),
+        };
+        // `tableone` is `live` for R in the embedded matrix.
+        let dto = provider
+            .generate("tableone", &req)
+            .expect("covered cell must render");
+        assert_eq!(dto.algorithm_id, "tableone");
+        assert_eq!(dto.software, DtoSoftware::R);
+        assert_eq!(dto.coverage_value, CoverageValueDto::Live);
+        let text = dto.text.expect("covered cell carries snippet text");
+        // Real, non-empty snippet that embeds the contractual tokens.
+        assert!(text.contains("data.csv"), "snippet must reference data.csv");
+        assert!(text.contains(sha), "snippet must embed the dataset sha256");
+        assert!(text.contains("age"), "snippet must reference the column");
+        assert!(!text.contains('\r'), "snippet must be LF-only");
+        assert_eq!(dto.sha256_of_dataset, sha);
+    }
+
+    #[test]
+    fn sidecar_none_cell_returns_placeholder_dto() {
+        let provider = LiveSidecarProvider;
+        let req = SidecarRenderRequest {
+            software: DtoSoftware::SPSS,
+            dataset_sha256: "a".repeat(64),
+            columns: vec![],
+            params: std::collections::BTreeMap::new(),
+        };
+        // `standardization` × SPSS is `none` in the embedded matrix.
+        let dto = provider
+            .generate("standardization", &req)
+            .expect("none cell returns a DTO, not an error");
+        assert_eq!(dto.coverage_value, CoverageValueDto::None_);
+        assert!(dto.text.is_none(), "none cell carries no snippet text");
+    }
+
+    #[test]
+    fn sidecar_rejects_unknown_dtype_as_invalid_request() {
+        let provider = LiveSidecarProvider;
+        let req = SidecarRenderRequest {
+            software: DtoSoftware::R,
+            dataset_sha256: "0".repeat(64),
+            columns: vec![api::sidecar::SidecarColumnDto {
+                name: "x".to_string(),
+                dtype: "blob".to_string(),
+            }],
+            params: std::collections::BTreeMap::new(),
+        };
         let err = provider
-            .generate("tableone", DtoSoftware::R, "run-1")
-            .expect_err("run-state-less build must report unavailable");
+            .generate("tableone", &req)
+            .expect_err("unknown dtype must be rejected");
         match err {
-            SidecarProviderError::Internal(msg) => {
-                assert!(msg.contains("run-state"), "got: {msg}");
+            SidecarProviderError::InvalidRequest(msg) => {
+                assert!(msg.contains("dtype"), "got: {msg}");
             }
-            other => panic!("expected Internal, got {other:?}"),
+            other => panic!("expected InvalidRequest, got {other:?}"),
         }
     }
 
     #[test]
-    fn snapshot_reports_run_state_unavailable() {
-        let provider =
-            RunBackedSnapshotProvider::new(Arc::new(UnavailableRunDataSource));
+    fn sidecar_rejects_malformed_sha256() {
+        let provider = LiveSidecarProvider;
+        let req = SidecarRenderRequest {
+            software: DtoSoftware::R,
+            dataset_sha256: "tooshort".to_string(),
+            columns: vec![],
+            params: std::collections::BTreeMap::new(),
+        };
+        let err = provider
+            .generate("tableone", &req)
+            .expect_err("malformed sha must be rejected");
+        assert!(matches!(err, SidecarProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn snapshot_reports_unavailable_without_run_store() {
+        let provider = UnavailableSnapshotProvider;
         let err = provider
             .export("run-1", "C:/tmp/out.zip")
             .expect_err("run-state-less build must report unavailable");
         match err {
             SnapshotProviderError::Internal(msg) => {
-                assert!(msg.contains("run-state"), "got: {msg}");
+                assert!(msg.contains("per-run state store"), "got: {msg}");
             }
             other => panic!("expected Internal, got {other:?}"),
         }

@@ -45,6 +45,11 @@ const SAMPLE_SHA =
   'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const SAMPLE_VERSION = '0.5.0';
 
+const SAMPLE_COLUMNS = [
+  { name: 'group', dtype: 'categorical' },
+  { name: 'age', dtype: 'numeric' },
+];
+
 function buildMatrix(
   cellByAlgorithmId: Record<string, Record<'R' | 'SAS' | 'Python' | 'SPSS', CoverageState>>,
 ): CoverageMatrix {
@@ -118,7 +123,6 @@ beforeEach(() => {
     }: {
       algorithmId: string;
       software: 'R' | 'SAS' | 'Python' | 'SPSS';
-      runId: string;
       enabled?: boolean;
     }) => {
       if (!enabled) {
@@ -136,7 +140,7 @@ beforeEach(() => {
 // Default-tab tests
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — default tab', () => {
+describe('EquivalentCodeSidecar �?default tab', () => {
   it('activates the R tab on first render', async () => {
     const matrix = buildMatrix({
       tableone: { R: 'live', SAS: 'recorded', Python: 'live', SPSS: 'recorded' },
@@ -146,13 +150,13 @@ describe('EquivalentCodeSidecar — default tab', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="tableone"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
     );
 
-    // R tab is selected from the very first render — assert before the
+    // R tab is selected from the very first render �?assert before the
     // matrix even resolves.
     expect(screen.getByTestId('sidecar-tab-R')).toHaveAttribute(
       'aria-selected',
@@ -188,7 +192,7 @@ describe('EquivalentCodeSidecar — default tab', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="tableone"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
@@ -214,7 +218,7 @@ describe('EquivalentCodeSidecar — default tab', () => {
 // Tab-switch test
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — tab switching', () => {
+describe('EquivalentCodeSidecar �?tab switching', () => {
   it('switches the active tab on click', async () => {
     const matrix = buildMatrix({
       tableone: { R: 'live', SAS: 'recorded', Python: 'live', SPSS: 'recorded' },
@@ -224,7 +228,7 @@ describe('EquivalentCodeSidecar — tab switching', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="tableone"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
@@ -261,7 +265,7 @@ describe('EquivalentCodeSidecar — tab switching', () => {
 // `none` cell behaviour
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — none coverage', () => {
+describe('EquivalentCodeSidecar �?none coverage', () => {
   it('renders the placeholder, disables copy, and does not fetch the snippet', async () => {
     const matrix = buildMatrix({
       logistic: { R: 'none', SAS: 'recorded', Python: 'live', SPSS: 'none' },
@@ -271,7 +275,7 @@ describe('EquivalentCodeSidecar — none coverage', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="logistic"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
@@ -311,7 +315,7 @@ describe('EquivalentCodeSidecar — none coverage', () => {
 // `sidecar_only` cell behaviour
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — sidecar_only coverage', () => {
+describe('EquivalentCodeSidecar �?sidecar_only coverage', () => {
   it('renders the snippet plus an inline notice', async () => {
     useSidecarSpy.mockImplementation(
       ({
@@ -320,7 +324,6 @@ describe('EquivalentCodeSidecar — sidecar_only coverage', () => {
       }: {
         algorithmId: string;
         software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
         enabled?: boolean;
       }) => {
         if (!enabled) return { loading: false };
@@ -348,7 +351,7 @@ describe('EquivalentCodeSidecar — sidecar_only coverage', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="power"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
@@ -374,7 +377,7 @@ describe('EquivalentCodeSidecar — sidecar_only coverage', () => {
 // `live` cell behaviour
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — live coverage', () => {
+describe('EquivalentCodeSidecar �?live coverage', () => {
   it('renders the snippet only, with no inline notice', async () => {
     const matrix = buildMatrix({
       tableone: { R: 'live', SAS: 'recorded', Python: 'live', SPSS: 'recorded' },
@@ -384,7 +387,7 @@ describe('EquivalentCodeSidecar — live coverage', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="tableone"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
@@ -406,7 +409,7 @@ describe('EquivalentCodeSidecar — live coverage', () => {
 // Footer is unconditional
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — footer', () => {
+describe('EquivalentCodeSidecar �?footer', () => {
   it('renders SHA256 + release version on every tab and every state', async () => {
     const matrix = buildMatrix({
       logistic: {
@@ -424,7 +427,6 @@ describe('EquivalentCodeSidecar — footer', () => {
       }: {
         algorithmId: string;
         software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
         enabled?: boolean;
       }) => {
         if (!enabled) return { loading: false };
@@ -441,13 +443,13 @@ describe('EquivalentCodeSidecar — footer', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="logistic"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,
     );
 
-    // R is `none` → placeholder. Footer must still be present.
+    // R is `none` �?placeholder. Footer must still be present.
     await waitFor(() => {
       expect(screen.getByTestId('sidecar-placeholder')).toBeInTheDocument();
     });
@@ -457,7 +459,7 @@ describe('EquivalentCodeSidecar — footer', () => {
       expect(footer.textContent).toContain(SAMPLE_VERSION);
     }
 
-    // SAS → recorded snippet. Footer still present.
+    // SAS �?recorded snippet. Footer still present.
     act(() => {
       screen.getByTestId('sidecar-tab-SAS').click();
     });
@@ -472,7 +474,7 @@ describe('EquivalentCodeSidecar — footer', () => {
       expect(footer.textContent).toContain(SAMPLE_VERSION);
     }
 
-    // SPSS → sidecar_only. Footer still present.
+    // SPSS �?sidecar_only. Footer still present.
     act(() => {
       screen.getByTestId('sidecar-tab-SPSS').click();
     });
@@ -491,7 +493,7 @@ describe('EquivalentCodeSidecar — footer', () => {
 // Lazy fetching: only the active tab's snippet is fetched.
 // ---------------------------------------------------------------------------
 
-describe('EquivalentCodeSidecar — lazy fetching', () => {
+describe('EquivalentCodeSidecar �?lazy fetching', () => {
   it('only enables useSidecar for the active tab', async () => {
     const matrix = buildMatrix({
       tableone: { R: 'live', SAS: 'recorded', Python: 'live', SPSS: 'recorded' },
@@ -501,7 +503,7 @@ describe('EquivalentCodeSidecar — lazy fetching', () => {
       matrix,
       <EquivalentCodeSidecar
         algorithmId="tableone"
-        runId="run-1"
+        columns={SAMPLE_COLUMNS}
         datasetSha256={SAMPLE_SHA}
         releaseVersion={SAMPLE_VERSION}
       />,

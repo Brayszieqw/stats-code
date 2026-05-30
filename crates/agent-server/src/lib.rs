@@ -75,7 +75,7 @@ pub fn build_router(load_counter: LoadCounter, app_state: AppState) -> Router {
         )
         .route(
             "/api/sidecar/:algorithm_id",
-            get(handlers::sidecar::get_sidecar),
+            post(handlers::sidecar::post_sidecar),
         )
         .route(
             "/api/snapshot/export",

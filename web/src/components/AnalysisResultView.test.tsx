@@ -94,7 +94,6 @@ beforeEach(() => {
     }: {
       algorithmId: string;
       software: 'R' | 'SAS' | 'Python' | 'SPSS';
-      runId: string;
       enabled?: boolean;
     }) => {
       if (!enabled) return { loading: false };
@@ -117,7 +116,7 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('AnalysisResultView â€” mount points', () => {
+describe('AnalysisResultView â€?mount points', () => {
   it('renders both <EquivalentCodeSidecar> and <ExportSnapshotButton> when the required props are supplied', async () => {
     useSidecarSpy.mockImplementation(
       ({
@@ -126,7 +125,6 @@ describe('AnalysisResultView â€” mount points', () => {
       }: {
         algorithmId: string;
         software: 'R' | 'SAS' | 'Python' | 'SPSS';
-        runId: string;
         enabled?: boolean;
       }) => {
         if (!enabled) return { loading: false };
@@ -187,14 +185,21 @@ describe('AnalysisResultView â€” mount points', () => {
     expect(footer.textContent).toContain(SAMPLE_SHA);
     expect(footer.textContent).toContain(SAMPLE_VERSION);
 
-    // useSidecar was invoked with the runId we passed in.
+    // useSidecar was invoked with the dataset SHA256 + columns forwarded
+    // from the parent (the sidecar is stateless â€?no run_id needed).
     const enabledCalls = useSidecarSpy.mock.calls.filter(
       ([params]) => params.enabled === true,
     );
     expect(enabledCalls.length).toBeGreaterThan(0);
     for (const [params] of enabledCalls) {
-      expect(params.runId).toBe('run-77');
+      expect(params.datasetSha256).toBe(SAMPLE_SHA);
       expect(params.algorithmId).toBe('tableone');
+      // Columns are mapped from the dataset summary (PascalCase â†?
+      // lowercase dtype tokens) and forwarded to the generator.
+      expect(params.columns).toEqual([
+        { name: 'age', dtype: 'numeric' },
+        { name: 'group', dtype: 'categorical' },
+      ]);
     }
   });
 

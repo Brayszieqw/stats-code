@@ -28,8 +28,9 @@
 
 import type { ReactElement } from 'react';
 
-import type { ColumnSummary } from '../api/types';
+import type { ColumnSummary, ColumnType } from '../api/types';
 import { EquivalentCodeSidecar } from './EquivalentCodeSidecar';
+import type { SidecarColumn } from '../hooks/useSidecar';
 import { ExportSnapshotButton } from './ExportSnapshotButton';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,8 @@ export function AnalysisResultView(
 ): ReactElement {
   const {
     algorithmId,
+    params,
+    columns,
     datasetSha256,
     runId,
     runStatus,
@@ -84,6 +87,24 @@ export function AnalysisResultView(
     snapshotDestination,
     fetchImpl,
   } = props;
+
+  // The sidecar generator's column dtype tokens are lowercase
+  // (`numeric | categorical | date | string`); the dataset summary carries
+  // the PascalCase `ColumnType`. Map them here so the wire request matches
+  // the server's closed set.
+  const sidecarColumns: SidecarColumn[] = columns.map((c) => ({
+    name: c.name,
+    dtype: columnTypeToToken(c.inferred_type),
+  }));
+
+  // Algorithm parameters are forwarded as `{{params.<key>}}` string
+  // substitutions; stringify any non-string scalar so the wire shape is a
+  // flat `Record<string, string>`.
+  const sidecarParams: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    sidecarParams[key] =
+      typeof value === 'string' ? value : JSON.stringify(value);
+  }
 
   return (
     <section
@@ -93,8 +114,9 @@ export function AnalysisResultView(
     >
       <EquivalentCodeSidecar
         algorithmId={algorithmId}
-        runId={runId}
         datasetSha256={datasetSha256}
+        columns={sidecarColumns}
+        params={sidecarParams}
         releaseVersion={releaseVersion}
       />
       <ExportSnapshotButton
@@ -105,6 +127,23 @@ export function AnalysisResultView(
       />
     </section>
   );
+}
+
+/** Map the dataset summary's PascalCase column type onto the sidecar's
+ * lowercase dtype token. */
+function columnTypeToToken(t: ColumnType): string {
+  switch (t) {
+    case 'Numeric':
+      return 'numeric';
+    case 'Categorical':
+      return 'categorical';
+    case 'Date':
+      return 'date';
+    case 'String':
+      return 'string';
+    default:
+      return 'string';
+  }
 }
 
 export default AnalysisResultView;

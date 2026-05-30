@@ -13,17 +13,20 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_stream::Stream;
 
 use crate::models::{
-    ChoiceOption, ChoicePrompt, ErrorCode, ErrorPayload, SessionId,
-    SessionSettings, SkillResult,
+    AgentBlock, AgentMessage, AnalysisPlan, AnalysisPlanStep, AnalysisStepStatus,
+    AnalysisTaskType, ChoiceOption, ChoicePrompt, ErrorCode, ErrorPayload, Message, SessionId,
+    SessionSettings, SkillError, SkillOutcome, SkillResult, SkillRun, UserContent, UserMessage,
 };
 use crate::skill::{SkillDescriptor, SkillRegistry, SkillRunner};
 use crate::traits::{DatasetStore, LlmProvider, SessionStore};
 use crate::traits::llm_provider::{LlmEvent, LlmMessage, LlmRequest, LlmRole};
+use crate::traits::StoreError;
 
 // ---------------------------------------------------------------------------
 // AgentEvent
@@ -37,6 +40,8 @@ use crate::traits::llm_provider::{LlmEvent, LlmMessage, LlmRequest, LlmRole};
 pub enum AgentEvent {
     /// Incremental text token from the LLM.
     TextDelta(String),
+    /// A lightweight, structured analysis plan.
+    AnalysisPlan(AnalysisPlan),
     /// A structured choice prompt for the user.
     ChoicePrompt(ChoicePrompt),
     /// Notification that a skill is being invoked.
@@ -152,12 +157,23 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         msg: UserMessageInput,
     ) -> Vec<AgentEvent> {
         let mut events = Vec::new();
+        let mut agent_blocks = Vec::new();
+
+        if let Err(err) = self.persist_user_message(sid, &msg.text).await {
+            events.push(AgentEvent::Error(err));
+            events.push(AgentEvent::Done);
+            return events;
+        }
 
         // Step 1: Recognize intent via LLM
         let intent = match self.recognize_intent(&msg.text).await {
             Ok(intent) => intent,
             Err(err) => {
+                agent_blocks.push(AgentBlock::Text(err.message.clone()));
                 events.push(AgentEvent::Error(err));
+                if let Err(err) = self.persist_agent_message(sid, agent_blocks).await {
+                    events.push(AgentEvent::Error(err));
+                }
                 events.push(AgentEvent::Done);
                 return events;
             }
@@ -166,12 +182,21 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
         // Step 2: Decide action based on intent
         let action = self.decide_action(&intent, &msg.settings);
 
+        if let Some(plan) = self.build_analysis_plan(&msg.text, &intent, &action) {
+            agent_blocks.push(AgentBlock::AnalysisPlan(plan.clone()));
+            events.push(AgentEvent::AnalysisPlan(plan));
+        }
+
         // Step 3: Execute the decided action
         match action {
             Action::AskChoice(prompt) => {
+                agent_blocks.push(AgentBlock::ChoicePrompt(prompt.clone()));
                 events.push(AgentEvent::ChoicePrompt(prompt));
             }
             Action::RunSkill { skill_id, args } => {
+                let run_id = uuid::Uuid::new_v4();
+                let started_at = Utc::now();
+
                 // Emit SkillCall notification
                 events.push(AgentEvent::SkillCall {
                     skill_id: skill_id.clone(),
@@ -179,38 +204,136 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
                 });
 
                 // Execute skill
-                match self.execute_skill(sid, &skill_id, args).await {
+                match self.execute_skill(sid, &skill_id, args.clone()).await {
                     Ok(result) => {
+                        if let Err(err) = self
+                            .persist_skill_run(
+                                sid,
+                                SkillRun {
+                                    run_id,
+                                    skill_id: skill_id.clone(),
+                                    args: args.clone(),
+                                    started_at,
+                                    finished_at: Some(Utc::now()),
+                                    outcome: SkillOutcome::Ok(result.clone()),
+                                },
+                            )
+                            .await
+                        {
+                            events.push(AgentEvent::Error(err));
+                        }
+
                         // Emit SkillResult (must come before Interpretation per P13)
                         events.push(AgentEvent::SkillResult(result.clone()));
+                        agent_blocks.push(AgentBlock::SkillResult {
+                            run_id,
+                            result: result.clone(),
+                        });
 
                         // Generate interpretation via LLM
                         let interpretation = self
                             .generate_interpretation(&skill_id, &result)
                             .await;
+                        agent_blocks.push(AgentBlock::Interpretation(interpretation.clone()));
                         events.push(AgentEvent::Interpretation(interpretation));
 
                         // If decision_assistant is on, append ChoicePrompt (P10)
                         if msg.settings.decision_assistant {
                             let follow_up = self.generate_follow_up_prompt(&skill_id, &result);
+                            agent_blocks.push(AgentBlock::ChoicePrompt(follow_up.clone()));
                             events.push(AgentEvent::ChoicePrompt(follow_up));
                         }
                     }
                     Err(err) => {
+                        if let Err(record_err) = self
+                            .persist_skill_run(
+                                sid,
+                                SkillRun {
+                                    run_id,
+                                    skill_id: skill_id.clone(),
+                                    args,
+                                    started_at,
+                                    finished_at: Some(Utc::now()),
+                                    outcome: SkillOutcome::Failed(SkillError {
+                                        message: err.message.clone(),
+                                        stderr_excerpt: None,
+                                    }),
+                                },
+                            )
+                            .await
+                        {
+                            events.push(AgentEvent::Error(record_err));
+                        }
+                        agent_blocks.push(AgentBlock::Text(err.message.clone()));
                         events.push(AgentEvent::Error(err));
                     }
                 }
             }
             Action::Respond(text) => {
+                agent_blocks.push(AgentBlock::Text(text.clone()));
                 events.push(AgentEvent::TextDelta(text));
             }
             Action::Error(err) => {
+                agent_blocks.push(AgentBlock::Text(err.message.clone()));
                 events.push(AgentEvent::Error(err));
             }
         }
 
+        if let Err(err) = self.persist_agent_message(sid, agent_blocks).await {
+            events.push(AgentEvent::Error(err));
+        }
         events.push(AgentEvent::Done);
         events
+    }
+
+    async fn persist_user_message(
+        &self,
+        sid: SessionId,
+        text: &str,
+    ) -> Result<(), ErrorPayload> {
+        self.store
+            .append_message(
+                sid,
+                Message::User(UserMessage {
+                    id: uuid::Uuid::new_v4(),
+                    created_at: Utc::now(),
+                    content: UserContent::Text(text.to_string()),
+                }),
+            )
+            .await
+            .map_err(|err| store_error_payload("记录用户消息", err))
+    }
+
+    async fn persist_agent_message(
+        &self,
+        sid: SessionId,
+        blocks: Vec<AgentBlock>,
+    ) -> Result<(), ErrorPayload> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        self.store
+            .append_message(
+                sid,
+                Message::Agent(AgentMessage {
+                    id: uuid::Uuid::new_v4(),
+                    created_at: Utc::now(),
+                    blocks,
+                }),
+            )
+            .await
+            .map_err(|err| store_error_payload("记录智能体消息", err))
+    }
+
+    async fn persist_skill_run(
+        &self,
+        sid: SessionId,
+        run: SkillRun,
+    ) -> Result<(), ErrorPayload> {
+        self.store
+            .append_skill_run(sid, run)
+            .await
+            .map_err(|err| store_error_payload("记录技能运行", err))
     }
 
     /// Recognize intent by calling the LLM with the user message and skill descriptions.
@@ -583,6 +706,110 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
             recommendation: None,
         }
     }
+
+    fn build_analysis_plan(
+        &self,
+        user_text: &str,
+        intent: &IntentResult,
+        action: &Action,
+    ) -> Option<AnalysisPlan> {
+        let task_type = classify_analysis_task_type(user_text, &intent.skill_ids);
+        if task_type == AnalysisTaskType::General
+            && intent.skill_ids.is_empty()
+            && !intent.has_query_intent
+        {
+            return None;
+        }
+
+        let target_skill_id = if intent.skill_ids.len() == 1
+            && self.skills.get(&intent.skill_ids[0]).is_some()
+        {
+            Some(intent.skill_ids[0].clone())
+        } else {
+            None
+        };
+        let missing_args = target_skill_id
+            .as_deref()
+            .and_then(|skill_id| self.skills.get(skill_id))
+            .map(|desc| find_missing_args(desc, &intent.resolved_args))
+            .unwrap_or_default();
+
+        let mut steps = vec![AnalysisPlanStep {
+            order: 1,
+            title: "Classify request".to_string(),
+            detail: format!("Task type: {task_type:?}"),
+            skill_id: None,
+            status: AnalysisStepStatus::Planned,
+        }];
+
+        if intent.skill_ids.len() > 1 {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Choose statistical method".to_string(),
+                detail: format!("Candidates: {}", intent.skill_ids.join(", ")),
+                skill_id: None,
+                status: AnalysisStepStatus::WaitingForInput,
+            });
+        } else if !missing_args.is_empty() {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Collect required parameters".to_string(),
+                detail: format!("Missing: {}", missing_args.join(", ")),
+                skill_id: target_skill_id.clone(),
+                status: AnalysisStepStatus::WaitingForInput,
+            });
+        } else if let Some(skill_id) = target_skill_id.clone() {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Run statistical skill".to_string(),
+                detail: format!("Execute {skill_id} with resolved arguments"),
+                skill_id: Some(skill_id),
+                status: AnalysisStepStatus::Planned,
+            });
+            steps.push(AnalysisPlanStep {
+                order: 3,
+                title: "Interpret result and risks".to_string(),
+                detail: "Summarize estimates, assumptions, and risk signals".to_string(),
+                skill_id: None,
+                status: AnalysisStepStatus::Planned,
+            });
+        } else if matches!(
+            task_type,
+            AnalysisTaskType::Visualization | AnalysisTaskType::Cleaning
+        ) {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Route unavailable request".to_string(),
+                detail: "No executable skill is registered for this task type yet".to_string(),
+                skill_id: None,
+                status: AnalysisStepStatus::Unsupported,
+            });
+        } else if matches!(action, Action::AskChoice(_)) {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Collect user choice".to_string(),
+                detail: "Wait for the user to resolve the next action".to_string(),
+                skill_id: None,
+                status: AnalysisStepStatus::WaitingForInput,
+            });
+        } else {
+            steps.push(AnalysisPlanStep {
+                order: 2,
+                title: "Respond or clarify".to_string(),
+                detail: "No executable statistical skill was selected".to_string(),
+                skill_id: None,
+                status: AnalysisStepStatus::Planned,
+            });
+        }
+
+        Some(AnalysisPlan {
+            plan_id: uuid::Uuid::new_v4(),
+            task_type,
+            target_skill_id,
+            requires_user_input: matches!(action, Action::AskChoice(_)),
+            steps,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +911,50 @@ fn find_missing_args(desc: &SkillDescriptor, resolved_args: &Value) -> Vec<Strin
         .collect()
 }
 
+fn classify_analysis_task_type(user_text: &str, skill_ids: &[String]) -> AnalysisTaskType {
+    if skill_ids
+        .iter()
+        .any(|id| matches!(id.as_str(), "model_cox" | "survival_km"))
+    {
+        return AnalysisTaskType::Survival;
+    }
+    if skill_ids.iter().any(|id| id.starts_with("model_")) {
+        return AnalysisTaskType::Regression;
+    }
+    if skill_ids.iter().any(|id| id == "inspect") {
+        return AnalysisTaskType::DescriptiveStats;
+    }
+    if skill_ids.iter().any(|id| id == "power") {
+        return AnalysisTaskType::Power;
+    }
+
+    let text = user_text.to_lowercase();
+    if contains_any(&text, &["cox", "kaplan", "survival", "生存"]) {
+        AnalysisTaskType::Survival
+    } else if contains_any(&text, &["regression", "linear", "logistic", "回归", "模型"]) {
+        AnalysisTaskType::Regression
+    } else if contains_any(
+        &text,
+        &["describe", "summary", "descriptive", "inspect", "描述统计", "汇总", "摘要", "探索"],
+    ) {
+        AnalysisTaskType::DescriptiveStats
+    } else if contains_any(&text, &["visual", "plot", "chart", "graph", "可视化", "画图", "绘图", "图表"])
+    {
+        AnalysisTaskType::Visualization
+    } else if contains_any(&text, &["clean", "missing", "impute", "deduplicate", "清洗", "缺失", "去重", "异常值"])
+    {
+        AnalysisTaskType::Cleaning
+    } else if contains_any(&text, &["power", "sample size", "样本量", "功效"]) {
+        AnalysisTaskType::Power
+    } else {
+        AnalysisTaskType::General
+    }
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
 /// Build a `ChoicePrompt` to collect missing required arguments from the user.
 fn build_missing_args_prompt(desc: &SkillDescriptor, missing: &[String]) -> ChoicePrompt {
     let properties = desc
@@ -723,6 +994,23 @@ fn build_missing_args_prompt(desc: &SkillDescriptor, missing: &[String]) -> Choi
     }
 }
 
+fn store_error_payload(action: &str, err: StoreError) -> ErrorPayload {
+    match err {
+        StoreError::NotFound(message) => ErrorPayload::new(
+            ErrorCode::SessionNotFound,
+            format!("{action}失败：{message}"),
+        ),
+        StoreError::Archived => ErrorPayload::new(
+            ErrorCode::SessionArchived,
+            format!("{action}失败：会话已归档"),
+        ),
+        StoreError::Internal(message) => ErrorPayload::new(
+            ErrorCode::SkillExecutionFailed,
+            format!("{action}失败：{message}"),
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
@@ -731,8 +1019,12 @@ fn build_missing_args_prompt(desc: &SkillDescriptor, missing: &[String]) -> Choi
 mod tests {
     use super::*;
     use crate::llm::mock::{MockLlm, MockLlmResponse};
-    use crate::models::SessionSettings;
+    use crate::models::{
+        AgentBlock, AnalysisStepStatus, AnalysisTaskType, Message, SessionSettings, SkillOutcome,
+        UserContent,
+    };
     use crate::skill::SkillRegistry;
+    use crate::store::MemSessionStore;
     use crate::traits::llm_provider::LlmEvent;
     use crate::traits::StoreError;
     use serde_json::json;
@@ -984,6 +1276,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_handle_message_text_response_persists_user_and_agent_messages() {
+        let llm_response = json!({
+            "skill_ids": [],
+            "resolved_args": {},
+            "has_query_intent": false,
+            "text_response": "你好！我是统计分析助手。"
+        });
+        let llm = MockLlm::new(vec![MockLlmResponse::Stream(vec![
+            LlmEvent::TextDelta(serde_json::to_string(&llm_response).unwrap()),
+            LlmEvent::Done,
+        ])]);
+
+        let store = MemSessionStore::new();
+        let session = store.create().await.expect("create session");
+        let orch = AgentOrchestrator::new(
+            store,
+            NullDatasetStore,
+            SkillRegistry::with_defaults(),
+            mock_runner(),
+            Arc::new(llm),
+        );
+        let msg = UserMessageInput {
+            text: "你好".to_string(),
+            settings: SessionSettings::default(),
+        };
+
+        let stream = orch.handle_user_message(session.id, msg).await;
+        let events: Vec<AgentEvent> = stream.collect().await;
+        assert!(events.last().map(|e| matches!(e, AgentEvent::Done)).unwrap_or(false));
+
+        let saved = orch.store.get(session.id).await.expect("get session");
+        assert_eq!(saved.messages.len(), 2);
+        match &saved.messages[0] {
+            Message::User(user) => match &user.content {
+                UserContent::Text(text) => assert_eq!(text, "你好"),
+                other => panic!("expected text user content, got {other:?}"),
+            },
+            other => panic!("expected user message, got {other:?}"),
+        }
+        match &saved.messages[1] {
+            Message::Agent(agent) => {
+                assert!(agent.blocks.iter().any(|block| {
+                    matches!(block, AgentBlock::Text(text) if text == "你好！我是统计分析助手。")
+                }));
+            }
+            other => panic!("expected agent message, got {other:?}"),
+        }
+        assert!(saved.skill_runs.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_handle_message_multiple_skills_emits_choice_prompt() {
         let llm_response = json!({
             "skill_ids": ["model_linear", "model_logistic"],
@@ -1011,6 +1354,127 @@ mod tests {
             .iter()
             .any(|e| matches!(e, AgentEvent::ChoicePrompt(_))));
         assert!(events.last().map(|e| matches!(e, AgentEvent::Done)).unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_missing_regression_args_emits_and_persists_analysis_plan() {
+        let llm_response = json!({
+            "skill_ids": ["model_linear"],
+            "resolved_args": {
+                "dataset_id": "ds-001"
+            },
+            "has_query_intent": true,
+            "text_response": null
+        });
+        let llm = MockLlm::new(vec![MockLlmResponse::Stream(vec![
+            LlmEvent::TextDelta(serde_json::to_string(&llm_response).unwrap()),
+            LlmEvent::Done,
+        ])]);
+
+        let store = MemSessionStore::new();
+        let session = store.create().await.expect("create session");
+        let orch = AgentOrchestrator::new(
+            store,
+            NullDatasetStore,
+            SkillRegistry::with_defaults(),
+            mock_runner(),
+            Arc::new(llm),
+        );
+        let msg = UserMessageInput {
+            text: "run a linear regression on ds-001".to_string(),
+            settings: SessionSettings::default(),
+        };
+
+        let stream = orch.handle_user_message(session.id, msg).await;
+        let events: Vec<AgentEvent> = stream.collect().await;
+        let plan_event_index = events
+            .iter()
+            .position(|event| matches!(event, AgentEvent::AnalysisPlan(_)))
+            .expect("analysis plan event");
+        let choice_index = events
+            .iter()
+            .position(|event| matches!(event, AgentEvent::ChoicePrompt(_)))
+            .expect("choice prompt event");
+        assert!(plan_event_index < choice_index);
+
+        let plan = match &events[plan_event_index] {
+            AgentEvent::AnalysisPlan(plan) => plan,
+            other => panic!("expected analysis plan, got {other:?}"),
+        };
+        assert_eq!(plan.task_type, AnalysisTaskType::Regression);
+        assert_eq!(plan.target_skill_id.as_deref(), Some("model_linear"));
+        assert!(plan.requires_user_input);
+        assert!(plan.steps.iter().any(|step| {
+            step.status == AnalysisStepStatus::WaitingForInput
+                && step.detail.contains("outcome")
+                && step.detail.contains("predictors")
+        }));
+
+        let saved = orch.store.get(session.id).await.expect("get session");
+        let agent = match &saved.messages[1] {
+            Message::Agent(agent) => agent,
+            other => panic!("expected agent message, got {other:?}"),
+        };
+        assert!(agent.blocks.iter().any(|block| {
+            matches!(
+                block,
+                AgentBlock::AnalysisPlan(plan)
+                    if plan.task_type == AnalysisTaskType::Regression
+                        && plan.target_skill_id.as_deref() == Some("model_linear")
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_skill_failure_persists_failed_skill_run() {
+        let dataset_id = uuid::Uuid::new_v4().to_string();
+        let llm_response = json!({
+            "skill_ids": ["model_linear"],
+            "resolved_args": {
+                "dataset_id": dataset_id,
+                "outcome": "bp",
+                "predictors": ["age"]
+            },
+            "has_query_intent": true,
+            "text_response": null
+        });
+        let llm = MockLlm::new(vec![MockLlmResponse::Stream(vec![
+            LlmEvent::TextDelta(serde_json::to_string(&llm_response).unwrap()),
+            LlmEvent::Done,
+        ])]);
+
+        let store = MemSessionStore::new();
+        let session = store.create().await.expect("create session");
+        let orch = AgentOrchestrator::new(
+            store,
+            NullDatasetStore,
+            SkillRegistry::with_defaults(),
+            mock_runner(),
+            Arc::new(llm),
+        );
+        let msg = UserMessageInput {
+            text: "用 age 预测 bp".to_string(),
+            settings: SessionSettings::default(),
+        };
+
+        let stream = orch.handle_user_message(session.id, msg).await;
+        let events: Vec<AgentEvent> = stream.collect().await;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Error(payload) if payload.error_code == ErrorCode::SkillInvalidArgs)));
+
+        let saved = orch.store.get(session.id).await.expect("get session");
+        assert_eq!(saved.skill_runs.len(), 1);
+        let run = &saved.skill_runs[0];
+        assert_eq!(run.skill_id, "model_linear");
+        assert_eq!(run.args["outcome"], "bp");
+        assert!(run.finished_at.is_some());
+        match &run.outcome {
+            SkillOutcome::Failed(error) => {
+                assert!(error.message.contains("未找到"));
+            }
+            other => panic!("expected failed skill outcome, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1098,6 +1562,26 @@ mod tests {
         let missing = find_missing_args(desc, &args);
         assert!(missing.contains(&"outcome".to_string()));
         assert!(!missing.contains(&"predictors".to_string()));
+    }
+
+    #[test]
+    fn test_classify_analysis_task_type_covers_core_stats_routes() {
+        assert_eq!(
+            classify_analysis_task_type("run a regression model", &[]),
+            AnalysisTaskType::Regression
+        );
+        assert_eq!(
+            classify_analysis_task_type("做描述统计和摘要", &[]),
+            AnalysisTaskType::DescriptiveStats
+        );
+        assert_eq!(
+            classify_analysis_task_type("帮我可视化这个数据", &[]),
+            AnalysisTaskType::Visualization
+        );
+        assert_eq!(
+            classify_analysis_task_type("清洗缺失值和异常值", &[]),
+            AnalysisTaskType::Cleaning
+        );
     }
 
     #[test]

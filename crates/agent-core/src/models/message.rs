@@ -15,6 +15,9 @@ pub type PromptId = Uuid;
 /// Type alias for choice option identifiers.
 pub type OptionId = String;
 
+/// Type alias for analysis plan identifiers.
+pub type AnalysisPlanId = Uuid;
+
 /// A message in the session history (either user or agent).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
@@ -53,11 +56,53 @@ pub struct AgentMessage {
     pub blocks: Vec<AgentBlock>,
 }
 
+/// A lightweight, auditable plan for a statistical request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalysisPlan {
+    pub plan_id: AnalysisPlanId,
+    pub task_type: AnalysisTaskType,
+    pub target_skill_id: Option<String>,
+    pub requires_user_input: bool,
+    pub steps: Vec<AnalysisPlanStep>,
+}
+
+/// Coarse task route selected before skill execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnalysisTaskType {
+    Regression,
+    DescriptiveStats,
+    Visualization,
+    Cleaning,
+    Survival,
+    Power,
+    General,
+}
+
+/// One step in an auditable analysis plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalysisPlanStep {
+    pub order: u8,
+    pub title: String,
+    pub detail: String,
+    pub skill_id: Option<String>,
+    pub status: AnalysisStepStatus,
+}
+
+/// Planning status for a single analysis step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnalysisStepStatus {
+    Planned,
+    WaitingForInput,
+    Unsupported,
+}
+
 /// A block within an agent message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentBlock {
     /// Free-form text response.
     Text(String),
+    /// A lightweight, structured analysis plan.
+    AnalysisPlan(AnalysisPlan),
     /// A structured choice prompt for the user.
     ChoicePrompt(ChoicePrompt),
     /// Result of a skill execution.

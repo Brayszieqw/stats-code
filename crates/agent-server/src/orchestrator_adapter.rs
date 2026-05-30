@@ -109,12 +109,10 @@ mod tests {
         llm: Arc<dyn LlmProvider>,
     ) -> (
         OrchestratorAdapter<MemSessionStore, FsDatasetStore>,
-        SessionId,
         TempDir,
     ) {
         let tmp = TempDir::new().unwrap();
         let session_store = MemSessionStore::new();
-        let session = session_store.create().await.unwrap();
         let dataset_store = FsDatasetStore::new(tmp.path().to_path_buf()).await.unwrap();
         let registry = SkillRegistry::with_defaults();
         let runner = SkillRunner::new(
@@ -125,7 +123,7 @@ mod tests {
         );
 
         let orch = AgentOrchestrator::new(session_store, dataset_store, registry, runner, llm);
-        (OrchestratorAdapter::new(orch), session.id, tmp)
+        (OrchestratorAdapter::new(orch), tmp)
     }
 
     #[tokio::test]
@@ -141,12 +139,11 @@ mod tests {
             1024,
         );
         let llm = Arc::new(MockLlm::with_texts(vec!["你好"]));
-        let session = session_store.create().await.unwrap();
 
         let orch = AgentOrchestrator::new(session_store, dataset_store, registry, runner, llm);
         let adapter = OrchestratorAdapter::new(orch);
 
-        let sid = session.id;
+        let sid = SessionId::new();
         let msg = UserMessageInput {
             text: "hi".to_string(),
             settings: SessionSettings::default(),
@@ -161,8 +158,9 @@ mod tests {
 
     #[tokio::test]
     async fn adapter_returns_stream_before_slow_llm_completes() {
-        let (adapter, sid, _tmp) = make_adapter(Arc::new(SlowLlm)).await;
+        let (adapter, _tmp) = make_adapter(Arc::new(SlowLlm)).await;
 
+        let sid = SessionId::new();
         let msg = UserMessageInput {
             text: "hi".to_string(),
             settings: SessionSettings::default(),

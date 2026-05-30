@@ -172,10 +172,6 @@ fn agent_event_to_sse(event: AgentEvent) -> Event {
             .event("text_delta")
             .data(serde_json::json!({ "text": text }).to_string()),
 
-        AgentEvent::AnalysisPlan(plan) => Event::default()
-            .event("analysis_plan")
-            .data(serde_json::to_string(&plan).unwrap_or_default()),
-
         AgentEvent::ChoicePrompt(prompt) => Event::default()
             .event("choice_prompt")
             .data(serde_json::to_string(&prompt).unwrap_or_default()),
@@ -208,10 +204,7 @@ fn agent_event_to_sse(event: AgentEvent) -> Event {
 mod tests {
     use super::*;
     use crate::state::MessageHandler;
-    use agent_core::models::{
-        AnalysisPlan, AnalysisPlanStep, AnalysisStepStatus, AnalysisTaskType, Session, SessionId,
-        SessionSettings, SessionStatus,
-    };
+    use agent_core::models::{Session, SessionId, SessionSettings, SessionStatus};
     use agent_core::orchestrator::AgentEvent;
     use agent_core::traits::session_store::{SessionStore, StoreError};
     use axum::body::Body;
@@ -342,35 +335,6 @@ mod tests {
         }
     }
 
-    struct MockMessageHandlerPlan;
-
-    impl MessageHandler for MockMessageHandlerPlan {
-        fn handle_message(
-            &self,
-            _sid: SessionId,
-            _msg: UserMessageInput,
-        ) -> Pin<Box<dyn Future<Output = Pin<Box<dyn Stream<Item = AgentEvent> + Send>>> + Send + '_>>
-        {
-            Box::pin(async {
-                let plan = AnalysisPlan {
-                    plan_id: Uuid::new_v4(),
-                    task_type: AnalysisTaskType::Regression,
-                    target_skill_id: Some("model_linear".to_string()),
-                    requires_user_input: false,
-                    steps: vec![AnalysisPlanStep {
-                        order: 1,
-                        title: "Classify request".to_string(),
-                        detail: "Task type: Regression".to_string(),
-                        skill_id: None,
-                        status: AnalysisStepStatus::Planned,
-                    }],
-                };
-                let events = vec![AgentEvent::AnalysisPlan(plan), AgentEvent::Done];
-                Box::pin(tokio_stream::iter(events)) as Pin<Box<dyn Stream<Item = AgentEvent> + Send>>
-            })
-        }
-    }
-
     // --- Helper ---
 
     fn build_test_app(state: AppState) -> Router {
@@ -427,34 +391,6 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_post_message_streams_analysis_plan_event() {
-        let sid = Uuid::new_v4();
-        let state = AppState::with_message_handler(
-            Arc::new(MockSessionStore::with_active_session(sid)),
-            Arc::new(MockMessageHandlerPlan),
-        );
-        let app = build_test_app(state);
-
-        let body = serde_json::json!({ "text": "run regression" });
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/api/sessions/{sid}/messages"))
-            .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_vec(&body).unwrap()))
-            .unwrap();
-
-        let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let raw_body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body_str = String::from_utf8_lossy(&raw_body);
-        assert!(body_str.contains("event: analysis_plan"));
-        assert!(body_str.contains("\"task_type\":\"Regression\""));
-        assert!(body_str.contains("event: done"));
     }
 
     #[tokio::test]

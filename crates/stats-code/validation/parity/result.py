@@ -186,6 +186,104 @@ def _lib_version(name: str) -> str:
         return "unknown"
 
 
+def _version_from_cargo_toml(workspace_root: Path) -> Optional[str]:
+    """Read the Stats Code version from ``crates/stats-code/Cargo.toml``.
+
+    Handles both a direct ``version = "x.y.z"`` and Cargo workspace
+    inheritance (``version.workspace = true``), in which case the version is
+    read from the workspace root ``[workspace.package].version``. Returns
+    None on any failure (missing file, parse error, unresolved version).
+    """
+    import tomllib
+
+    crate_toml = workspace_root / "crates" / "stats-code" / "Cargo.toml"
+    try:
+        with crate_toml.open("rb") as fh:
+            crate = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    package = crate.get("package", {})
+    version = package.get("version")
+
+    # Direct string version.
+    if isinstance(version, str) and version:
+        return version
+
+    # Workspace inheritance: {"workspace": true} → read workspace root.
+    if isinstance(version, dict) and version.get("workspace") is True:
+        root_toml = workspace_root / "Cargo.toml"
+        try:
+            with root_toml.open("rb") as fh:
+                root = tomllib.load(fh)
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+        ws_version = root.get("workspace", {}).get("package", {}).get("version")
+        if isinstance(ws_version, str) and ws_version:
+            return ws_version
+
+    return None
+
+
+def _version_from_cli_probe(workspace_root: Path) -> Optional[str]:
+    """Resolve the version via a ``stats-code --version`` CLI probe.
+
+    Reuses the cargo-run invocation contract. A non-zero exit, timeout, or
+    unparseable output returns None (caller degrades to ``"unknown"``).
+    Never raises.
+    """
+    try:
+        result = subprocess.run(
+            ["cargo", "run", "--locked", "-q", "-p", "stats-code", "--", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=str(workspace_root),
+            timeout=120,
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    # Expect output like "stats-code 0.1.0"; take the last whitespace token.
+    output = (result.stdout or "").strip()
+    if not output:
+        return None
+    token = output.split()[-1]
+    # A plausible version token contains a digit.
+    return token if any(ch.isdigit() for ch in token) else None
+
+
+def resolve_stats_code_version(workspace_root: Optional[Path] = None) -> str:
+    """Resolve the Stats Code version, or ``"unknown"``.
+
+    Resolution order (each step falls through on failure):
+      1. ``crates/stats-code/Cargo.toml`` ``[package].version`` (handles
+         workspace inheritance) — fast, deterministic, no subprocess.
+      2. ``stats-code --version`` CLI probe.
+      3. ``"unknown"``.
+
+    This function catches all exceptions internally and never raises, so it
+    cannot abort metadata collection (Requirement 4.2 / 4.4). It does not
+    spawn R / SAS / SPSS / Python reference software (Requirement 4.3).
+    """
+    if workspace_root is None:
+        # result.py → parity/ → validation/ → stats-code/ → crates/ → root
+        workspace_root = Path(__file__).resolve().parents[4]
+
+    try:
+        from_cargo = _version_from_cargo_toml(workspace_root)
+        if from_cargo:
+            return from_cargo
+        from_probe = _version_from_cli_probe(workspace_root)
+        if from_probe:
+            return from_probe
+    except Exception:
+        pass
+    return "unknown"
+
+
 def collect_metadata() -> RunMetadata:
     """Collect all provenance fields for the current run."""
     from datetime import datetime, timezone

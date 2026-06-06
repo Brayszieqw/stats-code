@@ -63,6 +63,7 @@ from parity.result import (
     ToleranceConfig,
     ValidationResult,
     collect_metadata,
+    resolve_stats_code_version,
 )
 
 # ---------------------------------------------------------------------------
@@ -436,6 +437,12 @@ def run(
     # Write reports if requested (legacy path — report.json + report.md)
     if out is not None:
         metadata = collect_metadata()
+        # Spec: parity-math-core-collect-crash — back-fill stats_code_version
+        # (collect_metadata leaves it "unknown" by default). validation_dir is
+        # .../crates/stats-code/validation; the workspace root is two up.
+        metadata.stats_code_version = resolve_stats_code_version(
+            validation_dir.parent.parent.parent
+        )
         gen = ReportGenerator(all_results, metadata)
         gen.write(out)
         print(f"[INFO] Reports written to {out}", file=sys.stderr)
@@ -578,6 +585,9 @@ def main(argv: list[str] | None = None) -> int:
         # ParityRow-shaped inputs land in wave-2 once the adapter layer
         # produces them directly (tasks 11.7 / 11.8).
         metadata = collect_metadata()
+        metadata.stats_code_version = resolve_stats_code_version(
+            validation_dir.parent.parent.parent
+        )
         header = _build_parity_header(matrix, metadata)
         gen = ParityReportGenerator(rows=[], header=header)
         gen.write(report_dir)

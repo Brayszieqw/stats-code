@@ -79,3 +79,34 @@ def test_mix_pass_skip_returns_zero() -> None:
     with patch.object(run_validation, "run", return_value=results):
         exit_code = run_validation.main(["--out", "/tmp/test_exit_code_pass_skip"])
     assert exit_code == 0
+
+
+# ── Spec: parity-math-core-collect-crash ─────────────────────────────────────
+# Property 6: a single collect-crash row (status==ERROR, metric=="__collect__")
+# yields exit 2, and compute_exit_code is unaffected by the reporter changes.
+
+def _collect_crash_row() -> ValidationResult:
+    return ValidationResult(
+        method="math_core",
+        dataset="__builtin__",
+        reference_engine="unknown",
+        metric="__collect__",
+        tolerance=0.0,
+        status=Status.ERROR,
+        message="collect() raised: boom",
+    )
+
+
+def test_single_collect_crash_yields_exit_2() -> None:
+    """Property 6: one collect-crash row + only PASS/SKIP otherwise → exit 2."""
+    results = [_collect_crash_row(), _make_result(Status.PASS), _make_result(Status.SKIP)]
+    assert run_validation.compute_exit_code(results) == 2
+
+
+def test_compute_exit_code_ignores_collect_crash_metric_marker() -> None:
+    """Property 6: compute_exit_code treats the crash purely via Status.ERROR;
+    the __collect__ marker does not change the mapping (a clean run is 0)."""
+    clean = [_make_result(Status.PASS), _make_result(Status.SKIP)]
+    assert run_validation.compute_exit_code(clean) == 0
+    # adding a collect-crash row flips it to 2 (same as any ERROR row)
+    assert run_validation.compute_exit_code(clean + [_collect_crash_row()]) == 2

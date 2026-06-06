@@ -358,3 +358,125 @@ def test_load_coverage_matrix_raises_on_missing_file(tmp_path: Path) -> None:
     structured error so the CLI can surface exit code 5."""
     with pytest.raises(run_validation.CoverageMatrixError):
         run_validation.load_coverage_matrix(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Spec: parity-math-core-collect-crash
+# ---------------------------------------------------------------------------
+
+from parity.result import resolve_stats_code_version  # noqa: E402
+
+
+class TestResolveStatsCodeVersion:
+    """Property 7: version resolves from Cargo.toml or degrades to 'unknown'."""
+
+    def test_resolves_direct_version_string(self, tmp_path: Path) -> None:
+        crate_dir = tmp_path / "crates" / "stats-code"
+        crate_dir.mkdir(parents=True)
+        (crate_dir / "Cargo.toml").write_text(
+            '[package]\nname = "stats-code"\nversion = "1.2.3"\n',
+            encoding="utf-8",
+        )
+        assert resolve_stats_code_version(tmp_path) == "1.2.3"
+
+    def test_resolves_workspace_inherited_version(self, tmp_path: Path) -> None:
+        crate_dir = tmp_path / "crates" / "stats-code"
+        crate_dir.mkdir(parents=True)
+        (crate_dir / "Cargo.toml").write_text(
+            '[package]\nname = "stats-code"\nversion.workspace = true\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace.package]\nversion = "9.9.9"\n',
+            encoding="utf-8",
+        )
+        assert resolve_stats_code_version(tmp_path) == "9.9.9"
+
+    def test_degrades_to_unknown_without_raising(self, tmp_path: Path) -> None:
+        # No Cargo.toml at all; CLI probe will also fail (no cargo project here).
+        # Patch the probe so the test does not spawn cargo.
+        import parity.result as result_mod
+
+        with patch.object(result_mod, "_version_from_cli_probe", return_value=None):
+            assert resolve_stats_code_version(tmp_path) == "unknown"
+
+    def test_falls_back_to_probe_when_cargo_missing(self, tmp_path: Path) -> None:
+        import parity.result as result_mod
+
+        with patch.object(result_mod, "_version_from_cli_probe", return_value="7.7.7"):
+            assert resolve_stats_code_version(tmp_path) == "7.7.7"
+
+
+def test_report_metadata_version_is_populated(tmp_path: Path) -> None:
+    """Property 7 wiring: the legacy report metadata carries the resolved
+    version (not the hard-coded 'unknown')."""
+    results = [_make_result(Status.PASS)]
+    out_dir = tmp_path / "out"
+    with patch.object(run_validation, "resolve_stats_code_version", return_value="3.1.4"):
+        run_validation.run(methods=["linear"], out=out_dir, validation_dir=_VALIDATION_DIR)
+
+    doc = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+    assert doc["metadata"]["stats_code_version"] == "3.1.4"
+
+
+# ---------------------------------------------------------------------------
+# C1 containment: a collect crash is contained, distinguishable, and does not
+# perturb sibling methods (Property 4, Property 8).
+# ---------------------------------------------------------------------------
+
+class _FakeCrashingModule:
+    @staticmethod
+    def collect(dataset_path, tol_config, adapters):  # noqa: ANN001
+        raise RuntimeError("boom in collect")
+
+
+class _FakeSiblingModule:
+    @staticmethod
+    def collect(dataset_path, tol_config, adapters):  # noqa: ANN001
+        return [
+            ValidationResult(
+                method="sibling", dataset=str(dataset_path),
+                reference_engine="statsmodels", metric="beta",
+                tolerance=1e-8, status=Status.PASS,
+                expected=1.0, actual=1.0, difference=0.0,
+            )
+        ]
+
+
+def test_collect_crash_is_contained_and_sibling_rows_survive(tmp_path: Path) -> None:
+    """A method whose collect() raises yields exactly one distinguishable
+    __collect__ ERROR row; the sibling method still produces its normal rows;
+    the run does not abort; and stats_code_version is populated."""
+    out_dir = tmp_path / "out"
+
+    importers = {
+        "crasher": lambda: _FakeCrashingModule,
+        "sibling": lambda: _FakeSiblingModule,
+    }
+    # Both treated as dataset-free so they use the __builtin__ sentinel.
+    with patch.object(run_validation, "METHOD_IMPORTERS", importers), \
+         patch.object(run_validation, "DATASET_FREE_METHODS", frozenset({"crasher", "sibling"})), \
+         patch.object(run_validation, "resolve_stats_code_version", return_value="2.0.0"):
+        results = run_validation.run(
+            methods=["crasher", "sibling"],
+            out=out_dir,
+            validation_dir=_VALIDATION_DIR,
+        )
+
+    crash_rows = [r for r in results if r.metric == "__collect__"]
+    assert len(crash_rows) == 1
+    crash = crash_rows[0]
+    assert crash.method == "crasher"
+    assert crash.status == Status.ERROR
+    assert "boom in collect" in crash.message
+
+    # Sibling rows are unperturbed.
+    sibling_rows = [r for r in results if r.method == "sibling"]
+    assert len(sibling_rows) == 1
+    assert sibling_rows[0].status == Status.PASS
+    assert sibling_rows[0].expected == 1.0
+
+    # Report distinguishes the crash and carries the resolved version.
+    doc = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+    assert doc["summary"]["collect_crash"] == 1
+    assert doc["metadata"]["stats_code_version"] == "2.0.0"

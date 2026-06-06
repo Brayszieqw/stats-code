@@ -90,3 +90,71 @@ def test_fisher_exact_tolerance_is_very_tight(tol_config: ToleranceConfig) -> No
     assert tol <= 1e-12, (
         f"math_core.fisher_exact_pvalue tolerance {tol:.2e} is too loose (expected ≤ 1e-12)"
     )
+
+
+# ── Spec: parity-math-core-collect-crash ─────────────────────────────────────
+# Property 2: Fisher-row selection equivalence and crash-freedom.
+#
+# The fixed selection uses ``(row.get("test_name") or "").lower()``. For any
+# test_name drawn from {None, missing-key, arbitrary strings}, selection must
+# (a) never raise and (b) equal the reference selection using the same idiom.
+
+from parity import math_core as _math_core  # noqa: E402
+from parity.result import Status as _Status, ToleranceConfig as _ToleranceConfig  # noqa: E402
+
+
+def _fisher_selected_variables(rows: list[dict]) -> list[str]:
+    """Reference: which variables would be picked as 'fisher' rows, using the
+    canonical ``(x or "").lower()`` idiom."""
+    picked = []
+    for row in rows:
+        name = (row.get("test_name") or "").lower()
+        if "fisher" in name:
+            picked.append(row.get("variable", "?"))
+    return picked
+
+
+_test_name_strategy = st.one_of(
+    st.none(),
+    st.text(max_size=20),
+    st.sampled_from(["fisher", "Fisher", "FISHER", "fisher exact", "t-test", "chi2", "kruskal"]),
+)
+
+
+@given(
+    rows=st.lists(
+        st.fixed_dictionaries(
+            {
+                "variable": st.text(min_size=1, max_size=6),
+                "test_name": _test_name_strategy,
+                "p_value": st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
+            }
+        ),
+        max_size=8,
+    )
+)
+@settings(max_examples=200)
+def test_fisher_selection_never_crashes_and_matches_reference(rows: list[dict]) -> None:
+    """The collect helper must not raise for any test_name shape, and when no
+    fisher row exists it returns the canonical SKIP."""
+    import pytest as _pytest
+
+    monkeypatch = _pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(_math_core, "run_stats_code", lambda args: {"rows": rows})
+        tol = _ToleranceConfig(per_metric={}, default=1e-6)
+        from pathlib import Path as _Path
+
+        # Must never raise regardless of test_name values.
+        results = _math_core._validate_fisher_exact_via_tableone(
+            _Path("dummy.csv"), "math_core_indirect", tol
+        )
+        assert isinstance(results, list)
+
+        # Reference selection: if no fisher row, the helper yields a single SKIP.
+        if not _fisher_selected_variables(rows):
+            assert len(results) == 1
+            assert results[0].status == _Status.SKIP
+            assert "No Fisher exact test triggered" in results[0].message
+    finally:
+        monkeypatch.undo()

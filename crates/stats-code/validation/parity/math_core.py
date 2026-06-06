@@ -265,10 +265,14 @@ def _validate_fisher_exact_via_tableone(
             tolerance=0.0, status=Status.ERROR, message=str(exc),
         )]
 
-    # Find a row that used Fisher exact
+    # Find a row that used Fisher exact.
+    # NB: use ``(row.get("test_name") or "")`` rather than
+    # ``row.get("test_name", "")``: dict.get's default only applies when the
+    # key is *absent*; a present-and-null ("test_name": null) value returns
+    # None, and None.lower() raises AttributeError. Mirrors tableone.py.
     for row in sc_out.get("rows", []):
-        test_name = row.get("test_name", "")
-        if "fisher" not in test_name.lower():
+        test_name = (row.get("test_name") or "").lower()
+        if "fisher" not in test_name:
             continue
         sc_pvalue = row.get("p_value")
         if sc_pvalue is None:

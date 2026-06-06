@@ -30,6 +30,17 @@ from .result import (
 
 SCHEMA_VERSION = "1.0"
 
+# Spec: parity-math-core-collect-crash — a collect-crash row is the synthetic
+# row the orchestrator emits when a Method's collect() raises: status==ERROR
+# and metric==COLLECT_CRASH_METRIC. It must be machine-distinguishable from a
+# numeric FAIL in both report.json and report.md.
+COLLECT_CRASH_METRIC = "__collect__"
+
+
+def _is_collect_crash(r: ValidationResult) -> bool:
+    """Whether *r* is a framework collect-crash row (vs a numeric failure)."""
+    return r.status == Status.ERROR and r.metric == COLLECT_CRASH_METRIC
+
 # Schema version for the new ParityRow-backed report. Bumped when the JSON
 # layout changes in a way that would break downstream tooling. Independent
 # of SCHEMA_VERSION above, which is the legacy ValidationResult layout.
@@ -109,6 +120,10 @@ class ReportGenerator:
             "fail": counts[Status.FAIL.value],
             "skip": counts[Status.SKIP.value],
             "error": counts[Status.ERROR.value],
+            # Spec: parity-math-core-collect-crash — collect-crash rows are a
+            # subset of `error`; this count lets readers/tools distinguish a
+            # framework crash from a numeric regression without parsing messages.
+            "collect_crash": sum(1 for r in self.results if _is_collect_crash(r)),
             "by_method": dict(by_method),
         }
 
@@ -126,6 +141,8 @@ class ReportGenerator:
             "difference": r.difference,
             "message": r.message,
             "details": r.details,
+            # Spec: parity-math-core-collect-crash — machine-distinguishable flag.
+            "is_collect_crash": _is_collect_crash(r),
         }
 
     # -----------------------------------------------------------------------
@@ -191,8 +208,30 @@ class ReportGenerator:
                 )
         lines.append("")
 
+        # ── Collect Crashes ─────────────────────────────────────────────────
+        # Spec: parity-math-core-collect-crash — framework collect crashes are
+        # surfaced as a distinct category, separate from numeric failures and
+        # from generic errors, so a reader can tell a crash from a regression.
+        collect_crashes = [r for r in self.results if _is_collect_crash(r)]
+        if collect_crashes:
+            lines.append("## Collect Crashes")
+            lines.append("")
+            lines.append(
+                "_Framework `collect()` crashes (not numeric parity failures)._"
+            )
+            lines.append("")
+            for r in collect_crashes:
+                lines.append(f"- **{r.method}** ({r.dataset}): {r.message}")
+            lines.append("")
+
         # ── Errors ──────────────────────────────────────────────────────────
-        errors = [r for r in self.results if r.status == Status.ERROR]
+        # Exclude collect-crash rows: they are reported in their own section
+        # above so the two categories never double-count.
+        errors = [
+            r
+            for r in self.results
+            if r.status == Status.ERROR and not _is_collect_crash(r)
+        ]
         if errors:
             lines.append("## Errors")
             lines.append("")

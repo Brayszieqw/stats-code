@@ -3,12 +3,12 @@
  *
  * 根据消息角色（user / agent）渲染不同样式的消息气泡。
  * Agent 消息支持：流式文本、SkillResult 表格、Interpretation 解读卡片、
- *                 ChoicePrompt 结构化选择题。
+ *                 ChoicePrompt 结构化选择题、AnalysisResultView 信任凭证层。
  *
- * Validates: Requirements 1.1, 7.5
+ * Validates: Requirements 1.1, 3.1, 3.2, 3.3, 3.5, 3.7, 3.8, 7.5
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, Table, Tag, Typography, Space, theme as antdTheme } from 'antd';
 import { RobotOutlined, UserOutlined, BulbOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../hooks/useSseChat';
@@ -16,6 +16,9 @@ import type { SkillResult, RiskSignal, ChoiceAnswer } from '../api/types';
 import { ChoicePromptCard } from './ChoicePromptCard';
 import { ThreeLineTable } from './ThreeLineTable';
 import { StatsChartRenderer } from './StatsChartRenderer';
+import { shouldMountAnalysisResultView } from '../lib/analysisResultMount';
+import { AnalysisResultView } from './AnalysisResultView';
+import { useCoverageMatrix } from '../lib/coverageMatrixContext';
 
 const { Text, Paragraph } = Typography;
 
@@ -95,14 +98,63 @@ function GenericKVTable({ payload }: { payload: any }) {
   );
 }
 
+/**
+ * Prompt the user for a file-save destination via the File System Access API
+ * (`showSaveFilePicker`). Falls back to a generated filename when the API is
+ * unavailable or the user cancels.
+ *
+ * Returns the chosen path string (or a default filename for download-link
+ * fallback environments). Returns `null` when the user cancels the dialog.
+ *
+ * Exported for use by the export flow and component tests (Requirement 3.8).
+ */
+export async function pickSnapshotDestination(runId: string): Promise<string | null> {
+  // Use the File System Access API when available (Chromium-based browsers)
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: `snapshot-${runId}.zip`,
+        types: [
+          {
+            description: 'Audit Snapshot',
+            accept: { 'application/zip': ['.zip'] },
+          },
+        ],
+      });
+      return handle.name;
+    } catch {
+      // User cancelled the dialog
+      return null;
+    }
+  }
+  // Fallback: use a default filename (the server will produce a download)
+  return `snapshot-${runId}.zip`;
+}
+
 function SkillResultView({ result }: { result: SkillResult }) {
-  const { payload, risk_signals } = result;
+  const { payload, risk_signals, analysis } = result;
+  const { matrix } = useCoverageMatrix();
+  const [snapshotDestination, setSnapshotDestination] = useState<string>('');
 
   const isStructuredTable =
     payload &&
     typeof payload === 'object' &&
     (('rows' in payload && 'group_levels' in payload) ||
      ('coefficients' in payload && Array.isArray(payload.coefficients)));
+
+  const shouldMount = shouldMountAnalysisResultView(analysis);
+
+  // Obtain releaseVersion from the coverage-matrix context (Requirement 3.2)
+  const releaseVersion = matrix?.release_version ?? '';
+
+  // Set default snapshot destination from run_id. In environments that support
+  // the File System Access API, `pickSnapshotDestination` can be called to let
+  // the user choose a custom save location (Requirement 3.8).
+  useEffect(() => {
+    if (analysis?.run_id && !snapshotDestination) {
+      setSnapshotDestination(`snapshot-${analysis.run_id}.zip`);
+    }
+  }, [analysis?.run_id, snapshotDestination]);
 
   return (
     <div style={{ marginTop: 10 }}>
@@ -118,6 +170,20 @@ function SkillResultView({ result }: { result: SkillResult }) {
       <StatsChartRenderer skillResult={result} />
 
       <RiskSignalTags signals={risk_signals} />
+
+      {/* Mount AnalysisResultView when meta qualifies (Requirement 3.1, 3.2, 3.3) */}
+      {shouldMount && analysis && (
+        <AnalysisResultView
+          algorithmId={analysis.algorithm_id}
+          params={analysis.params as Record<string, unknown>}
+          columns={analysis.columns}
+          datasetSha256={analysis.dataset_sha256!}
+          runId={analysis.run_id}
+          runStatus={analysis.run_status}
+          releaseVersion={releaseVersion}
+          snapshotDestination={snapshotDestination}
+        />
+      )}
     </div>
   );
 }

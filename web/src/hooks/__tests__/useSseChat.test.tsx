@@ -98,6 +98,87 @@ describe('useSseChat', () => {
     });
   });
 
+  it('carries result.analysis through the skill_result event', async () => {
+    const skillResultWithAnalysis = {
+      schema_version: '1',
+      payload: { coefficients: [] },
+      risk_signals: [],
+      analysis: {
+        algorithm_id: 'logistic',
+        dataset_id: 'ds-001',
+        dataset_sha256: 'a'.repeat(64),
+        columns: [{ name: 'age', inferred_type: 'Numeric', missing_count: 0 }],
+        params: { outcome: 'event' },
+        run_id: 'run-123',
+        run_status: 'completed',
+      },
+    };
+    const body = sseStream([
+      frame('skill_result', skillResultWithAnalysis),
+      frame('done', {}),
+    ]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSseChat('test-session'));
+    await act(async () => {
+      result.current.sendMessage('run logistic');
+    });
+
+    await waitFor(() => {
+      const agent = result.current.messages.find((m) => m.role === 'agent');
+      expect(agent?.skillResult?.analysis).toBeDefined();
+    });
+    const agent = result.current.messages.find((m) => m.role === 'agent');
+    expect(agent?.skillResult?.analysis?.algorithm_id).toBe('logistic');
+    expect(agent?.skillResult?.analysis?.dataset_sha256).toBe('a'.repeat(64));
+    expect(agent?.skillResult?.analysis?.run_id).toBe('run-123');
+    expect(agent?.skillResult?.analysis?.run_status).toBe('completed');
+    expect(agent?.skillResult?.analysis?.columns).toHaveLength(1);
+    expect(agent?.skillResult?.analysis?.params).toEqual({ outcome: 'event' });
+  });
+
+  it('carries skill_result without analysis (legacy path)', async () => {
+    const skillResultNoAnalysis = {
+      schema_version: '1',
+      payload: { value: 42 },
+      risk_signals: ['PValueAboveAlpha'],
+    };
+    const body = sseStream([
+      frame('skill_result', skillResultNoAnalysis),
+      frame('done', {}),
+    ]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSseChat('test-session'));
+    await act(async () => {
+      result.current.sendMessage('inspect');
+    });
+
+    await waitFor(() => {
+      const agent = result.current.messages.find((m) => m.role === 'agent');
+      expect(agent?.skillResult).toBeDefined();
+    });
+    const agent = result.current.messages.find((m) => m.role === 'agent');
+    expect(agent?.skillResult?.analysis).toBeUndefined();
+    expect(agent?.skillResult?.payload).toEqual({ value: 42 });
+  });
+
   it('records error event into state', async () => {
     const body = sseStream([
       frame('error', {

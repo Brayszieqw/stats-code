@@ -111,11 +111,24 @@ export interface DatasetSummary {
   row_count: number;
   columns: ColumnSummary[];
   uploaded_at: string;
+  sha256?: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Skill
 // ---------------------------------------------------------------------------
+
+export type RunStatus = 'running' | 'completed' | 'failed';
+
+export interface AnalysisResultMeta {
+  algorithm_id: string;
+  dataset_id: DatasetId;
+  dataset_sha256: string | null;
+  columns: ColumnSummary[];
+  params: unknown;
+  run_id: string;
+  run_status: RunStatus;
+}
 
 export type SkillRunId = string; // UUID
 
@@ -137,6 +150,7 @@ export interface SkillResult {
   schema_version: string;
   payload: unknown;
   risk_signals: RiskSignal[];
+  analysis?: AnalysisResultMeta;
 }
 
 export type RiskSignal =

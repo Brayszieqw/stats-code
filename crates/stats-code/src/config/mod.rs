@@ -6,52 +6,48 @@ mod pricing;
 mod profile;
 mod settings;
 
-// Re-export everything to preserve the public API surface of the old config.rs.
-#[allow(unused_imports)]
+// Re-export the subset of each submodule's API still consumed across the
+// crate. Symbols only referenced by in-crate `#[cfg(test)]` code are gated
+// behind `#[cfg(test)]` so a normal lib build does not flag them as dead.
+
+// paths.rs — all path helpers are test-only consumers of the facade.
+#[cfg(test)]
 pub(crate) use paths::{
-    home_dir, stats_code_auth_path, stats_code_config_dir, stats_code_env_path,
-    stats_code_profile_path, stats_code_settings_path,
+    stats_code_auth_path, stats_code_env_path, stats_code_profile_path,
+    stats_code_settings_path,
 };
 
 // auth.rs
-#[allow(unused_imports)]
+pub(crate) use auth::{handle_auth_doctor, handle_auth_set};
+#[cfg(test)]
 pub(crate) use auth::{
-    auth_provider_from_kind, handle_auth_doctor, handle_auth_set, has_non_empty_env,
-    load_auth_store, save_auth_store, supported_auth_providers,
-    StoredAuthStore, StoredProviderCredential,
+    load_auth_store, save_auth_store, StoredAuthStore, StoredProviderCredential,
 };
 
 // profile.rs
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use profile::{
-    current_stats_code_env, current_stats_code_profile, load_stats_code_env,
-    load_stats_code_profile, normalized_profile_base_url, profile_credential_value,
-    profile_default_model, profile_provider_config, StatsCodeProfile, StatsCodeProfileEnv,
-    StatsCodeProviderProfile,
+    load_stats_code_profile, StatsCodeProfile, StatsCodeProfileEnv, StatsCodeProviderProfile,
 };
 #[cfg(test)]
 pub(crate) use profile::{save_stats_code_env, save_stats_code_profile};
 
 // settings.rs
-#[allow(unused_imports)]
-pub(crate) use settings::{load_stats_code_settings, save_stats_code_settings, StatsCodeSettings};
-
-// pricing.rs
-#[allow(unused_imports)]
-pub(crate) use pricing::ModelPricing;
+#[cfg(test)]
+pub(crate) use settings::load_stats_code_settings;
 
 // ai_provider.rs
-#[allow(unused_imports)]
-pub(crate) use ai_provider::{
-    extract_response_text, handle_ai_ask, prepare_ai_provider, PreparedAiProvider,
-};
+pub(crate) use ai_provider::handle_ai_ask;
+#[cfg(test)]
+pub(crate) use ai_provider::prepare_ai_provider;
 
 // handlers.rs
-#[allow(unused_imports)]
 pub(crate) use handlers::{
     handle_config_add_model, handle_config_default_model, handle_config_remove_model,
-    handle_config_show, resolve_requested_model,
+    handle_config_show,
 };
+#[cfg(test)]
+pub(crate) use handlers::resolve_requested_model;
 
 #[cfg(test)]
 mod tests;

@@ -487,7 +487,9 @@ mod tests {
                 assert_eq!(software, ReferenceSoftware::SPSS);
                 assert_eq!(coverage_value, "none");
             }
-            other => panic!("expected Uncovered sentinel, got {other:?}"),
+            other @ SidecarSnippet::Snippet { .. } => {
+                panic!("expected Uncovered sentinel, got {other:?}")
+            }
         }
     }
 
@@ -533,7 +535,9 @@ mod tests {
                 assert!(!text.contains('\r'), "snippet must be LF-only");
                 assert!(text.ends_with('\n'), "snippet must end with LF");
             }
-            other => panic!("expected Snippet variant, got {other:?}"),
+            other @ SidecarSnippet::Uncovered { .. } => {
+                panic!("expected Snippet variant, got {other:?}")
+            }
         }
     }
 

@@ -35,10 +35,11 @@ fn arb_column() -> impl Strategy<Value = Column> {
 /// Strategy for generating a valid 64-character lowercase hex SHA256 string.
 fn arb_sha256() -> impl Strategy<Value = String> {
     proptest::collection::vec(prop_oneof![0u8..=9, 10u8..=15], 32).prop_map(|bytes| {
-        bytes
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+        use std::fmt::Write as _;
+        bytes.iter().fold(String::with_capacity(64), |mut acc, b| {
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
     })
 }
 

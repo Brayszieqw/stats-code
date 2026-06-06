@@ -333,7 +333,7 @@ mod tests {
                 msg.contains("999"),
                 "expected diagnostic to mention version 999, got {msg}"
             ),
-            other => panic!("expected ParseStale, got {other:?}"),
+            other @ LockError::Io(_) => panic!("expected ParseStale, got {other:?}"),
         }
     }
 
@@ -474,7 +474,7 @@ mod tests {
                 assert_eq!(pid, 9999);
                 assert_eq!(url, "http://127.0.0.1:8080/");
             }
-            _ => panic!("expected Existing, got {outcome:?}"),
+            AcquireOutcome::Acquired(_) => panic!("expected Existing, got {outcome:?}"),
         }
         assert!(lock_path.exists(), "alive lock file should remain");
     }
@@ -524,7 +524,9 @@ mod tests {
             .expect("should not error");
         let mut handle = match outcome {
             AcquireOutcome::Acquired(h) => h,
-            other => panic!("expected Acquired, got {other:?}"),
+            other @ AcquireOutcome::Existing { .. } => {
+                panic!("expected Acquired, got {other:?}")
+            }
         };
 
         let record = LockFileV1::new(42, "http://127.0.0.1:8081/", "2025-06-01T12:00:00Z", "dev");

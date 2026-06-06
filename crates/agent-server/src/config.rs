@@ -340,7 +340,7 @@ ai:
                 assert_eq!(c.api_key.expose_secret(), "sk-test-123");
                 assert_eq!(c.model, "deepseek-chat");
             }
-            _ => panic!("expected DeepSeek variant"),
+            LlmConfig::OpenAi(_) => panic!("expected DeepSeek variant"),
         }
     }
 
@@ -363,7 +363,7 @@ ai:
                 assert_eq!(c.model, "gpt-4o");
                 assert_eq!(c.organization.as_deref(), Some("org-abc"));
             }
-            _ => panic!("expected OpenAi variant"),
+            LlmConfig::DeepSeek(_) => panic!("expected OpenAi variant"),
         }
     }
 
@@ -421,7 +421,7 @@ ai:
                 use secrecy::ExposeSecret;
                 assert_eq!(c.api_key.expose_secret(), "agent-server");
             }
-            _ => panic!("expected DeepSeek"),
+            LlmConfig::OpenAi(_) => panic!("expected DeepSeek"),
         }
     }
 
@@ -445,7 +445,7 @@ ai:
                     "${TOTALLY_UNDEFINED_VAR_XYZ_12345_ABCDEF}"
                 );
             }
-            _ => panic!("expected DeepSeek"),
+            LlmConfig::OpenAi(_) => panic!("expected DeepSeek"),
         }
     }
 

@@ -633,7 +633,8 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use crate::auth::{
-        clear_oauth_credentials, load_oauth_credentials, save_oauth_credentials, OAuthConfig,
+        clear_oauth_credentials, code_challenge_s256, generate_pkce_pair, load_oauth_credentials,
+        save_oauth_credentials, OAuthConfig, OAuthTokenExchangeRequest, PkceChallengeMethod,
     };
 
     use super::{
@@ -693,6 +694,55 @@ mod tests {
                 .expect("write response");
         });
         format!("http://{address}/oauth/token")
+    }
+
+    /// R7 (task 9.1): exercise `exchange_oauth_code` against an in-process mock
+    /// token server — no network, no credentials. Asserts the returned
+    /// `OAuthTokenSet` matches the canned body, plus PKCE correctness.
+    /// _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+    #[tokio::test]
+    async fn exchange_oauth_code_against_mock_server_returns_token_set() {
+        // PKCE correctness (Requirement 7.3): challenge is S256 of verifier.
+        let pkce = generate_pkce_pair().expect("pkce pair");
+        assert_eq!(
+            code_challenge_s256(&pkce.verifier),
+            pkce.challenge,
+            "challenge must be SHA-256(verifier)"
+        );
+        assert_eq!(pkce.challenge_method, PkceChallengeMethod::S256);
+
+        let token_url = spawn_token_server(
+            "{\"access_token\":\"exchanged-access\",\"refresh_token\":\"exchanged-refresh\",\"expires_at\":9999999999,\"scopes\":[\"org:read\",\"user:write\"]}",
+        );
+        let config = sample_oauth_config(token_url);
+
+        // form_params must carry the OAuth + PKCE fields (Requirement 7.4).
+        let request = OAuthTokenExchangeRequest::from_config(
+            &config,
+            "auth-code-123",
+            "state-xyz",
+            &pkce.verifier,
+            "https://console.test/oauth/callback",
+        );
+        let params = request.form_params();
+        for key in ["grant_type", "code", "redirect_uri", "client_id", "code_verifier"] {
+            assert!(params.contains_key(key), "form_params must carry {key}");
+        }
+        assert_eq!(params.get("grant_type").map(String::as_str), Some("authorization_code"));
+        assert_eq!(params.get("code").map(String::as_str), Some("auth-code-123"));
+        assert_eq!(params.get("code_verifier").map(String::as_str), Some(pkce.verifier.as_str()));
+
+        // Drive the exchange against the mock (Requirements 7.1, 7.2).
+        let client = AnthropicClient::new("unused-key");
+        let resolved = client
+            .exchange_oauth_code(&config, &request)
+            .await
+            .expect("exchange against mock should succeed");
+
+        assert_eq!(resolved.access_token, "exchanged-access");
+        assert_eq!(resolved.refresh_token.as_deref(), Some("exchanged-refresh"));
+        assert_eq!(resolved.expires_at, Some(9_999_999_999));
+        assert_eq!(resolved.scopes, vec!["org:read".to_string(), "user:write".to_string()]);
     }
 
     #[test]

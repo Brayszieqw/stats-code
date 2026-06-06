@@ -135,7 +135,7 @@ mod tests {
             active_absolute_tolerance: 1e-9,
             active_relative_tolerance: 1e-6,
             verdict,
-            skipped_reason: skipped_reason.map(|s| s.to_string()),
+            skipped_reason: skipped_reason.map(std::string::ToString::to_string),
         }
     }
 

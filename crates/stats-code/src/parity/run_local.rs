@@ -259,7 +259,7 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    /// Schema-correct tolerance_config.yaml body matching what
+    /// Schema-correct `tolerance_config.yaml` body matching what
     /// `crate::parity::tolerance::load_from_path` accepts.
     const VALID_TOLERANCE_YAML: &str = "\
 version: 1

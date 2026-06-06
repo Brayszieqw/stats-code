@@ -872,7 +872,7 @@ SPSS   = { proc = "P", version = "1" }
             entry: "demo".into(),
             software: "R".into(),
         };
-        assert!(format!("{d}").contains("R"));
+        assert!(format!("{d}").contains('R'));
 
         let dup = ParseError::DuplicateAlgorithmId { id: "demo".into() };
         assert!(format!("{dup}").contains("demo"));

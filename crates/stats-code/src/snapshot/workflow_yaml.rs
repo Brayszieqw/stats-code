@@ -999,7 +999,7 @@ mod tests {
             r#"schema_version: 1
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps:
   - id: step-1
     algorithm: tableone
@@ -1008,14 +1008,13 @@ steps:
       vars: ["age", "sex"]
     inputs:
       - path: "data.csv"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     outputs:
       - path: "artifacts/step-1/result.json"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     started_at_utc: "2024-01-01T00:00:00Z"
     ended_at_utc:   "2024-01-01T00:00:01Z"
-"#,
-            sha = VALID_SHA
+"#
         )
     }
 
@@ -1052,7 +1051,7 @@ steps:
             r#"schema_version: 1
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps:
   - id: step-1
     algorithm: tableone
@@ -1060,7 +1059,7 @@ steps:
     inputs: []
     outputs:
       - path: "artifacts/step-1/result.json"
-        sha256: "{sha2}"
+        sha256: "{VALID_SHA_2}"
     reference_software:
       name: "R"
       version: "4.4.1"
@@ -1072,10 +1071,10 @@ steps:
       alpha: 0.05
     inputs:
       - path: "data.csv"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     outputs:
       - path: "artifacts/step-2/result.json"
-        sha256: "{sha2}"
+        sha256: "{VALID_SHA_2}"
     llm:
       provider: "deepseek"
       model: "deepseek-chat"
@@ -1087,10 +1086,10 @@ steps:
       penalty: "l2"
     inputs:
       - path: "artifacts/step-1/result.json"
-        sha256: "{sha2}"
+        sha256: "{VALID_SHA_2}"
     outputs:
       - path: "artifacts/step-3/result.json"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     reference_software:
       name: "Python"
       version: "3.11.9"
@@ -1099,9 +1098,7 @@ steps:
       model: "gpt-4o"
     started_at_utc: "2024-01-01T00:00:04Z"
     ended_at_utc:   "2024-01-01T00:00:05Z"
-"#,
-            sha = VALID_SHA,
-            sha2 = VALID_SHA_2
+"#
         );
         let (wf, _doc) = parse(yaml.as_bytes()).expect("multi-step YAML must parse");
         assert_eq!(wf.steps.len(), 3);
@@ -1155,9 +1152,9 @@ steps:
             let need = SIZE_CAP_BYTES - bytes.len();
             if need >= header.len() {
                 bytes.extend_from_slice(header);
-                bytes.extend(std::iter::repeat(tail_byte).take(need - header.len()));
+                bytes.extend(std::iter::repeat_n(tail_byte, need - header.len()));
             } else {
-                bytes.extend(std::iter::repeat(b' ').take(need));
+                bytes.extend(std::iter::repeat_n(b' ', need));
             }
         }
         assert_eq!(bytes.len(), SIZE_CAP_BYTES);
@@ -1193,10 +1190,9 @@ steps:
         let yaml = format!(
             r#"input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps: []
-"#,
-            sha = VALID_SHA
+"#
         );
         let err = parse(yaml.as_bytes()).expect_err("missing schema_version must be rejected");
         assert_eq!(err.rule_violated, RULE_MISSING_FIELD);
@@ -1210,10 +1206,9 @@ steps: []
             r#"schema_version: "1"
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps: []
-"#,
-            sha = VALID_SHA
+"#
         );
         let err = parse(yaml.as_bytes())
             .expect_err("string-typed schema_version must be rejected");
@@ -1227,10 +1222,9 @@ steps: []
             r#"schema_version: 2
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps: []
-"#,
-            sha = VALID_SHA
+"#
         );
         let err = parse(yaml.as_bytes())
             .expect_err("schema_version != 1 must be rejected");
@@ -1253,9 +1247,8 @@ steps: []
             r#"schema_version: 1
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
-"#,
-            sha = VALID_SHA
+  sha256: "{VALID_SHA}"
+"#
         );
         let err = parse(yaml.as_bytes()).expect_err("missing steps must be rejected");
         assert_eq!(err.rule_violated, RULE_MISSING_FIELD);
@@ -1286,7 +1279,7 @@ steps: []
             r#"schema_version: 1
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps:
   - id: step-1
     algorithm: tableone
@@ -1296,11 +1289,10 @@ steps:
         sha256: "not-a-real-hash"
     outputs:
       - path: "artifacts/step-1/result.json"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     started_at_utc: "2024-01-01T00:00:00Z"
     ended_at_utc:   "2024-01-01T00:00:01Z"
-"#,
-            sha = VALID_SHA
+"#
         );
         let err = parse(yaml.as_bytes())
             .expect_err("non-hex artifact sha256 must be rejected");
@@ -1314,7 +1306,7 @@ steps:
             r#"schema_version: 1
 input_dataset:
   path: "data.csv"
-  sha256: "{sha}"
+  sha256: "{VALID_SHA}"
 steps:
   - id: step-1
     algorithm: tableone
@@ -1322,7 +1314,7 @@ steps:
     inputs: []
     outputs:
       - path: "a.json"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     started_at_utc: "2024-01-01T00:00:00Z"
     ended_at_utc:   "2024-01-01T00:00:01Z"
   - id: step-1
@@ -1331,11 +1323,10 @@ steps:
     inputs: []
     outputs:
       - path: "b.json"
-        sha256: "{sha}"
+        sha256: "{VALID_SHA}"
     started_at_utc: "2024-01-01T00:00:02Z"
     ended_at_utc:   "2024-01-01T00:00:03Z"
-"#,
-            sha = VALID_SHA
+"#
         );
         let err = parse(yaml.as_bytes())
             .expect_err("duplicate step ids must be rejected");
@@ -1414,7 +1405,7 @@ steps:
     // -----------------------------------------------------------------
 
     /// Build a sample `Workflow` exercising both optional members
-    /// (reference_software, llm), nested `params` maps & arrays, empty
+    /// (`reference_software`, llm), nested `params` maps & arrays, empty
     /// `inputs`, and several scalar shapes that need quoting.
     fn sample_workflow() -> Workflow {
         Workflow {
@@ -1485,8 +1476,7 @@ steps:
         // Doc-mode round-trip must preserve trivia (Requirement 11.4):
         // comments, blank lines, key order, indentation.
         let yaml = format!(
-            "# leading comment\nschema_version: 1\n\n# block comment before input_dataset\ninput_dataset:\n  path: \"data.csv\"\n  sha256: \"{sha}\"  # trailing comment\n\nsteps:\n  - id: step-1\n    algorithm: tableone\n    params: {{}}\n    inputs: []\n    outputs:\n      - path: \"out.json\"\n        sha256: \"{sha}\"\n    started_at_utc: \"2024-01-01T00:00:00Z\"\n    ended_at_utc:   \"2024-01-01T00:00:01Z\"\n",
-            sha = VALID_SHA
+            "# leading comment\nschema_version: 1\n\n# block comment before input_dataset\ninput_dataset:\n  path: \"data.csv\"\n  sha256: \"{VALID_SHA}\"  # trailing comment\n\nsteps:\n  - id: step-1\n    algorithm: tableone\n    params: {{}}\n    inputs: []\n    outputs:\n      - path: \"out.json\"\n        sha256: \"{VALID_SHA}\"\n    started_at_utc: \"2024-01-01T00:00:00Z\"\n    ended_at_utc:   \"2024-01-01T00:00:01Z\"\n"
         );
         let bytes = yaml.into_bytes();
         let (wf, doc) = parse(&bytes).expect("yaml with comments must parse");

@@ -195,7 +195,7 @@ fn truncate_os_version(raw: &str) -> (String, bool) {
 mod tests {
     use super::*;
 
-    /// Minimal valid runtime_deps JSON for tests that don't exercise that
+    /// Minimal valid `runtime_deps` JSON for tests that don't exercise that
     /// surface specifically.
     const SAMPLE_DEPS_JSON: &str = r#"{"axum":"0.7.5","stats-code":"0.5.0"}"#;
 

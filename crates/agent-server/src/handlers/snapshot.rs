@@ -70,6 +70,28 @@ pub async fn post_snapshot_export(
             })),
         )
             .into_response(),
+        Err(SnapshotProviderError::NoExportableStep { run_id }) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error_code": "no_exportable_step",
+                "message": format!(
+                    "run {run_id} has no completed workflow step that can be exported",
+                ),
+                "run_id": run_id,
+            })),
+        )
+            .into_response(),
+        Err(SnapshotProviderError::DatasetUnresolved { reason }) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error_code": "dataset_unresolved",
+                "message": format!(
+                    "cannot resolve dataset for export: {reason}",
+                ),
+                "reason": reason,
+            })),
+        )
+            .into_response(),
         Err(SnapshotProviderError::PayloadTooLarge {
             measured_bytes,
             ceiling_bytes,
@@ -257,5 +279,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn returns_422_when_no_exportable_step() {
+        let mut state = AppState::new(Arc::new(MemSessionStore::new()));
+        state.snapshot_provider = Some(Arc::new(FixedProvider(Err(
+            SnapshotProviderError::NoExportableStep {
+                run_id: "run-5".into(),
+            },
+        ))));
+        let app = build_app(state);
+
+        let resp = app
+            .oneshot(make_request("run-5", "C:/tmp/out.zip"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error_code"], "no_exportable_step");
+        assert_eq!(v["run_id"], "run-5");
+        assert!(
+            v["message"]
+                .as_str()
+                .unwrap()
+                .contains("no completed workflow step"),
+            "message should describe the refusal reason"
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_422_when_dataset_unresolved() {
+        let mut state = AppState::new(Arc::new(MemSessionStore::new()));
+        state.snapshot_provider = Some(Arc::new(FixedProvider(Err(
+            SnapshotProviderError::DatasetUnresolved {
+                reason: "dataset file not found on disk".into(),
+            },
+        ))));
+        let app = build_app(state);
+
+        let resp = app
+            .oneshot(make_request("run-6", "C:/tmp/out.zip"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error_code"], "dataset_unresolved");
+        assert_eq!(v["reason"], "dataset file not found on disk");
+        assert!(
+            v["message"]
+                .as_str()
+                .unwrap()
+                .contains("cannot resolve dataset"),
+            "message should describe the refusal reason"
+        );
     }
 }

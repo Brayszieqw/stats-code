@@ -369,10 +369,10 @@ ai:
 
     #[test]
     fn rejects_unknown_provider() {
-        let yaml = r#"
+        let yaml = r"
 ai:
   provider: anthropic
-"#;
+";
         let cfg = Config::from_yaml_str(yaml).unwrap();
         let err = cfg.build_llm_config().unwrap_err();
         assert!(matches!(err, ConfigError::UnknownProvider(p) if p == "anthropic"));
@@ -380,10 +380,10 @@ ai:
 
     #[test]
     fn rejects_missing_provider_section() {
-        let yaml = r#"
+        let yaml = r"
 ai:
   provider: openai
-"#;
+";
         let cfg = Config::from_yaml_str(yaml).unwrap();
         let err = cfg.build_llm_config().unwrap_err();
         assert!(matches!(err, ConfigError::MissingProviderSection(p) if p == "openai"));

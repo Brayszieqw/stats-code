@@ -210,11 +210,19 @@ impl Launcher {
                 app_state.llm_config_store = Some(config_store.clone());
                 app_state.llm_probe = Some(Arc::new(HttpLlmProbe));
 
+                // Construct the Run-State Store (shared between the orchestrator
+                // and the Run-Backed Snapshot Provider) — Requirement 6.1.
+                let run_store: Arc<dyn agent_core::traits::run_store::RunStore> =
+                    Arc::new(agent_core::store::MemRunStore::new());
+
                 // 注入动态构建的 message_handler
+                let run_env = build_run_environment();
                 let dynamic_handler = Arc::new(LlmConfigurableMessageHandler::new(
-                    config_store,
+                    config_store.clone(),
                     session_store,
-                    dataset_store,
+                    dataset_store.clone(),
+                    run_env,
+                    Some(run_store.clone()),
                 ));
                 app_state.message_handler = Some(dynamic_handler);
 
@@ -222,14 +230,32 @@ impl Launcher {
                 // coverage-matrix 与 sidecar 都完整可用：coverage-matrix 的
                 // 数据源是编译期内嵌矩阵；sidecar 是纯函数，列元数据 /
                 // 数据集 SHA256 / 参数全部由前端在请求体里带来，无需 run-state。
-                // snapshot 导出依赖按 run 持久化的 workflow / artifacts，
-                // 该 run-state store 尚未落地，故注入 Unavailable 版本，
-                // 端点返回结构化错误而非伪造空 run（见 providers.rs 文档）。
+                // snapshot 导出由 RunBackedSnapshotProvider 支持，它从
+                // MemRunStore 读取已记录的 Analysis Run 并委托给 export_snapshot。
                 app_state.coverage_matrix_provider =
                     Some(Arc::new(providers::EmbeddedCoverageMatrixProvider));
                 app_state.sidecar_provider = Some(Arc::new(providers::LiveSidecarProvider));
-                app_state.snapshot_provider =
-                    Some(Arc::new(providers::UnavailableSnapshotProvider));
+
+                // Construct the Run-Backed Snapshot Provider (Requirement 6.1).
+                // The provider reads dataset bytes through the DatasetStore
+                // trait (which owns its on-disk layout), so we hand it the same
+                // shared dataset store the message handler uses.
+                let api_keys_for_redaction: Vec<String> = {
+                    use agent_server::handlers::llm_config::LlmConfigStore;
+                    config_store
+                        .read()
+                        .filter(|cfg| !cfg.api_key.is_empty())
+                        .map(|cfg| vec![cfg.api_key])
+                        .unwrap_or_default()
+                };
+                app_state.snapshot_provider = Some(Arc::new(
+                    providers::RunBackedSnapshotProvider::new(
+                        run_store.clone(),
+                        dataset_store,
+                        api_keys_for_redaction,
+                        None, // working_directory: not configured yet
+                    ),
+                ));
 
                 let load_counter = agent_server::middleware::load_shedding::LoadCounter::new(50);
                 let app = agent_server::build_router(load_counter, app_state);
@@ -616,6 +642,8 @@ mod launcher_service_tests {
             config_store,
             session_store.clone(),
             dataset_store.clone(),
+            build_run_environment(),
+            None,
         );
 
         assert!(Arc::ptr_eq(&handler.session_store, &session_store));
@@ -733,10 +761,74 @@ mod invocation_tests {
 // LlmConfigurableMessageHandler: 动态构建并缓存 MessageHandler 的适配器
 // ---------------------------------------------------------------------------
 
+/// Build the `RunEnvironment` once at launcher startup (Requirement 5.8, task 8.2).
+///
+/// - `os_family`: maps `std::env::consts::OS` to "Windows" / "Linux" / "macOS"
+///   (privacy-safe token — never the host name or user name).
+/// - `os_version`: best-effort from OS APIs; `None` if unavailable.
+/// - `release_version`: from `crate::RELEASE_VERSION`.
+/// - `commit_sha`: from `crate::COMMIT_SHA`.
+/// - `reference_software`: empty vec (populated later by the runtime per-run).
+fn build_run_environment() -> agent_core::models::RunEnvironment {
+    let os_family = match std::env::consts::OS {
+        "windows" => "Windows".to_string(),
+        "linux" => "Linux".to_string(),
+        "macos" => "macOS".to_string(),
+        other => other.to_string(),
+    };
+
+    let os_version = best_effort_os_version();
+
+    agent_core::models::RunEnvironment {
+        os_family,
+        os_version,
+        release_version: crate::RELEASE_VERSION.to_string(),
+        commit_sha: crate::COMMIT_SHA.to_string(),
+        reference_software: Vec::new(),
+    }
+}
+
+/// Best-effort OS version detection.
+///
+/// On Windows: reads the `ProductName` + `CurrentBuildNumber` from the registry
+/// via environment variables or falls back to `None`.
+/// On other platforms: returns `None` (can be extended later with `/etc/os-release`
+/// parsing on Linux or `sw_vers` on macOS).
+fn best_effort_os_version() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Try reading from the Windows registry via `ver` command output or
+        // environment variables. The simplest portable approach is to read
+        // the OS_VERSION env var set by some CI systems, or fall back to the
+        // Windows build number from the `PROCESSOR_ARCHITECTURE` family.
+        // For a lightweight approach, use the `winapi`-free method:
+        // `std::env::var("OS")` returns "Windows_NT" on all modern Windows.
+        // We combine with the build number from `cmd /c ver` if available.
+        use std::process::Command;
+        let output = Command::new("cmd")
+            .args(["/c", "ver"])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !ver.is_empty() {
+                return Some(ver);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 struct LlmConfigurableMessageHandler {
     config_store: Arc<LlmConfigStoreAdapter>,
     session_store: Arc<dyn agent_core::traits::session_store::SessionStore>,
     dataset_store: Arc<dyn agent_core::traits::dataset_store::DatasetStore>,
+    run_environment: agent_core::models::RunEnvironment,
+    run_store: Option<Arc<dyn agent_core::traits::run_store::RunStore>>,
     cached_handler: Arc<
         tokio::sync::RwLock<
             Option<(
@@ -752,11 +844,15 @@ impl LlmConfigurableMessageHandler {
         config_store: Arc<LlmConfigStoreAdapter>,
         session_store: Arc<dyn agent_core::traits::session_store::SessionStore>,
         dataset_store: Arc<dyn agent_core::traits::dataset_store::DatasetStore>,
+        run_environment: agent_core::models::RunEnvironment,
+        run_store: Option<Arc<dyn agent_core::traits::run_store::RunStore>>,
     ) -> Self {
         Self {
             config_store,
             session_store,
             dataset_store,
+            run_environment,
+            run_store,
             cached_handler: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
@@ -786,6 +882,8 @@ impl agent_server::state::MessageHandler for LlmConfigurableMessageHandler {
         let session_store = self.session_store.clone();
         let dataset_store = self.dataset_store.clone();
         let cached_handler = self.cached_handler.clone();
+        let run_environment = self.run_environment.clone();
+        let run_store = self.run_store.clone();
 
         Box::pin(async move {
             let current_config = config_store.read();
@@ -912,7 +1010,15 @@ impl agent_server::state::MessageHandler for LlmConfigurableMessageHandler {
                             registry,
                             runner,
                             llm,
-                        );
+                        )
+                        .with_run_environment(run_environment.clone());
+                        // Wire the run store so the orchestrator records analysis
+                        // runs that the RunBackedSnapshotProvider can later export.
+                        let orch = if let Some(ref rs) = run_store {
+                            orch.with_run_store(rs.clone())
+                        } else {
+                            orch
+                        };
                         let adapter = Arc::new(
                             agent_server::orchestrator_adapter::OrchestratorAdapter::new(orch),
                         )

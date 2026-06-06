@@ -4,14 +4,14 @@
 //! **Validates: Requirements 1.7, 2.5**
 //!
 //! Property 3 from the parity-and-multilang-sidecar design: proptest generates
-//! arbitrary columns / sha256 / release_version combinations and asserts the
+//! arbitrary columns / sha256 / `release_version` combinations and asserts the
 //! formatted header contains `data.csv`, every column name, every dtype token,
 //! the 64-hex lowercase sha256, and the release version string.
 
 use proptest::prelude::*;
 use stats_code::sidecar::header::{format_header, Column, ColumnDtype};
 
-/// Strategy for generating a valid ColumnDtype.
+/// Strategy for generating a valid `ColumnDtype`.
 fn arb_dtype() -> impl Strategy<Value = ColumnDtype> {
     prop_oneof![
         Just(ColumnDtype::Numeric),

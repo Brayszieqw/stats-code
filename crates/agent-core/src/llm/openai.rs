@@ -225,7 +225,7 @@ mod tests {
             "gpt-4o-mini",
         );
         let provider = OpenAiProvider::from_config(&config).unwrap();
-        let debug_output = format!("{:?}", provider);
+        let debug_output = format!("{provider:?}");
         assert!(!debug_output.contains("sk-super-secret-key-67890"));
         assert!(debug_output.contains("[REDACTED]"));
     }
@@ -238,7 +238,7 @@ mod tests {
             "gpt-4o-mini",
         );
         let provider = OpenAiProvider::from_config(&config).unwrap();
-        let display_output = format!("{}", provider);
+        let display_output = format!("{provider}");
         assert!(!display_output.contains("sk-super-secret-key-67890"));
     }
 
@@ -262,7 +262,7 @@ mod tests {
         let config = OpenAiConfig::new(SecretString::from("sk-test".to_string()))
             .with_organization("org-mycompany");
         let provider = OpenAiProvider::from_config(&config).unwrap();
-        let debug_output = format!("{:?}", provider);
+        let debug_output = format!("{provider:?}");
         // The org should appear in debug (it is not secret), but the key must not.
         assert!(debug_output.contains("org-mycompany"));
     }

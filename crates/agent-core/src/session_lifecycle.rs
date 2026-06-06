@@ -38,7 +38,7 @@ mod tests {
     use crate::models::{SessionId, SessionSettings};
     use chrono::Duration;
 
-    /// Helper to create a session with a given status and last_active_at.
+    /// Helper to create a session with a given status and `last_active_at`.
     fn make_session(status: SessionStatus, last_active_at: DateTime<Utc>) -> Session {
         let now = Utc::now();
         Session {

@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::run::AnalysisResultMeta;
+
 /// Type alias for skill run identifiers.
 pub type SkillRunId = Uuid;
 
@@ -37,6 +39,12 @@ pub struct SkillResult {
     pub payload: serde_json::Value,
     /// Risk signals detected in the result (R7.3).
     pub risk_signals: Vec<RiskSignal>,
+    /// Present when the originating skill resolved to an Output-Level Algorithm
+    /// and a dataset could be attributed (Requirement 2.1). Absent otherwise so
+    /// the SPA renders the bubble without an Analysis Result View
+    /// (Requirement 2.5, 4.4, 8.6).
+    #[serde(default)]
+    pub analysis: Option<AnalysisResultMeta>,
 }
 
 /// Known risk signals that can be detected in skill results (R7.3).

@@ -86,7 +86,7 @@ proptest! {
         prop_assert_eq!(result["n_used"].as_u64(), Some(total as u64));
         prop_assert_eq!(
             result["continuity_correction"].as_bool(),
-            Some(counts.iter().any(|value| *value == 0))
+            Some(counts.contains(&0))
         );
         assert_finite_effects(result);
     }

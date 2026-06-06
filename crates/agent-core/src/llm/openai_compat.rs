@@ -821,7 +821,7 @@ mod tests {
             "model",
         );
         let provider = OpenAiCompatProvider::from_config(&config, "test").unwrap();
-        let debug_output = format!("{:?}", provider);
+        let debug_output = format!("{provider:?}");
         assert!(!debug_output.contains("sk-super-secret-key-12345"));
         assert!(debug_output.contains("[REDACTED]"));
     }
@@ -834,7 +834,7 @@ mod tests {
             "model",
         );
         let provider = OpenAiCompatProvider::from_config(&config, "test").unwrap();
-        let display_output = format!("{}", provider);
+        let display_output = format!("{provider}");
         assert!(!display_output.contains("sk-super-secret-key-12345"));
     }
 

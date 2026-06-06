@@ -2,7 +2,7 @@
 //!
 //! **Validates: Requirements 2.1**
 //!
-//! For any valid (algorithm_id, software, params, columns, dataset_sha256)
+//! For any valid (`algorithm_id`, software, params, columns, `dataset_sha256`)
 //! input drawn from the coverage matrix, two consecutive calls to
 //! `generate_snippet` with identical inputs produce byte-identical output,
 //! and the output contains no `\r` bytes.
@@ -14,7 +14,7 @@ use stats_code::sidecar::{
     generate_snippet, Column, ColumnDtype, RenderParams, SidecarSnippet,
 };
 
-/// Strategy: pick a valid (algorithm_id, software) pair from the loaded
+/// Strategy: pick a valid (`algorithm_id`, software) pair from the loaded
 /// coverage matrix whose coverage state is NOT `none` (i.e. the cell
 /// actually produces a snippet).
 fn arb_covered_cell() -> impl Strategy<Value = (String, ReferenceSoftware)> {
@@ -52,7 +52,7 @@ fn arb_covered_cell() -> impl Strategy<Value = (String, ReferenceSoftware)> {
     prop::sample::select(all_cells)
 }
 
-/// Strategy: generate an arbitrary ColumnDtype.
+/// Strategy: generate an arbitrary `ColumnDtype`.
 fn arb_dtype() -> impl Strategy<Value = ColumnDtype> {
     prop_oneof![
         Just(ColumnDtype::Numeric),
@@ -72,7 +72,7 @@ fn arb_sha256() -> impl Strategy<Value = String> {
     "[0-9a-f]{64}"
 }
 
-/// Strategy: generate arbitrary RenderParams (0–4 key-value pairs with
+/// Strategy: generate arbitrary `RenderParams` (0–4 key-value pairs with
 /// simple alphanumeric keys and values).
 fn arb_params() -> impl Strategy<Value = RenderParams> {
     prop::collection::btree_map("[a-z][a-z0-9_.]{0,10}", "[a-zA-Z0-9._]{0,20}", 0..5)

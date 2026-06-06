@@ -491,6 +491,7 @@ mod tests {
                         },
                     ],
                     uploaded_at: Utc::now(),
+                    sha256: None,
                 }),
             }
         }
@@ -513,6 +514,7 @@ mod tests {
                     row_count: 0,
                     columns: vec![],
                     uploaded_at: Utc::now(),
+                    sha256: None,
                 }),
             }
         }
@@ -537,6 +539,10 @@ mod tests {
             self.parse_result
                 .clone()
                 .ok_or_else(|| StoreError::Internal("parse failed".into()))
+        }
+
+        async fn read_raw_by_id(&self, _dataset_id: Uuid) -> Result<Vec<u8>, StoreError> {
+            Ok(Vec::new())
         }
 
         async fn delete_session_data(&self, _sid: SessionId) -> Result<(), StoreError> {
@@ -736,6 +742,7 @@ mod tests {
                 missing_count: 2,
             }],
             uploaded_at: Utc::now(),
+            sha256: None,
         };
 
         let mut state = AppState::new(Arc::new(

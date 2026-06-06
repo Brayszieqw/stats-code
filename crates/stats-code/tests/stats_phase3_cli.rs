@@ -93,7 +93,7 @@ fn psm_cli_emits_snapshot_shape() {
     // Simple treatment/control with one covariate
     let mut csv = String::from("treatment,age\n");
     for i in 0..20 {
-        let t = if i < 10 { 1 } else { 0 };
+        let t = i32::from(i < 10);
         let age = 30 + i * 2 + t * 5;
         csv.push_str(&format!("{t},{age}\n"));
     }

@@ -22,7 +22,7 @@ fn expand_rows(
     outcome: &'static str,
     n: usize,
 ) {
-    rows.extend(std::iter::repeat((exposed, outcome, stratum)).take(n));
+    rows.extend(std::iter::repeat_n((exposed, outcome, stratum), n));
 }
 
 fn run_or_rr(path: &std::path::Path) -> Value {
@@ -145,7 +145,7 @@ fn analysis_check_accepts_epi_or_rr_step() {
     let analysis = dir.path().join("analysis.yaml");
     fs::write(
         &analysis,
-        r#"schema_version: stats-code.v0
+        r"schema_version: stats-code.v0
 study:
   title: Stratified OR/RR
   design: cohort
@@ -180,7 +180,7 @@ analyses:
     exposure: exposure
     outcome: outcome
     strata: [stratum]
-"#,
+",
     )
     .unwrap();
 
@@ -208,7 +208,7 @@ fn workflow_run_executes_epi_or_rr_step() {
     let out_dir = dir.path().join("artifacts");
     fs::write(
         &analysis,
-        r#"schema_version: stats-code.v0
+        r"schema_version: stats-code.v0
 study:
   title: Stratified OR/RR
   design: cohort
@@ -243,7 +243,7 @@ analyses:
     exposure: exposure
     outcome: outcome
     strata: [stratum]
-"#,
+",
     )
     .unwrap();
 

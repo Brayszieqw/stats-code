@@ -24,7 +24,7 @@ use stats_code::coverage_matrix::{
 
 // ─── Strategies ─────────────────────────────────────────────────────────
 
-/// Strategy: generate a random CoverageState.
+/// Strategy: generate a random `CoverageState`.
 fn arb_coverage_state() -> impl Strategy<Value = CoverageState> {
     prop_oneof![
         Just(CoverageState::Live),
@@ -47,7 +47,7 @@ const ALL_SOFTWARE: [ReferenceSoftware; 4] = [
     ReferenceSoftware::SPSS,
 ];
 
-/// Strategy: generate a single AlgorithmEntry with arbitrary coverage states.
+/// Strategy: generate a single `AlgorithmEntry` with arbitrary coverage states.
 fn arb_algorithm_entry() -> impl Strategy<Value = AlgorithmEntry> {
     (
         arb_algorithm_id(),
@@ -83,7 +83,7 @@ fn arb_algorithm_entry() -> impl Strategy<Value = AlgorithmEntry> {
         })
 }
 
-/// Strategy: generate a CoverageMatrix with 1..=4 algorithms (unique ids).
+/// Strategy: generate a `CoverageMatrix` with 1..=4 algorithms (unique ids).
 fn arb_matrix() -> impl Strategy<Value = CoverageMatrix> {
     proptest::collection::vec(arb_algorithm_entry(), 1..=4).prop_map(|mut entries| {
         // Ensure unique ids by appending index suffix.
@@ -98,8 +98,8 @@ fn arb_matrix() -> impl Strategy<Value = CoverageMatrix> {
     })
 }
 
-/// Strategy: generate a TestSurface that is a random subset of all possible
-/// (algorithm_id, software) pairs from the given matrix. Each cell has a
+/// Strategy: generate a `TestSurface` that is a random subset of all possible
+/// (`algorithm_id`, software) pairs from the given matrix. Each cell has a
 /// 50% chance of being present in each surface set.
 fn arb_surface_for_matrix(matrix: &CoverageMatrix) -> impl Strategy<Value = TestSurface> {
     // Collect all (algorithm_id, software) pairs.
@@ -133,7 +133,7 @@ fn arb_surface_for_matrix(matrix: &CoverageMatrix) -> impl Strategy<Value = Test
         })
 }
 
-/// Build a perfectly consistent TestSurface for a given matrix (every cell
+/// Build a perfectly consistent `TestSurface` for a given matrix (every cell
 /// has exactly the resources its coverage state demands, and no more).
 fn consistent_surface(matrix: &CoverageMatrix) -> TestSurface {
     let mut surface = TestSurface::default();

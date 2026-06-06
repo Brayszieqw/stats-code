@@ -318,8 +318,7 @@ mod tests {
         // 内直接断言句柄计数，但能至少确认错误变体正确）。
         let cmd = Command::new("c:\\__definitely_not_a_real_binary_for_pg_test__.exe");
         let err = ProcessGuard::spawn_in_job(cmd)
-            .err()
-            .expect("spawn must fail when binary does not exist");
+            .expect_err("spawn must fail when binary does not exist");
         assert!(matches!(err, GuardError::Spawn(_)), "got: {err:?}");
     }
 }

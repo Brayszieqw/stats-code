@@ -1,4 +1,4 @@
-//! Integration tests for request_id and load_shedding middleware.
+//! Integration tests for `request_id` and `load_shedding` middleware.
 
 use std::sync::Arc;
 

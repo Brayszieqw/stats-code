@@ -63,13 +63,13 @@ mod tests {
     #[test]
     fn message_at_boundary_ok() {
         // Exactly 8000 chars should pass
-        let s: String = std::iter::repeat('中').take(8000).collect();
+        let s: String = std::iter::repeat_n('中', 8000).collect();
         assert!(validate_message_length(&s).is_ok());
     }
 
     #[test]
     fn message_exceeds_limit() {
-        let s: String = std::iter::repeat('字').take(8001).collect();
+        let s: String = std::iter::repeat_n('字', 8001).collect();
         let err = validate_message_length(&s).unwrap_err();
         assert_eq!(err.error_code, ErrorCode::MessageTooLong);
         assert!(err.message.contains("8001"));

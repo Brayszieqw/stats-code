@@ -54,4 +54,10 @@ pub struct DatasetSummary {
     pub row_count: u64,
     pub columns: Vec<ColumnSummary>,
     pub uploaded_at: DateTime<Utc>,
+    /// 64 lowercase hex SHA256 of the exact raw upload bytes. `None` for a
+    /// legacy summary persisted before this field existed (Requirement 1.7);
+    /// always serialized (as a JSON string or `null`) so present-vs-absent is
+    /// distinguishable on the wire (Requirement 1.3, 1.8).
+    #[serde(default)]
+    pub sha256: Option<String>,
 }

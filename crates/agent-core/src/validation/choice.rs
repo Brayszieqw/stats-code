@@ -91,20 +91,20 @@ mod tests {
                 .map(|(id, text, expl)| ChoiceOption {
                     option_id: id.to_string(),
                     text: text.to_string(),
-                    explanation: expl.map(|s| s.to_string()),
+                    explanation: expl.map(std::string::ToString::to_string),
                 })
                 .collect(),
             multi_select,
             allow_custom_text,
-            recommendation: recommendation.map(|s| s.to_string()),
+            recommendation: recommendation.map(std::string::ToString::to_string),
         }
     }
 
     fn make_answer(options: Vec<&str>, custom_text: Option<&str>) -> ChoiceAnswer {
         ChoiceAnswer {
             prompt_id: Uuid::new_v4(),
-            options: options.into_iter().map(|s| s.to_string()).collect(),
-            custom_text: custom_text.map(|s| s.to_string()),
+            options: options.into_iter().map(std::string::ToString::to_string).collect(),
+            custom_text: custom_text.map(std::string::ToString::to_string),
         }
     }
 

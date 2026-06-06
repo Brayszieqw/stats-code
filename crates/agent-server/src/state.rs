@@ -108,6 +108,12 @@ pub enum SnapshotProviderError {
     UnknownRun(String),
     /// The run's `status` is not `completed` (Requirement 7.8).
     RunNotCompleted { actual_status: String },
+    /// The run has no completed workflow step that can be exported
+    /// (Requirement 8.2).
+    NoExportableStep { run_id: String },
+    /// The dataset referenced by the run cannot be resolved/read
+    /// (Requirement 8.3).
+    DatasetUnresolved { reason: String },
     /// The total artifact payload exceeds the 50 MB ceiling
     /// (Requirement 7.7).
     PayloadTooLarge {

@@ -39,7 +39,13 @@
 //!    newline so the embedded constant is byte-equal to the version string
 //!    itself (no `.trim_end()` needed in a `const` context).
 //!
-//! 5. `check_web_dist()` — Feature: single-command-launcher, Requirement 6.4.
+//! 5. `emit_commit_sha()` — Feature: sidecar-snapshot-integration,
+//!    Requirement 5.8 (task 8.1). Runs `git rev-parse HEAD` and writes the
+//!    trimmed output to `OUT_DIR/commit_sha.txt` (falling back to the
+//!    literal `"unknown"` when git is unavailable). The runtime exposes it
+//!    as `pub const COMMIT_SHA` via `include_str!`.
+//!
+//! 6. `check_web_dist()` — Feature: single-command-launcher, Requirement 6.4.
 //!    In prod (`dev-vite` feature off) the build fails if `web/dist/` or its
 //!    `index.html` is missing.
 
@@ -85,6 +91,12 @@ fn main() {
     // matrix-mirror step still leaves the standalone version artifact in
     // place.
     emit_release_version(&out_dir);
+
+    // Build-time emit of `commit_sha.txt` for the runtime `COMMIT_SHA`
+    // constant (Feature: sidecar-snapshot-integration, Requirement 5.8).
+    // Runs in both prod and dev-vite so the lib's `include_str!` always
+    // resolves.
+    emit_commit_sha(&out_dir);
 
     // dev-vite mode skips the web/dist check (Requirement 6.4 only applies to
     // prod; in dev mode the launcher spawns Vite as the web source).
@@ -680,7 +692,55 @@ fn emit_release_version(out_dir: &Path) {
 }
 
 // ---------------------------------------------------------------------------
-// Section 5: web/dist prod check (single-command-launcher, Requirement 6.4)
+// Section 5: commit_sha.txt emit for runtime `COMMIT_SHA` constant
+// (Feature: sidecar-snapshot-integration, Requirement 5.8 / task 8.1)
+// ---------------------------------------------------------------------------
+
+/// Emit `$OUT_DIR/commit_sha.txt` containing the git commit SHA of the
+/// current HEAD as raw UTF-8 with no trailing newline and no BOM.
+///
+/// The runtime exposes the file via
+/// `pub const COMMIT_SHA: &str = include_str!(concat!(env!("OUT_DIR"),
+/// "/commit_sha.txt"));` (see `lib.rs`). The value is obtained by running
+/// `git rev-parse HEAD` and trimming the output. If git is unavailable or
+/// the working directory is not inside a git repository, the fallback
+/// literal `"unknown"` is written instead.
+///
+/// Consumers:
+///
+/// - `lib.rs::COMMIT_SHA` — surfaced for the `RunEnvironment` recorded by
+///   the Run-State Store (Requirement 5.8) and included in the Audit
+///   Snapshot's `versions.json::commit_sha`.
+fn emit_commit_sha(out_dir: &Path) {
+    let sha = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let dest = out_dir.join("commit_sha.txt");
+    write_lf_utf8(&dest, sha.as_bytes()).unwrap_or_else(|e| {
+        panic!(
+            "stats-code build: failed to write {}: {} \
+             (Feature: sidecar-snapshot-integration, Requirement 5.8 — task 8.1)",
+            dest.display(),
+            e
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Section 6: web/dist prod check (single-command-launcher, Requirement 6.4)
 // ---------------------------------------------------------------------------
 
 fn check_web_dist(manifest_dir: &Path) {

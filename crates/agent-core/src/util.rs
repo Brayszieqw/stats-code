@@ -1,5 +1,22 @@
 //! Utility functions for the agent-core crate.
 
+use sha2::{Digest, Sha256};
+
+/// Compute the SHA-256 digest of `bytes` and return it as a 64-character
+/// lowercase hexadecimal string.
+///
+/// The computation is deterministic: identical byte sequences always produce
+/// identical output regardless of host or time (Requirement 1.1, 1.5).
+#[must_use]
+pub fn sha256_hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let digest = Sha256::digest(bytes);
+    digest.iter().fold(String::with_capacity(64), |mut acc, b| {
+        let _ = write!(acc, "{b:02x}");
+        acc
+    })
+}
+
 /// Extract a UTF-8 safe excerpt from stderr bytes.
 ///
 /// Guarantees:
@@ -41,6 +58,42 @@ pub fn stderr_excerpt_default(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha256_empty_input() {
+        // SHA-256 of empty bytes is the well-known constant
+        let result = sha256_hex_lower(b"");
+        assert_eq!(
+            result,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn sha256_deterministic() {
+        let input = b"hello world";
+        let a = sha256_hex_lower(input);
+        let b = sha256_hex_lower(input);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn sha256_known_value() {
+        // SHA-256("hello world") is a well-known test vector
+        let result = sha256_hex_lower(b"hello world");
+        assert_eq!(
+            result,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
+    }
+
+    #[test]
+    fn sha256_is_lowercase_hex_64_chars() {
+        let result = sha256_hex_lower(b"arbitrary bytes \x00\xFF");
+        assert_eq!(result.len(), 64);
+        assert!(result.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
 
     #[test]
     fn ascii_within_limit() {

@@ -57,6 +57,23 @@ pub fn validate_dataset_non_empty(summary: &DatasetSummary) -> Result<(), ErrorP
     Ok(())
 }
 
+/// Select the Most-Recently-Uploaded dataset: the one whose `uploaded_at` is
+/// the latest, breaking ties by the later position in the slice (Requirement
+/// 4.2). Returns `None` for an empty slice. Deterministic and stable: the same
+/// slice always yields the same `dataset_id` (Requirement 4.5).
+#[must_use]
+pub fn select_most_recently_uploaded(datasets: &[DatasetSummary]) -> Option<&DatasetSummary> {
+    datasets
+        .iter()
+        .enumerate()
+        .max_by(|(ia, a), (ib, b)| {
+            a.uploaded_at
+                .cmp(&b.uploaded_at)
+                .then(ia.cmp(ib)) // later index wins ties
+        })
+        .map(|(_, d)| d)
+}
+
 /// Returns `Err(SessionQuotaExceeded)` iff `used + new_size > quota` (saturating addition).
 pub fn check_upload_quota(used: u64, new_size: u64, quota: u64) -> Result<(), ErrorPayload> {
     if used.saturating_add(new_size) > quota {
@@ -199,6 +216,7 @@ mod tests {
             row_count,
             columns,
             uploaded_at: Utc::now(),
+            sha256: None,
         }
     }
 
@@ -271,5 +289,86 @@ mod tests {
         let quota = 500 * 1024 * 1024; // 500 MB
         let err = check_upload_quota(quota, 1, quota).unwrap_err();
         assert!(err.message.contains("500 MB"));
+    }
+
+    // --- select_most_recently_uploaded ---
+
+    use chrono::{DateTime, TimeZone};
+
+    fn make_summary_at(uploaded_at: DateTime<Utc>) -> DatasetSummary {
+        DatasetSummary {
+            dataset_id: Uuid::new_v4(),
+            file_name: "test.csv".to_string(),
+            size_bytes: 100,
+            encoding: Encoding::Utf8,
+            row_count: 10,
+            columns: vec![ColumnSummary {
+                name: "col_0".to_string(),
+                inferred_type: ColumnType::Numeric,
+                missing_count: 0,
+            }],
+            uploaded_at,
+            sha256: None,
+        }
+    }
+
+    #[test]
+    fn most_recent_empty_returns_none() {
+        assert!(select_most_recently_uploaded(&[]).is_none());
+    }
+
+    #[test]
+    fn most_recent_single_element() {
+        let ds = make_summary_at(Utc::now());
+        let datasets = [ds.clone()];
+        let result = select_most_recently_uploaded(&datasets);
+        assert_eq!(result.unwrap().dataset_id, ds.dataset_id);
+    }
+
+    #[test]
+    fn most_recent_selects_latest_timestamp() {
+        let t1 = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let t2 = Utc.with_ymd_and_hms(2025, 6, 1, 0, 0, 0).unwrap();
+        let t3 = Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap();
+
+        let ds1 = make_summary_at(t1);
+        let ds2 = make_summary_at(t2);
+        let ds3 = make_summary_at(t3);
+
+        let expected_id = ds2.dataset_id;
+        let datasets = [ds1, ds2, ds3];
+        let result = select_most_recently_uploaded(&datasets);
+        assert_eq!(result.unwrap().dataset_id, expected_id);
+    }
+
+    #[test]
+    fn most_recent_ties_broken_by_later_index() {
+        let t = Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap();
+
+        let ds1 = make_summary_at(t);
+        let ds2 = make_summary_at(t);
+        let ds3 = make_summary_at(t);
+
+        // All have the same timestamp; the last one (index 2) should win.
+        let expected_id = ds3.dataset_id;
+        let datasets = [ds1, ds2, ds3];
+        let result = select_most_recently_uploaded(&datasets);
+        assert_eq!(result.unwrap().dataset_id, expected_id);
+    }
+
+    #[test]
+    fn most_recent_tie_at_end_wins_over_earlier_index() {
+        let t_old = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t_new = Utc.with_ymd_and_hms(2025, 6, 1, 0, 0, 0).unwrap();
+
+        let ds1 = make_summary_at(t_new);
+        let ds2 = make_summary_at(t_old);
+        let ds3 = make_summary_at(t_new);
+
+        // ds1 and ds3 tie on timestamp; ds3 has later index → ds3 wins.
+        let expected_id = ds3.dataset_id;
+        let datasets = [ds1, ds2, ds3];
+        let result = select_most_recently_uploaded(&datasets);
+        assert_eq!(result.unwrap().dataset_id, expected_id);
     }
 }

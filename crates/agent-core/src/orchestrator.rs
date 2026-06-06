@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_stream::Stream;
@@ -21,9 +22,14 @@ use crate::models::{
     ChoiceOption, ChoicePrompt, ErrorCode, ErrorPayload, SessionId,
     SessionSettings, SkillResult,
 };
-use crate::skill::{SkillDescriptor, SkillRegistry, SkillRunner};
-use crate::traits::{DatasetStore, LlmProvider, SessionStore};
+use crate::models::run::{
+    AnalysisResultMeta, AnalysisRun, RunArtifact, RunEnvironment, RunStatus,
+    RunWorkflowStep,
+};
+use crate::skill::{skill_to_algorithm, SkillDescriptor, SkillRegistry, SkillRunner};
+use crate::traits::{DatasetStore, LlmProvider, RunStore, SessionStore};
 use crate::traits::llm_provider::{LlmEvent, LlmMessage, LlmRequest, LlmRole};
+use crate::validation::select_most_recently_uploaded;
 
 // ---------------------------------------------------------------------------
 // AgentEvent
@@ -99,6 +105,12 @@ pub struct AgentOrchestrator<S: SessionStore, D: DatasetStore> {
     pub skills: SkillRegistry,
     pub runner: SkillRunner,
     pub llm: Arc<dyn LlmProvider>,
+    /// Host and build environment, constructed once at launcher startup and
+    /// recorded into each `AnalysisRun` via `begin_run` (Requirement 5.8).
+    pub run_environment: Option<crate::models::RunEnvironment>,
+    /// Optional run-state store for recording analysis run lifecycle
+    /// (Requirements 5.1, 5.2, 5.3, 5.5, 5.7, 5.8).
+    pub run_store: Option<Arc<dyn RunStore>>,
 }
 
 /// User message input to the orchestrator.
@@ -125,7 +137,25 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
             skills,
             runner,
             llm,
+            run_environment: None,
+            run_store: None,
         }
+    }
+
+    /// Set the run environment that will be recorded into each `AnalysisRun`
+    /// via `begin_run` (Requirement 5.8, task 8.2).
+    #[must_use]
+    pub fn with_run_environment(mut self, env: crate::models::RunEnvironment) -> Self {
+        self.run_environment = Some(env);
+        self
+    }
+
+    /// Set the run-state store for recording analysis run lifecycle
+    /// (Requirements 5.1, 5.2, 5.3, 5.5, 5.7, 5.8).
+    #[must_use]
+    pub fn with_run_store(mut self, store: Arc<dyn RunStore>) -> Self {
+        self.run_store = Some(store);
+        self
     }
 
     /// Process a user message and return a stream of `AgentEvent`s.
@@ -327,6 +357,15 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
     }
 
     /// Execute a skill via the `SkillRunner`.
+    ///
+    /// After execution, if the skill resolves to an Output-Level Algorithm via
+    /// `skill_to_algorithm` and a dataset can be attributed, attaches
+    /// `AnalysisResultMeta` to the returned `SkillResult` (Requirements 2.1,
+    /// 2.4, 4.1–4.4, 5.1).
+    ///
+    /// When a `RunStore` is wired, records the full run lifecycle:
+    /// `begin_run` → `append_step` → `set_status(Completed|Failed)`
+    /// (Requirements 5.1, 5.2, 5.3, 5.5, 5.7, 5.8).
     async fn execute_skill(
         &self,
         sid: SessionId,
@@ -379,12 +418,119 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
 
         let dataset_path = self.data.get_path(sid, dataset_id, &dataset.file_name);
 
-        self.runner
-            .run(desc, args, &dataset_path)
-            .await
-            .map_err(|e| {
+        // --- Resolve algorithm and attributed dataset for run lifecycle ---
+        let algorithm_id = skill_to_algorithm(skill_id);
+        let attributed_dataset = algorithm_id.and_then(|_| {
+            args.get("dataset_id")
+                .or_else(|| args.get("dataset"))
+                .and_then(|v| v.as_str())
+                .and_then(|id_str| uuid::Uuid::parse_str(id_str).ok())
+                .and_then(|did| session.datasets.iter().find(|d| d.dataset_id == did))
+                .or_else(|| select_most_recently_uploaded(&session.datasets))
+        });
+
+        // --- Begin run if RunStore is wired and we have an algorithm + dataset ---
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let run_begun = if let (Some(run_store), Some(alg_id), Some(ds)) =
+            (&self.run_store, algorithm_id, attributed_dataset)
+        {
+            let now = Utc::now();
+            let env = self.run_environment.clone().unwrap_or_else(|| RunEnvironment {
+                os_family: String::new(),
+                os_version: None,
+                release_version: String::new(),
+                commit_sha: String::new(),
+                reference_software: Vec::new(),
+            });
+            let analysis_run = AnalysisRun {
+                run_id: run_id.clone(),
+                algorithm_id: alg_id.to_string(),
+                dataset_id: ds.dataset_id.to_string(),
+                dataset_sha256: ds.sha256.clone().unwrap_or_default(),
+                status: RunStatus::Running,
+                steps: Vec::new(),
+                llm_calls: Vec::new(),
+                environment: env,
+                created_at: now,
+                updated_at: now,
+            };
+            // Log/ignore errors — don't fail the skill result (Requirement 5.1).
+            if let Err(e) = run_store.begin_run(analysis_run).await {
+                tracing::warn!("RunStore begin_run failed for {}: {e}", run_id);
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        // --- Execute the skill ---
+        let started_at = Utc::now();
+        let skill_result = self.runner
+            .run(desc, args.clone(), &dataset_path)
+            .await;
+        let ended_at = Utc::now();
+
+        // --- Handle skill execution result ---
+        match skill_result {
+            Ok(mut result) => {
+                // Attach AnalysisResultMeta if algorithm + dataset resolved.
+                if let (Some(alg_id), Some(ds)) = (algorithm_id, attributed_dataset) {
+                    let meta = AnalysisResultMeta {
+                        algorithm_id: alg_id.to_string(),
+                        dataset_id: ds.dataset_id.to_string(),
+                        dataset_sha256: ds.sha256.clone(),
+                        columns: ds.columns.clone(),
+                        params: args.clone(),
+                        run_id: run_id.clone(),
+                        run_status: RunStatus::Completed,
+                    };
+                    result.analysis = Some(meta);
+                }
+
+                // Record run lifecycle: append step + set status Completed.
+                if run_begun {
+                    if let Some(run_store) = &self.run_store {
+                        let step_id = uuid::Uuid::new_v4().to_string();
+                        let step = RunWorkflowStep {
+                            step_id: step_id.clone(),
+                            name: skill_id.to_string(),
+                            started_at_utc: started_at,
+                            ended_at_utc: ended_at,
+                            outputs: vec![RunArtifact {
+                                artifact_id: uuid::Uuid::new_v4().to_string(),
+                                path: format!("artifacts/{step_id}/result.json"),
+                                content_type: "application/json".to_string(),
+                                size_bytes: serde_json::to_vec(&result.payload)
+                                    .map(|v| v.len() as u64)
+                                    .unwrap_or(0),
+                            }],
+                            narrative: None,
+                        };
+                        if let Err(e) = run_store.append_step(&run_id, step).await {
+                            tracing::warn!("RunStore append_step failed for {}: {e}", run_id);
+                        }
+                        if let Err(e) = run_store.set_status(&run_id, RunStatus::Completed).await {
+                            tracing::warn!("RunStore set_status(Completed) failed for {}: {e}", run_id);
+                        }
+                    }
+                }
+
+                Ok(result)
+            }
+            Err(e) => {
+                // On failure, set run status to Failed if run was begun.
+                if run_begun {
+                    if let Some(run_store) = &self.run_store {
+                        if let Err(e2) = run_store.set_status(&run_id, RunStatus::Failed).await {
+                            tracing::warn!("RunStore set_status(Failed) failed for {}: {e2}", run_id);
+                        }
+                    }
+                }
+
                 use crate::skill::runner::SkillRunError;
-                match e {
+                Err(match e {
                     SkillRunError::Timeout { wall_secs } => ErrorPayload::new(
                         ErrorCode::SkillTimeout,
                         format!("统计任务执行超时（超过 {wall_secs} 秒）"),
@@ -403,8 +549,9 @@ impl<S: SessionStore, D: DatasetStore> AgentOrchestrator<S, D> {
                         ErrorCode::SkillExecutionFailed,
                         format!("统计任务启动失败：{reason}"),
                     ),
-                }
-            })
+                })
+            }
+        }
     }
 
     /// Generate an interpretation of a skill result via LLM.
@@ -822,6 +969,12 @@ mod tests {
         ) -> Result<crate::models::DatasetSummary, StoreError> {
             unimplemented!()
         }
+        async fn read_raw_by_id(
+            &self,
+            _dataset_id: crate::models::DatasetId,
+        ) -> Result<Vec<u8>, StoreError> {
+            unimplemented!()
+        }
         async fn delete_session_data(&self, _sid: SessionId) -> Result<(), StoreError> {
             Ok(())
         }
@@ -885,7 +1038,7 @@ mod tests {
                 assert_eq!(prompt.options[0].option_id, "model_linear");
                 assert_eq!(prompt.options[1].option_id, "model_logistic");
             }
-            _ => panic!("Expected AskChoice, got {:?}", action),
+            _ => panic!("Expected AskChoice, got {action:?}"),
         }
     }
 
@@ -910,7 +1063,7 @@ mod tests {
                 assert_eq!(skill_id, "model_linear");
                 assert_eq!(args["outcome"], "blood_pressure");
             }
-            _ => panic!("Expected RunSkill, got {:?}", action),
+            _ => panic!("Expected RunSkill, got {action:?}"),
         }
     }
 
@@ -934,7 +1087,7 @@ mod tests {
                 assert!(prompt.question.contains("线性回归"));
                 assert!(!prompt.options.is_empty());
             }
-            _ => panic!("Expected AskChoice for missing args, got {:?}", action),
+            _ => panic!("Expected AskChoice for missing args, got {action:?}"),
         }
     }
 
@@ -980,7 +1133,7 @@ mod tests {
 
         // Should contain a TextDelta and Done
         assert!(events.iter().any(|e| matches!(e, AgentEvent::TextDelta(_))));
-        assert!(events.last().map(|e| matches!(e, AgentEvent::Done)).unwrap_or(false));
+        assert!(events.last().is_some_and(|e| matches!(e, AgentEvent::Done)));
     }
 
     #[tokio::test]
@@ -1010,7 +1163,7 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, AgentEvent::ChoicePrompt(_))));
-        assert!(events.last().map(|e| matches!(e, AgentEvent::Done)).unwrap_or(false));
+        assert!(events.last().is_some_and(|e| matches!(e, AgentEvent::Done)));
     }
 
     #[tokio::test]
@@ -1036,7 +1189,7 @@ mod tests {
             matches!(e, AgentEvent::Error(ref p) if p.error_code == ErrorCode::LlmUnavailable)
         });
         assert!(has_error);
-        assert!(events.last().map(|e| matches!(e, AgentEvent::Done)).unwrap_or(false));
+        assert!(events.last().is_some_and(|e| matches!(e, AgentEvent::Done)));
     }
 
     // --- Tests for helper functions ---

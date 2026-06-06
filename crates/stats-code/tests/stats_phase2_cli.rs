@@ -254,7 +254,7 @@ fn pca_cli_emits_snapshot_shape() {
     let result = &json["result"];
     assert_eq!(json["status"].as_str(), Some("ok"));
     assert_eq!(json["command"].as_str(), Some("stats.multivariate.pca"));
-    assert!(result["components"].as_array().unwrap().len() >= 1);
+    assert!(!result["components"].as_array().unwrap().is_empty());
     // KMO may be null for small/collinear datasets
     assert!(result["components"].as_array().unwrap()[0]["eigenvalue"].as_f64().is_some());
 }

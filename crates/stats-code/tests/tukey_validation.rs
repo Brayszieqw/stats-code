@@ -64,7 +64,7 @@ fn tukey_approximation_within_tolerance_of_r_ptukey() {
     // or within a factor of 3 for small p-values.
     for (q, k, df, r_p) in r_ptukey_references() {
         let dir = tempfile::tempdir().unwrap();
-        let data = dir.path().join("posthoc.csv");
+        let _data = dir.path().join("posthoc.csv");
 
         // Create a dataset where the posthoc test would produce approximately
         // the given q statistic. We use the CLI to verify the approximation
@@ -75,7 +75,7 @@ fn tukey_approximation_within_tolerance_of_r_ptukey() {
         // The approximation: p = 1 - (1 - t_two_sided(q/sqrt(2), df))^(k*(k-1)/2)
         // We just verify the relationship is monotone and bounded.
         assert!(
-            r_p >= 0.0 && r_p <= 1.0,
+            (0.0..=1.0).contains(&r_p),
             "Reference p-value out of range: q={q}, k={k}, df={df}, p={r_p}"
         );
     }
@@ -125,7 +125,7 @@ fn posthoc_tukey_cli_runs_without_panic() {
     // All adjusted p-values should be valid probabilities
     for pair in pairs {
         let p = pair["adjusted_p_value"].as_f64().unwrap();
-        assert!(p >= 0.0 && p <= 1.0, "invalid p: {p}");
+        assert!((0.0..=1.0).contains(&p), "invalid p: {p}");
     }
 }
 

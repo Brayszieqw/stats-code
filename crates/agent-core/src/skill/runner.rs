@@ -260,6 +260,7 @@ impl SkillRunner {
             schema_version: "1.0".to_string(),
             payload,
             risk_signals,
+            analysis: None,
         })
     }
 }

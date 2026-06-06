@@ -4,6 +4,7 @@ pub mod dataset;
 pub mod error;
 pub mod llm_config;
 pub mod message;
+pub mod run;
 pub mod session;
 pub mod skill;
 
@@ -14,6 +15,10 @@ pub use llm_config::{LlmConfig, LlmProvider};
 pub use message::{
     AgentBlock, AgentMessage, ChoiceAnswer, ChoiceOption, ChoicePrompt, Message, MessageId,
     OptionId, PromptId, UserContent, UserMessage,
+};
+pub use run::{
+    AnalysisResultMeta, AnalysisRun, RunArtifact, RunEnvironment, RunLlmCall, RunLlmRef,
+    RunNarrativeStep, RunReferenceSoftware, RunStatus, RunWorkflowStep,
 };
 pub use session::{Session, SessionId, SessionSettings, SessionStatus};
 pub use skill::{RiskSignal, SkillError, SkillOutcome, SkillResult, SkillRun, SkillRunId};

@@ -9,7 +9,7 @@
 //! - If the matrix value is `none`, `generate_snippet` returns
 //!   `SidecarSnippet::Uncovered` with `coverage_value == "none"` and no
 //!   body / comment / placeholder text.
-//! - If the matrix value is non-`none` (live, recorded, sidecar_only),
+//! - If the matrix value is non-`none` (live, recorded, `sidecar_only`),
 //!   `generate_snippet` returns `SidecarSnippet::Snippet` with non-empty
 //!   `text`.
 
@@ -24,7 +24,7 @@ fn arb_algorithm_index() -> impl Strategy<Value = usize> {
     0..matrix.algorithms().len()
 }
 
-/// Strategy: pick a random ReferenceSoftware variant.
+/// Strategy: pick a random `ReferenceSoftware` variant.
 fn arb_software() -> impl Strategy<Value = ReferenceSoftware> {
     prop_oneof![
         Just(ReferenceSoftware::R),

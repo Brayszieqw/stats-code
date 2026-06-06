@@ -402,7 +402,7 @@ mod tests {
         );
         let app = build_test_app(state);
 
-        let long_text: String = std::iter::repeat('字').take(8001).collect();
+        let long_text: String = std::iter::repeat_n('字', 8001).collect();
         let body = serde_json::json!({ "text": long_text });
         let req = Request::builder()
             .method("POST")

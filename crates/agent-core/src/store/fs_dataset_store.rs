@@ -20,6 +20,7 @@ use crate::models::{
 };
 use crate::traits::dataset_store::DatasetStore;
 use crate::traits::session_store::StoreError;
+use crate::util::sha256_hex_lower;
 
 /// Filesystem-backed dataset store.
 ///
@@ -100,9 +101,15 @@ impl DatasetStore for FsDatasetStore {
     }
 
     async fn parse(&self, dref: DatasetRef) -> Result<DatasetSummary, StoreError> {
-        let bytes = fs::read(&dref.raw_path)
-            .await
-            .map_err(|e| StoreError::Internal(format!("read dataset file: {e}")))?;
+        let bytes = fs::read(&dref.raw_path).await.map_err(|e| {
+            StoreError::Internal(format!(
+                "read dataset file for dataset_id {}: {e}",
+                dref.dataset_id
+            ))
+        })?;
+
+        // Compute SHA256 over the exact raw upload bytes (Requirement 1.1, 1.5).
+        let hex_digest = sha256_hex_lower(&bytes);
 
         let size_bytes = bytes.len() as u64;
         let file_name = dref
@@ -123,7 +130,11 @@ impl DatasetStore for FsDatasetStore {
             .map(str::to_ascii_lowercase);
 
         let summary = match extension.as_deref() {
-            Some("csv" | "tsv") => parse_text_table(&bytes, dref.dataset_id, file_name, extension.as_deref().unwrap_or("csv"))?,
+            Some("csv" | "tsv") => {
+                let mut s = parse_text_table(&bytes, dref.dataset_id, file_name, extension.as_deref().unwrap_or("csv"))?;
+                s.sha256 = Some(hex_digest);
+                s
+            }
             Some("xlsx" | "xls") => DatasetSummary {
                 dataset_id: dref.dataset_id,
                 file_name,
@@ -132,6 +143,7 @@ impl DatasetStore for FsDatasetStore {
                 row_count: 0,
                 columns: Vec::new(),
                 uploaded_at: Utc::now(),
+                sha256: Some(hex_digest),
             },
             _ => {
                 return Err(StoreError::Internal(format!(
@@ -152,6 +164,54 @@ impl DatasetStore for FsDatasetStore {
                 .map_err(|e| StoreError::Internal(format!("remove session dir: {e}")))?;
         }
         Ok(())
+    }
+
+    async fn read_raw_by_id(&self, dataset_id: Uuid) -> Result<Vec<u8>, StoreError> {
+        // The store owns this layout knowledge:
+        //   <root>/<session_id>/<dataset_id>__<original_filename>
+        // Callers holding only a `dataset_id` (e.g. the Audit Snapshot
+        // exporter) ask the store for the bytes instead of reconstructing the
+        // path themselves. We scan session directories for a file whose name
+        // carries the `<dataset_id>__` prefix and return its exact bytes.
+        let prefix = format!("{dataset_id}__");
+
+        let mut sessions = fs::read_dir(&self.root)
+            .await
+            .map_err(|e| StoreError::Internal(format!("read dataset root: {e}")))?;
+
+        while let Some(session_entry) = sessions
+            .next_entry()
+            .await
+            .map_err(|e| StoreError::Internal(format!("iter dataset root: {e}")))?
+        {
+            let session_path = session_entry.path();
+            if !session_path.is_dir() {
+                continue;
+            }
+            let Ok(mut files) = fs::read_dir(&session_path).await else {
+                continue;
+            };
+            while let Some(file_entry) = files
+                .next_entry()
+                .await
+                .map_err(|e| StoreError::Internal(format!("iter session dir: {e}")))?
+            {
+                let file_path = file_entry.path();
+                if let Some(name) = file_path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(&prefix) {
+                        return fs::read(&file_path).await.map_err(|e| {
+                            StoreError::Internal(format!(
+                                "read dataset file for dataset_id {dataset_id}: {e}"
+                            ))
+                        });
+                    }
+                }
+            }
+        }
+
+        Err(StoreError::NotFound(format!(
+            "dataset {dataset_id} not found in store"
+        )))
     }
 
     async fn quota_used(&self, sid: SessionId) -> Result<u64, StoreError> {
@@ -255,6 +315,7 @@ fn parse_text_table(
         row_count,
         columns,
         uploaded_at: Utc::now(),
+        sha256: None,
     })
 }
 
@@ -342,5 +403,47 @@ mod tests {
         assert_eq!(summary.columns.len(), 2);
         assert_eq!(summary.columns[0].name, "col1");
         assert_eq!(summary.columns[1].name, "col2");
+    }
+
+    #[tokio::test]
+    async fn parse_csv_sets_sha256() {
+        let tmp = TempDir::new().unwrap();
+        let store = FsDatasetStore::new(tmp.path().to_path_buf()).await.unwrap();
+        let sid = new_sid();
+
+        let csv = b"a,b\n1,2\n3,4\n";
+        let dref = store
+            .save_raw(sid, "data.csv", Bytes::from_static(csv))
+            .await
+            .unwrap();
+
+        let summary = store.parse(dref).await.unwrap();
+        let sha = summary.sha256.expect("sha256 should be Some after parse");
+        assert_eq!(sha.len(), 64);
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        // Same bytes must produce the same digest.
+        assert_eq!(sha, crate::util::sha256_hex_lower(csv));
+    }
+
+    #[tokio::test]
+    async fn parse_unreadable_file_includes_dataset_id_in_error() {
+        let tmp = TempDir::new().unwrap();
+        let store = FsDatasetStore::new(tmp.path().to_path_buf()).await.unwrap();
+        let sid = new_sid();
+
+        // Construct a DatasetRef pointing to a non-existent file.
+        let dataset_id = Uuid::new_v4();
+        let dref = DatasetRef {
+            session_id: sid,
+            dataset_id,
+            raw_path: tmp.path().join("nonexistent__data.csv"),
+        };
+
+        let err = store.parse(dref).await.unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(&dataset_id.to_string()),
+            "error should name the dataset_id, got: {msg}"
+        );
     }
 }

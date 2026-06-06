@@ -24,6 +24,22 @@ pub mod release;
 pub const RELEASE_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/release_version.txt"));
 
+/// Git commit SHA at build time, embedded from `build.rs::emit_commit_sha`
+/// (Feature: sidecar-snapshot-integration, Requirement 5.8 / task 8.1).
+///
+/// Surfaced for:
+///
+/// - the `RunEnvironment` recorded by the Run-State Store so each
+///   Analysis Run carries the exact source revision that produced it,
+/// - the Audit Snapshot's `versions.json::commit_sha`.
+///
+/// The value is the full 40-character hex SHA from `git rev-parse HEAD`,
+/// or the literal `"unknown"` when git is unavailable at build time.
+/// Written without a trailing newline by `build.rs`, so the embedded
+/// constant equals the SHA string byte-for-byte.
+pub const COMMIT_SHA: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/commit_sha.txt"));
+
 /// Build-time snapshot of `stats-code`'s direct runtime dependency
 /// versions, materialized by `build.rs::emit_runtime_deps`
 /// (Feature: parity-and-multilang-sidecar, tasks 1.3 / 15.3).

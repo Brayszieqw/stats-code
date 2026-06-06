@@ -307,7 +307,7 @@ mod tests {
             .collect()
     }
 
-    /// Convenience wrapper that builds headers/rows, calls correlation_csv.
+    /// Convenience wrapper that builds headers/rows, calls `correlation_csv`.
     fn run_correlation(
         col_names: &[&str],
         data: &[&[&str]],
@@ -547,7 +547,7 @@ mod tests {
         for i in 10..40 {
             fields.push(vec![i.to_string(), "0".to_string()]);
         }
-        let data: Vec<&[String]> = fields.iter().map(|v| v.as_slice()).collect();
+        let data: Vec<&[String]> = fields.iter().map(std::vec::Vec::as_slice).collect();
         let headers = make_headers(&["x", "y"]);
         let rows: Vec<csv::StringRecord> = data
             .iter()
@@ -659,7 +659,7 @@ mod tests {
         let result = run_correlation(&["x", "y"], data, "z", "y", "pearson");
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.contains("z"), "error should mention column name: {msg}");
+        assert!(msg.contains('z'), "error should mention column name: {msg}");
     }
 
     #[test]
@@ -760,9 +760,7 @@ mod tests {
         let width_01 = result_01.ci_upper - result_01.ci_lower;
         assert!(
             width_01 > width_05,
-            "99% CI width {:.4} should be > 95% CI width {:.4}",
-            width_01,
-            width_05
+            "99% CI width {width_01:.4} should be > 95% CI width {width_05:.4}"
         );
         assert_eq!(result_05.alpha, 0.05);
         assert_eq!(result_01.alpha, 0.01);

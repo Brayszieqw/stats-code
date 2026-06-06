@@ -26,6 +26,15 @@ pub trait DatasetStore: Send + Sync {
     /// Parse a previously saved raw file into a structured summary.
     async fn parse(&self, dref: DatasetRef) -> Result<DatasetSummary, StoreError>;
 
+    /// Read the exact raw bytes of a previously saved dataset, located by its
+    /// `dataset_id` alone (no session id required).
+    ///
+    /// This is the store's own authority over its on-disk layout: callers that
+    /// only hold a `dataset_id` (such as the Audit Snapshot exporter) ask the
+    /// store for the bytes instead of reconstructing the file path themselves.
+    /// Returns `StoreError::NotFound` if no dataset with that id exists.
+    async fn read_raw_by_id(&self, dataset_id: DatasetId) -> Result<Vec<u8>, StoreError>;
+
     /// Delete all dataset files associated with a session.
     async fn delete_session_data(&self, sid: SessionId) -> Result<(), StoreError>;
 
@@ -52,6 +61,10 @@ where
 
     async fn parse(&self, dref: DatasetRef) -> Result<DatasetSummary, StoreError> {
         self.as_ref().parse(dref).await
+    }
+
+    async fn read_raw_by_id(&self, dataset_id: DatasetId) -> Result<Vec<u8>, StoreError> {
+        self.as_ref().read_raw_by_id(dataset_id).await
     }
 
     async fn delete_session_data(&self, sid: SessionId) -> Result<(), StoreError> {

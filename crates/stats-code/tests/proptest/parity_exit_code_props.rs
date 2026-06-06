@@ -25,7 +25,7 @@ use stats_code::parity::{
 
 // ─── Strategies ─────────────────────────────────────────────────────────
 
-/// Strategy: generate a random ParityVerdict.
+/// Strategy: generate a random `ParityVerdict`.
 fn arb_verdict() -> impl Strategy<Value = ParityVerdict> {
     prop_oneof![
         Just(ParityVerdict::Pass),
@@ -34,7 +34,7 @@ fn arb_verdict() -> impl Strategy<Value = ParityVerdict> {
     ]
 }
 
-/// Strategy: generate a random ReferenceSoftware.
+/// Strategy: generate a random `ReferenceSoftware`.
 fn arb_software() -> impl Strategy<Value = ReferenceSoftware> {
     prop_oneof![
         Just(ReferenceSoftware::R),
@@ -44,9 +44,9 @@ fn arb_software() -> impl Strategy<Value = ReferenceSoftware> {
     ]
 }
 
-/// Strategy: generate a random skipped_reason.
+/// Strategy: generate a random `skipped_reason`.
 /// When verdict is Skipped, the reason may be the sentinel
-/// "reference_software_unavailable" or some other reason or None.
+/// "`reference_software_unavailable`" or some other reason or None.
 fn arb_skipped_reason(verdict: ParityVerdict) -> impl Strategy<Value = Option<String>> {
     match verdict {
         ParityVerdict::Skipped => prop_oneof![
@@ -60,7 +60,7 @@ fn arb_skipped_reason(verdict: ParityVerdict) -> impl Strategy<Value = Option<St
     }
 }
 
-/// Strategy: generate a random algorithm_id from a small fixed set.
+/// Strategy: generate a random `algorithm_id` from a small fixed set.
 fn arb_algorithm_id() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("tableone".to_string()),
@@ -71,7 +71,7 @@ fn arb_algorithm_id() -> impl Strategy<Value = String> {
     ]
 }
 
-/// Strategy: generate a single ParityReportRow with arbitrary verdict and reason.
+/// Strategy: generate a single `ParityReportRow` with arbitrary verdict and reason.
 fn arb_report_row() -> impl Strategy<Value = ParityReportRow> {
     (arb_algorithm_id(), arb_software(), arb_verdict()).prop_flat_map(
         |(algorithm_id, software, verdict)| {

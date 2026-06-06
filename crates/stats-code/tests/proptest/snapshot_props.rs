@@ -76,7 +76,7 @@ fn arb_sha256_hex() -> impl Strategy<Value = String> {
         .prop_map(|bytes| bytes.iter().map(|b| *b as char).collect::<String>())
 }
 
-/// Strategy: generate a single LlmCall with all required fields populated.
+/// Strategy: generate a single `LlmCall` with all required fields populated.
 fn arb_llm_call() -> impl Strategy<Value = LlmCall> {
     (
         "[a-z]{3,10}",          // provider
@@ -93,12 +93,12 @@ fn arb_llm_call() -> impl Strategy<Value = LlmCall> {
         })
 }
 
-/// Strategy: generate 0..=3 LlmCalls.
+/// Strategy: generate 0..=3 `LlmCalls`.
 fn arb_llm_calls(max: usize) -> impl Strategy<Value = Vec<LlmCall>> {
     proptest::collection::vec(arb_llm_call(), 0..=max)
 }
 
-/// Strategy: generate a single SnapshotArtifact (≤ 1 KB).
+/// Strategy: generate a single `SnapshotArtifact` (≤ 1 KB).
 fn arb_artifact() -> impl Strategy<Value = SnapshotArtifact> {
     (
         "[a-z]{3,8}",  // step_id
@@ -116,7 +116,7 @@ fn arb_artifacts() -> impl Strategy<Value = Vec<SnapshotArtifact>> {
     proptest::collection::vec(arb_artifact(), 0..=3)
 }
 
-/// Strategy: generate a valid os_family.
+/// Strategy: generate a valid `os_family`.
 fn arb_os_family() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("Windows".to_string()),
@@ -125,7 +125,7 @@ fn arb_os_family() -> impl Strategy<Value = String> {
     ]
 }
 
-/// Strategy: generate a completed RunSnapshot with variable artifacts and LLM calls.
+/// Strategy: generate a completed `RunSnapshot` with variable artifacts and LLM calls.
 fn arb_completed_run() -> impl Strategy<Value = RunSnapshot> {
     (
         "[a-z][a-z0-9-]{0,15}",  // run_id
@@ -463,7 +463,7 @@ proptest! {
 // Property 20: Narrative citations resolve
 // ---------------------------------------------------------------------------
 
-/// Strategy: generate a NarrativeStep whose key_metrics cite paths from a
+/// Strategy: generate a `NarrativeStep` whose `key_metrics` cite paths from a
 /// known file index.
 fn arb_narrative_step_with_index() -> impl Strategy<Value = (Vec<NarrativeStep>, BTreeSet<String>)> {
     // Generate 1..=3 steps, each with 1..=3 metrics.

@@ -4,7 +4,7 @@
 //! - P1: message length validation boundary + readable error
 //! - P7: Session JSON round-trip
 //! - P14: DeepSeek/OpenAI retry classification
-//! - P17: ErrorCode → HTTP status code consistency
+//! - P17: `ErrorCode` → HTTP status code consistency
 
 use proptest::prelude::*;
 

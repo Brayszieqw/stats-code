@@ -1,7 +1,7 @@
 //! Integration tests for `--replay` happy path and rejection path.
 //!
 //! Task 7.3: Happy path — build a valid snapshot fixture, replay it,
-//! assert success and steps_replayed count.
+//! assert success and `steps_replayed` count.
 //!
 //! Task 7.4: Rejection path — corrupt `data.csv` (flip 1 byte), assert
 //! replay refuses with non-zero / Err, error identifies mismatched
@@ -164,7 +164,7 @@ fn temp_dir(name: &str) -> PathBuf {
 
 /// Build a minimal valid extracted snapshot directory with one workflow
 /// step and one artifact, all SHA256s computed correctly.
-/// Returns (installed_reference_software, csv_bytes).
+/// Returns (`installed_reference_software`, `csv_bytes`).
 fn build_valid_snapshot(dir: &Path) -> (Vec<(String, String)>, Vec<u8>) {
     // dataset
     let csv_bytes = b"col1,col2\n1,2\n3,4\n5,6\n".to_vec();

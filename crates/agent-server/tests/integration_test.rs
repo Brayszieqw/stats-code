@@ -1,12 +1,12 @@
 //! Integration tests for agent-server (task 13.1).
 //!
 //! Covers four end-to-end scenarios using the full HTTP layer with mocked
-//! domain services (MemSessionStore, MockMessageHandler, MockDatasetStore).
+//! domain services (`MemSessionStore`, `MockMessageHandler`, `MockDatasetStore`).
 //!
 //! Scenario 1: Create Session → POST message → verify SSE response starts
-//! Scenario 2: Upload oversized dataset → DATASET_TOO_LARGE
-//! Scenario 3: Message handler returns LlmUnavailable error
-//! Scenario 4: Create → use → archive → write fails with SESSION_ARCHIVED
+//! Scenario 2: Upload oversized dataset → `DATASET_TOO_LARGE`
+//! Scenario 3: Message handler returns `LlmUnavailable` error
+//! Scenario 4: Create → use → archive → write fails with `SESSION_ARCHIVED`
 //!
 //! Validates: Requirements 3.4, 8.4, 11.3, 11.4
 
@@ -59,7 +59,7 @@ impl MessageHandler for MockMessageHandlerOk {
     }
 }
 
-/// Mock message handler that returns an LLM_UNAVAILABLE error (simulating DeepSeek 502 after retries).
+/// Mock message handler that returns an `LLM_UNAVAILABLE` error (simulating `DeepSeek` 502 after retries).
 struct MockMessageHandlerLlmUnavailable;
 
 impl MessageHandler for MockMessageHandlerLlmUnavailable {
@@ -120,11 +120,16 @@ impl DatasetStore for MockDatasetStoreOk {
                 },
             ],
             uploaded_at: Utc::now(),
+            sha256: None,
         })
     }
 
     async fn delete_session_data(&self, _sid: SessionId) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    async fn read_raw_by_id(&self, _dataset_id: uuid::Uuid) -> Result<Vec<u8>, StoreError> {
+        Ok(Vec::new())
     }
 
     async fn quota_used(&self, _sid: SessionId) -> Result<u64, StoreError> {
@@ -140,7 +145,7 @@ impl DatasetStore for MockDatasetStoreOk {
 // Helper functions
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Build the full application router with MemSessionStore and optional handlers.
+/// Build the full application router with `MemSessionStore` and optional handlers.
 fn build_app(
     session_store: Arc<MemSessionStore>,
     message_handler: Option<Arc<dyn MessageHandler>>,
@@ -268,8 +273,7 @@ async fn scenario_2_upload_oversized_file_returns_dataset_too_large() {
 
     // Build the JSON body manually as a string to avoid serde_json parsing overhead
     let json_body = format!(
-        r#"{{"filename":"large_data.csv","data":"{}"}}"#,
-        encoded
+        r#"{{"filename":"large_data.csv","data":"{encoded}"}}"#
     );
 
     let req = Request::builder()
@@ -315,8 +319,7 @@ async fn dataset_upload_over_axum_default_limit_reaches_handler() {
     let data = vec![b'a'; 3 * 1024 * 1024];
     let encoded = base64::engine::general_purpose::STANDARD.encode(data);
     let json_body = format!(
-        r#"{{"filename":"medium.csv","data":"{}"}}"#,
-        encoded
+        r#"{{"filename":"medium.csv","data":"{encoded}"}}"#
     );
 
     let req = Request::builder()

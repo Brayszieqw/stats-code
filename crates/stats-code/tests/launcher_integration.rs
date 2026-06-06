@@ -38,7 +38,7 @@ fn flags_only_routes_to_launcher_mode() {
 // `parity` argv → Subcommand mode (no launcher)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `stats-code parity` routes to Subcommand mode, bypassing Launcher::run
+/// `stats-code parity` routes to Subcommand mode, bypassing `Launcher::run`
 /// entirely. No port bind, no browser launch, no lock file.
 /// _Requirements: 5.3, 5.8_
 #[test]
@@ -64,7 +64,7 @@ fn parity_with_filter_routes_to_subcommand_mode() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `stats-code replay snapshot.zip` routes to Subcommand mode, bypassing
-/// Launcher::run entirely. No port bind, no browser launch, no lock file.
+/// `Launcher::run` entirely. No port bind, no browser launch, no lock file.
 /// _Requirements: 8.3, 10.3_
 #[test]
 fn replay_routes_to_subcommand_mode() {
@@ -91,7 +91,7 @@ fn replay_with_absolute_path_routes_to_subcommand_mode() {
 // Structural guarantee: parity and replay are in KNOWN_SUBCOMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `parity` must be registered in KNOWN_SUBCOMMANDS so it is never
+/// `parity` must be registered in `KNOWN_SUBCOMMANDS` so it is never
 /// accidentally routed to the launcher path.
 #[test]
 fn parity_is_in_known_subcommands() {
@@ -101,7 +101,7 @@ fn parity_is_in_known_subcommands() {
     );
 }
 
-/// `replay` must be registered in KNOWN_SUBCOMMANDS so it is never
+/// `replay` must be registered in `KNOWN_SUBCOMMANDS` so it is never
 /// accidentally routed to the launcher path.
 #[test]
 fn replay_is_in_known_subcommands() {
@@ -131,7 +131,7 @@ fn unknown_positional_routes_to_launcher_mode() {
 // All known subcommands route to Subcommand mode (exhaustive)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Every entry in KNOWN_SUBCOMMANDS must route to Mode::Subcommand.
+/// Every entry in `KNOWN_SUBCOMMANDS` must route to `Mode::Subcommand`.
 /// This is the byte-level behavioral guarantee that none of these paths
 /// will accidentally trigger port scanning, browser opening, or lock
 /// file creation.

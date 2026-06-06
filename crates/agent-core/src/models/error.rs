@@ -156,7 +156,7 @@ pub const ALL_ERROR_CODES: &[ErrorCode] = &[
 mod tests {
     use super::*;
 
-    /// Verify each ErrorCode maps to the expected HTTP status code.
+    /// Verify each `ErrorCode` maps to the expected HTTP status code.
     #[test]
     fn test_http_status_for_all_codes() {
         let expected: &[(ErrorCode, u16)] = &[
@@ -184,7 +184,7 @@ mod tests {
         }
     }
 
-    /// Verify that http_status_for is consistent (same input → same output).
+    /// Verify that `http_status_for` is consistent (same input → same output).
     #[test]
     fn test_http_status_for_consistency() {
         for &code in ALL_ERROR_CODES {
@@ -194,14 +194,14 @@ mod tests {
         }
     }
 
-    /// Verify ErrorPayload::status_code() delegates correctly.
+    /// Verify `ErrorPayload::status_code()` delegates correctly.
     #[test]
     fn test_error_payload_status_code() {
         let payload = ErrorPayload::new(ErrorCode::SessionNotFound, "会话不存在");
         assert_eq!(payload.status_code(), 404);
     }
 
-    /// Verify to_http_parts returns correct status and valid JSON body.
+    /// Verify `to_http_parts` returns correct status and valid JSON body.
     #[test]
     fn test_to_http_parts_basic() {
         let payload = ErrorPayload::new(ErrorCode::MessageTooLong, "消息过长：当前 9000 字，超过上限 8000 字");
@@ -218,7 +218,7 @@ mod tests {
         assert!(parsed.get("details").is_none() || parsed["details"].is_null());
     }
 
-    /// Verify to_http_parts with details field present.
+    /// Verify `to_http_parts` with details field present.
     #[test]
     fn test_to_http_parts_with_details() {
         let details = serde_json::json!({
@@ -239,7 +239,7 @@ mod tests {
         assert_eq!(parsed["details"], details);
     }
 
-    /// Verify to_json_bytes produces the same content as to_http_parts body.
+    /// Verify `to_json_bytes` produces the same content as `to_http_parts` body.
     #[test]
     fn test_to_json_bytes_consistency() {
         let payload = ErrorPayload::new(ErrorCode::LlmUnavailable, "AI 服务暂时不可用");
@@ -266,8 +266,8 @@ mod tests {
         assert_eq!(restored.details, original.details);
     }
 
-    /// Verify that ALL_ERROR_CODES covers every variant (compile-time exhaustiveness
-    /// is guaranteed by the match in http_status_for, but this checks the constant).
+    /// Verify that `ALL_ERROR_CODES` covers every variant (compile-time exhaustiveness
+    /// is guaranteed by the match in `http_status_for`, but this checks the constant).
     #[test]
     fn test_all_error_codes_complete() {
         assert_eq!(ALL_ERROR_CODES.len(), 13);

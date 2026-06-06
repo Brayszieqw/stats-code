@@ -4,7 +4,7 @@
 //! - POST /api/sessions → 201 with new session
 //! - GET /api/sessions/:sid → 200 with session, 404 for non-existent
 //! - PATCH /api/sessions/:sid/settings → 200 with updated session, 404/409
-//! - Archived session write → 409 SESSION_ARCHIVED
+//! - Archived session write → 409 `SESSION_ARCHIVED`
 
 use std::sync::Arc;
 

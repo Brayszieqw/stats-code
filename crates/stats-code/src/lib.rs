@@ -127,6 +127,8 @@ pub use error::{StatsCodeError, StatsCodeResult};
 pub use handlers::{dispatch, run};
 pub use schema::{
     AnalysisCheckResult, AnalysisSpec, DataFormat, ReportVerifyResult, WorkflowRunResult,
+    // Study-context validation boundary (R8 / engineering-quality-hardening)
+    validate_study_context, ClusteringUnit, MissingDataStrategy,
     // Statistical methods result types (task 3.1)
     TtestPairedResult, TtestOneSampleResult,
     AnovaGroupSummary, OneWayAnovaResult, RbdAnovaResult, RepeatedAnovaResult,

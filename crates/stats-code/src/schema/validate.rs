@@ -1,6 +1,7 @@
 use super::contract::AnalysisSpec;
-use super::types::{AnalysisKind, ModelKind, VariableRole};
+use super::types::{AnalysisKind, ClusteringUnit, MissingDataStrategy, ModelKind, VariableRole};
 
+#[must_use]
 pub fn validate_study_context(spec: &AnalysisSpec) -> Vec<String> {
     let mut issues = Vec::new();
     let has_declared_analyses = !spec.analyses.is_empty();
@@ -88,6 +89,43 @@ pub fn validate_study_context(spec: &AnalysisSpec) -> Vec<String> {
             "study_context.reporting_guideline is required (recommended: {})",
             recommended_reporting_guideline(&spec.study.design)
         ));
+    }
+
+    // ── Cross-field consistency (R8 / task 10.3) ────────────────────────────
+    // These rules run before dispatch and never touch the data matrix,
+    // missing-value masking, or any estimator input — they only enforce
+    // formal consistency between declared structure and the typed view of the
+    // free-text study-context fields.
+
+    // Hard inconsistency: clustered/survey structure is declared, yet the
+    // clustering field is present AND parses to `ClusteringUnit::None`
+    // (the analyst explicitly said "none" while also declaring a cluster).
+    // A blank field is handled by the required-field rule above, so we only
+    // flag a non-blank contradiction here.
+    if needs_clustering {
+        if let Some(raw) = spec.study_context.clustering.as_deref() {
+            if !raw.trim().is_empty()
+                && matches!(ClusteringUnit::parse(raw), ClusteringUnit::None)
+            {
+                issues.push(format!(
+                    "study_context.clustering is inconsistent: clustered or survey structure is declared but `clustering` is `{}` (parses to none)",
+                    raw.trim()
+                ));
+            }
+        }
+    }
+
+    // Soft inconsistency: an unrecognized-but-plausible missing-data strategy
+    // is a warning (run proceeds), naming the offending field.
+    if let Some(raw) = spec.study_context.missing_data_strategy.as_deref() {
+        if !raw.trim().is_empty()
+            && matches!(MissingDataStrategy::parse(raw), MissingDataStrategy::Other(_))
+        {
+            eprintln!(
+                "warning: study_context.missing_data_strategy `{}` is unrecognized; proceeding (recognized: complete_case, available_case, imputation*)",
+                raw.trim()
+            );
+        }
     }
 
     issues

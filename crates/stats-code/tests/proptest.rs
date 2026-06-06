@@ -39,3 +39,7 @@ mod snapshot_props;
 
 #[path = "proptest/parity_exit_code_props.rs"]
 mod parity_exit_code_props;
+
+#[path = "proptest/study_context_props.rs"]
+mod study_context_props;
+

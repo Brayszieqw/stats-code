@@ -41,7 +41,12 @@ export function loadBaseline(software: string, algorithm: string): Baseline | nu
   if (!existsSync(path)) {
     return null;
   }
-  return JSON.parse(readFileSync(path, 'utf8')) as Baseline;
+  // Some Rust-emitted baselines contain bare `Infinity`/`NaN` literals (e.g.
+  // median_survival when survival never drops to ≤0.5). These are not valid
+  // JSON, so coerce them to null before parsing — the parity suite never diffs
+  // those non-finite sentinels (compareScalar would error on them anyway).
+  const raw = readFileSync(path, 'utf8').replace(/-?\bInfinity\b/g, 'null').replace(/\bNaN\b/g, 'null');
+  return JSON.parse(raw) as Baseline;
 }
 
 /** Parse a simple headered CSV into rows of string cells (no quoting needed). */

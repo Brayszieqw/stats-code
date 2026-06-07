@@ -11,5 +11,8 @@
   },
   "scripts": {
     "build": "tsc --build"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.1"
   }
 }

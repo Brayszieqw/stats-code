@@ -13,7 +13,7 @@
     "packages/engine"
   ],
   "scripts": {
-    "build": "node scripts/embed-matrix.mjs && tsc --build",
+    "build": "node scripts/embed-matrix.mjs && node scripts/embed-templates.mjs && tsc --build",
     "clean": "tsc --build --clean",
     "typecheck": "tsc --build --noEmit",
     "lint": "eslint . --ext .ts",

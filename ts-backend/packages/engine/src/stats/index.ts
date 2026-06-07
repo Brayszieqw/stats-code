@@ -46,3 +46,10 @@ export * as correlation from './correlation.js';
 export * as nonparametric from './nonparametric.js';
 export * as tableone from './tableone.js';
 export { rankWithTies } from './rank.js';
+
+// Batch B (Phase 3, task 7.1).
+export * as linear from './linear.js';
+export * as epi from './epi.js';
+export * as survival from './survival.js';
+export * as diagnostic from './diagnostic.js';
+export * as standardization from './standardization.js';

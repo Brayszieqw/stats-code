@@ -53,3 +53,7 @@ export * as epi from './epi.js';
 export * as survival from './survival.js';
 export * as diagnostic from './diagnostic.js';
 export * as standardization from './standardization.js';
+
+// Iterative algorithms (Phase 4, task 9.1).
+export * as logistic from './logistic.js';
+export * as cox from './cox.js';

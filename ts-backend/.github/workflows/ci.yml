@@ -30,5 +30,7 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:integration
       - run: npm run test:property
-      # Parity suite runs as a gated job at the Phase 8 cutover (task 17.1).
-      # - run: npm run test:parity
+      # Full Parity_Validator gate at the Phase 8 cutover (task 17.1). A
+      # non-zero exit (FAIL_ROW=2 / UNKNOWN_FILTER=3 / MISSING_TOLERANCE=4 /
+      # MATRIX_CONTRADICTION=5) fails the build.
+      - run: npm run parity

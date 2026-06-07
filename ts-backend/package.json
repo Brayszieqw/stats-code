@@ -22,6 +22,7 @@
     "test:integration": "vitest run tests/integration",
     "test:property": "vitest run tests/property",
     "test:parity": "vitest run tests/parity",
+    "parity": "node scripts/run-parity.mjs",
     "bundle": "node scripts/bundle.mjs",
     "sea": "node scripts/build-sea.mjs",
     "release-meta": "node scripts/release-meta.mjs"

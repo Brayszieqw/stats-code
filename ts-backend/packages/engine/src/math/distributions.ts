@@ -5,6 +5,7 @@ import {
   regularizedLowerGamma,
   regularizedBetaIncomplete,
   regularizedIncompleteBeta,
+  logGamma,
   clamp01,
   SQRT_2PI,
 } from './special.js';
@@ -120,6 +121,74 @@ export function inverseNormal(p: number): number {
 /** Two-sided upper-tail p-value for Student's t (named helper). */
 export function studentTTwoSided(t: number, df: number): number {
   return tDistributionPValue(t, df);
+}
+
+/**
+ * CDF of the noncentral t distribution, P(T ≤ t | df, ncp).
+ *
+ * Algorithm AS 243 (Lenth, 1989), as implemented in R's `pnt.c`: a
+ * Poisson-weighted mixture of regularized incomplete beta terms. Used by the
+ * power family (PROC POWER's noncentral-t sample size). Reduces to the central
+ * t CDF when ncp ≈ 0.
+ */
+export function noncentralTCdf(t: number, df: number, ncp: number): number {
+  if (!Number.isFinite(t) || df <= 0) return Number.NaN;
+  if (Math.abs(ncp) < 1e-12) {
+    const upperTwoSided = tDistributionPValue(t, df);
+    return t >= 0 ? 1 - upperTwoSided / 2 : upperTwoSided / 2;
+  }
+
+  const errMax = 1e-12;
+  const itrMax = 1000;
+  const sqrt2dPi = Math.sqrt(2 / Math.PI);
+
+  let negdel = false;
+  let tt = t;
+  let del = ncp;
+  if (t < 0) {
+    negdel = true;
+    tt = -t;
+    del = -ncp;
+  }
+
+  // x = tt^2 / (tt^2 + df); the central-normal part carries the rest.
+  const x = (tt * tt) / (tt * tt + df);
+  let tnc = 0;
+
+  if (x > 0) {
+    const lambda = del * del;
+    let p = 0.5 * Math.exp(-0.5 * lambda);
+    let q = sqrt2dPi * p * del;
+    let s = 0.5 - p;
+    const a = 0.5;
+    const b = 0.5 * df;
+    const rxb = Math.pow(1 - x, b);
+    const albeta = logGamma(a) + logGamma(b) - logGamma(a + b);
+    let xodd = regularizedIncompleteBeta(a, b, x);
+    let godd = 2 * rxb * Math.exp(a * Math.log(x) - albeta);
+    let xeven = 1 - rxb;
+    let geven = b * x * rxb;
+    tnc = p * xodd + q * xeven;
+
+    let aa = a;
+    for (let it = 1; it <= itrMax; it += 1) {
+      aa += 1;
+      xodd -= godd;
+      xeven -= geven;
+      godd *= (x * (aa + b - 1)) / aa;
+      geven *= (x * (aa + b - 0.5)) / (aa + 0.5);
+      p *= lambda / (2 * it);
+      q *= lambda / (2 * it + 1);
+      s -= p;
+      tnc += p * xodd + q * xeven;
+      const errbd = 2 * s * (xodd - godd);
+      if (Math.abs(errbd) < errMax) break;
+    }
+  }
+
+  tnc += normalCdf(-del);
+  const result = negdel ? 1 - tnc : tnc;
+  return clamp01(result);
 }
 
 export { regularizedIncompleteBeta };

@@ -23,6 +23,7 @@ export {
   tDistributionCriticalValue,
   inverseNormal,
   studentTTwoSided,
+  noncentralTCdf,
 } from './distributions.js';
 
 export {

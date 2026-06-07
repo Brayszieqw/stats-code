@@ -1,9 +1,13 @@
 /**
  * ESLint config enforcing the package dependency direction:
- *   api → core → server → engine
+ *   api → server → engine
  *
  * A package may only import from packages strictly downstream of it.
  * `import/no-restricted-paths` zones reject upstream imports.
+ *
+ * NOTE: the `core` package (Rust agent-core analogue) was removed — its
+ * orchestration responsibilities live in `server` (see ADR-0004). The chain is
+ * now three layers, matching the actual module boundaries.
  */
 module.exports = {
   root: true,
@@ -24,7 +28,6 @@ module.exports = {
       typescript: {
         project: [
           'packages/api/tsconfig.json',
-          'packages/core/tsconfig.json',
           'packages/server/tsconfig.json',
           'packages/engine/tsconfig.json',
         ],
@@ -39,20 +42,14 @@ module.exports = {
           // engine is the base: it must not import any sibling package.
           {
             target: './packages/engine',
-            from: ['./packages/server', './packages/core', './packages/api'],
-            message: 'engine must not depend on server/core/api (boundary: api → core → server → engine).',
+            from: ['./packages/server', './packages/api'],
+            message: 'engine must not depend on server/api (boundary: api → server → engine).',
           },
           // server may only depend on engine.
           {
             target: './packages/server',
-            from: ['./packages/core', './packages/api'],
-            message: 'server must not depend on core/api (boundary: api → core → server → engine).',
-          },
-          // core may only depend on server (and transitively engine).
-          {
-            target: './packages/core',
             from: ['./packages/api'],
-            message: 'core must not depend on api (boundary: api → core → server → engine).',
+            message: 'server must not depend on api (boundary: api → server → engine).',
           },
         ],
       },

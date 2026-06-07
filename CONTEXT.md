@@ -109,9 +109,26 @@
 `crates/stats-code` 内部的 `stats/`、`tableone.rs`、`survival.rs` 等模块。
 被 `agent-core` 通过 spawn `stats-code <subcommand> --json` 子进程调用。
 
+> ⚠ **TS 后端不同**（见 ADR-0003）：TypeScript 重写（`ts-backend/`）把算法实现为
+> **进程内纯函数**（`packages/engine/src/stats/*.ts`），由 HTTP 层直接调用，**不 spawn 子进程**，
+> 并用 Spawn_Policy 哨兵主动阻断对外部统计运行时（R/SAS/Python/SPSS）的 spawn。
+> 本节描述的子进程模型仅适用于 Rust 版。
+
 ### Agent Core
 `crates/agent-core`，业务编排层。在后端进程内运行，
 负责会话、消息流、Skill 注册表、把统计请求路由到 stats engine。
+
+> ⚠ **TS 后端不同**（见 ADR-0004）：TypeScript 重写采用三层包结构
+> `api → server → engine`，**没有独立的 agent-core 对应包**。会话/消息编排/LLM
+> 等职责落在 `packages/server` 内（`state.ts`、`mem-store.ts`、`llm.ts`、`sse.ts`）。
+
+## TS 后端架构速览（见 `.kiro/specs/typescript-backend-rewrite/` + ADR-0003/0004/0005）
+
+- **包结构**：`api`（应用组合 + SEA bin 入口）→ `server`（HTTP 传输 + 编排）→ `engine`（纯计算）。
+- **算法**：17 个 Output-Level 算法为进程内纯函数，禁止 spawn 外部统计运行时（ADR-0003）。
+- **产物**：Node SEA 单文件 `stats-code.exe`，内嵌运行时 + 前端资源，零外部依赖。
+- **Power 家族**：刻意对齐 SAS PROC POWER 而非 Rust normal-approximation（ADR-0005）——
+  这是唯一刻意偏离「TS↔Rust 数值等价」的算法。
 
 ## 历史用法（已废弃）
 

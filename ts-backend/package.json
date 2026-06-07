@@ -8,7 +8,6 @@
   },
   "workspaces": [
     "packages/api",
-    "packages/core",
     "packages/server",
     "packages/engine"
   ],

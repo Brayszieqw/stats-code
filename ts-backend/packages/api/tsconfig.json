@@ -6,5 +6,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../core" }, { "path": "../server" }, { "path": "../engine" }]
+  "references": [{ "path": "../server" }, { "path": "../engine" }]
 }

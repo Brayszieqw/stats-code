@@ -3,7 +3,6 @@
   "references": [
     { "path": "packages/engine" },
     { "path": "packages/server" },
-    { "path": "packages/core" },
     { "path": "packages/api" }
   ]
 }

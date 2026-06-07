@@ -1,5 +1,6 @@
-// @stats-code/api — LLM provider abstraction, OAuth/PKCE, SSE relay, sidecar
-// DTOs. Maps to the Rust `api` crate. Top of the dependency chain.
-// Depends on: @stats-code/core.
+// @stats-code/api — application composition: launcher that wires the server
+// (HTTP + orchestration) over the engine, plus the bin entry for the SEA
+// artifact. Top of the dependency chain (api → server → engine).
+// Depends on: @stats-code/server, @stats-code/engine.
 
 export const API_PACKAGE = '@stats-code/api' as const;

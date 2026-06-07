@@ -25,6 +25,7 @@
     "parity": "node scripts/run-parity.mjs",
     "bundle": "node scripts/bundle.mjs",
     "sea": "node scripts/build-sea.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
     "release-meta": "node scripts/release-meta.mjs"
   },
   "devDependencies": {

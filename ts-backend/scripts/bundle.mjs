@@ -23,7 +23,7 @@ mkdirSync(outdir, { recursive: true });
 const outfile = resolve(outdir, 'bundle.cjs');
 
 await build({
-  entryPoints: [resolve(root, 'packages/engine/dist/bin.js')],
+  entryPoints: [resolve(root, 'packages/api/dist/bin.js')],
   bundle: true,
   platform: 'node',
   target: 'node22',

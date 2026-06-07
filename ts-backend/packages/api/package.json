@@ -12,6 +12,8 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@stats-code/core": "0.1.0"
+    "@stats-code/core": "0.1.0",
+    "@stats-code/server": "0.1.0",
+    "@stats-code/engine": "0.1.0"
   }
 }

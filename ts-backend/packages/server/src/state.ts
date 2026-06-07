@@ -94,6 +94,8 @@ export interface AppState {
   messageHandler?: MessageHandler;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
+  /** Whether the backend can drive an OAuth flow (Requirement 13.4/13.5). */
+  oauthCapability?: { available: boolean };
   coverageMatrixProvider?: CoverageMatrixProvider;
   sidecarProvider?: SidecarProvider;
   snapshotProvider?: SnapshotProvider;

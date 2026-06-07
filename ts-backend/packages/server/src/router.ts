@@ -18,6 +18,7 @@ import { StoreError, type AppState } from './state.js';
 import { serializeSseFrame } from './sse.js';
 import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
+import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOAuth } from './llm.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
@@ -239,18 +240,10 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   // GET /api/llm-status — never exposes the api key.
   app.get('/api/llm-status', async () => {
     const config = state.llmConfigStore?.read() ?? null;
-    if (config && config.api_key.length > 0) {
-      return {
-        configured: true,
-        provider: config.provider,
-        base_url: config.base_url ?? null,
-        model: config.model ?? null,
-      };
-    }
-    return { configured: false, provider: null, base_url: null, model: null };
+    return statusFromConfig(config);
   });
 
-  // POST /api/llm-config — test then save.
+  // POST /api/llm-config — reject OAuth-required-but-unavailable, then test, then save.
   app.post('/api/llm-config', async (req, reply) => {
     const parsed = postLlmConfigRequest.safeParse(req.body);
     if (!parsed.success) {
@@ -261,22 +254,32 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     if (!store || !probe) {
       return reply.code(500).send({ error_code: 'InternalError', message: 'LLM config store/probe not configured' });
     }
+    // Reject an OAuth-required provider up-front when the flow is unavailable
+    // (Requirement 13.5). The current provider set is API-key based, so this
+    // guard is dormant until an OAuth-only provider is added.
+    if (providerRequiresOAuth(parsed.data.provider) && !state.oauthCapability?.available) {
+      return reply
+        .code(422)
+        .send({ error_code: 'OAUTH_UNAVAILABLE', message: `provider '${parsed.data.provider}' requires OAuth` });
+    }
     try {
-      await probe.probe(
-        parsed.data.provider,
-        parsed.data.api_key,
-        parsed.data.base_url ?? undefined,
-        parsed.data.model ?? undefined,
+      await testAndSaveConfig(
+        probe,
+        store,
+        {
+          provider: parsed.data.provider,
+          apiKey: parsed.data.api_key,
+          baseUrl: parsed.data.base_url ?? undefined,
+          model: parsed.data.model ?? undefined,
+        },
+        state.oauthCapability ?? { available: false },
       );
     } catch (err) {
-      return reply.code(422).send({ error_code: 'LLM_PROBE_FAILED', message: (err as Error).message });
+      if (err instanceof LlmConfigError) {
+        return reply.code(422).send({ error_code: err.code, message: err.message });
+      }
+      throw err;
     }
-    store.write({
-      provider: parsed.data.provider,
-      api_key: parsed.data.api_key,
-      base_url: parsed.data.base_url ?? null,
-      model: parsed.data.model ?? null,
-    });
     return reply.code(200).send();
   });
 

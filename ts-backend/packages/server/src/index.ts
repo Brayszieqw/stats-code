@@ -44,6 +44,19 @@ export {
   createSidecarProvider,
   createSnapshotProvider,
 } from './providers.js';
+export {
+  type LlmProvider,
+  type LlmStatus,
+  type PkcePair,
+  type OAuthCapability,
+  type SaveConfigInput,
+  statusFromConfig,
+  providerRequiresOAuth,
+  generatePkcePair,
+  testAndSaveConfig,
+  LlmConfigError,
+  OAUTH_REQUIRED_PROVIDERS,
+} from './llm.js';
 
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;

@@ -1,0 +1,182 @@
+import { describe, it, expect } from 'vitest';
+import { buildRouter, MemSessionStore, type AppState } from '@stats-code/server';
+import { coverage } from '@stats-code/engine';
+
+function makeState(overrides: Partial<AppState> = {}): AppState {
+  return { sessionStore: new MemSessionStore(), ...overrides };
+}
+
+describe('HTTP contract routes', () => {
+  it('GET /api/health → 200 {status:"ok"}', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: 'ok' });
+    await app.close();
+  });
+
+  it('POST /api/sessions → 201 with a session DTO', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({ method: 'POST', url: '/api/sessions' });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.status).toBe('Active');
+    expect(body.settings.decision_assistant).toBe(true);
+    await app.close();
+  });
+
+  it('GET /api/sessions/:sid → 200 then 404 for unknown', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const ok = await app.inject({ method: 'GET', url: `/api/sessions/${created.id}` });
+    expect(ok.statusCode).toBe(200);
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/api/sessions/00000000-0000-4000-8000-000000000000',
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error_code).toBe('SessionNotFound');
+    await app.close();
+  });
+
+  it('PATCH settings updates decision_assistant', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/sessions/${created.id}/settings`,
+      payload: { decision_assistant: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.decision_assistant).toBe(false);
+    await app.close();
+  });
+
+  it('POST messages streams an SSE response', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: { text: 'hello' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    expect(res.body).toContain('event: done');
+    await app.close();
+  });
+
+  it('POST messages with no text → 413', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: {},
+    });
+    expect(res.statusCode).toBe(413);
+    await app.close();
+  });
+
+  it('GET /api/llm-status never exposes the api key', async () => {
+    const app = buildRouter({
+      state: makeState({
+        llmConfigStore: {
+          read: () => ({ provider: 'deepseek', api_key: 'sk-secret', base_url: null, model: null }),
+          write: () => {},
+        },
+      }),
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/llm-status' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.configured).toBe(true);
+    expect(body.provider).toBe('deepseek');
+    expect(JSON.stringify(body)).not.toContain('sk-secret');
+    await app.close();
+  });
+
+  it('GET /api/llm-status unconfigured → configured:false', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({ method: 'GET', url: '/api/llm-status' });
+    expect(res.json()).toEqual({ configured: false, provider: null, base_url: null, model: null });
+    await app.close();
+  });
+
+  it('POST /api/llm-config saves on probe success, 422 on probe failure', async () => {
+    let saved: unknown = null;
+    const app = buildRouter({
+      state: makeState({
+        llmConfigStore: { read: () => null, write: (c) => { saved = c; } },
+        llmProbe: { probe: async (p) => { if (p === 'openai') throw new Error('bad key'); } },
+      }),
+    });
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/api/llm-config',
+      payload: { provider: 'deepseek', api_key: 'sk-x' },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(saved).toMatchObject({ provider: 'deepseek' });
+
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/llm-config',
+      payload: { provider: 'openai', api_key: 'sk-y' },
+    });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json().error_code).toBe('LLM_PROBE_FAILED');
+    await app.close();
+  });
+
+  it('GET /api/coverage-matrix → 503 without provider, 200 with', async () => {
+    const noProvider = buildRouter({ state: makeState() });
+    const res503 = await noProvider.inject({ method: 'GET', url: '/api/coverage-matrix' });
+    expect(res503.statusCode).toBe(503);
+    await noProvider.close();
+
+    const withProvider = buildRouter({
+      state: makeState({ coverageMatrixProvider: { get: () => coverage.getLoadedMatrix() } }),
+    });
+    const res200 = await withProvider.inject({ method: 'GET', url: '/api/coverage-matrix' });
+    expect(res200.statusCode).toBe(200);
+    expect(res200.json().algorithms).toHaveLength(17);
+    await withProvider.close();
+  });
+
+  it('POST /api/sidecar/:id → 503 without provider', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sidecar/tableone',
+      payload: { software: 'R', dataset_sha256: 'a'.repeat(64), columns: [], params: {} },
+    });
+    expect(res.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it('POST /api/snapshot/export → 503 without provider', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/snapshot/export',
+      payload: { run_id: 'r', destination: 'out.zip' },
+    });
+    expect(res.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it('enforces the audio body limit (10 MiB)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const big = Buffer.alloc(11 * 1024 * 1024);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/audio`,
+      payload: big,
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+    expect(res.statusCode).toBe(413);
+    await app.close();
+  });
+});

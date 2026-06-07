@@ -38,6 +38,12 @@ export {
   createDiskAssetSource,
   createDefaultAssetSource,
 } from './spa-assets.js';
+export {
+  toWireMatrix,
+  createCoverageMatrixProvider,
+  createSidecarProvider,
+  createSnapshotProvider,
+} from './providers.js';
 
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;

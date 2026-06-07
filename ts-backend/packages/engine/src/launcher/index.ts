@@ -46,3 +46,11 @@ export {
   configFilePath,
   ensureAppDataDir,
 } from './paths.js';
+
+export {
+  ChildSupervisor,
+  type JobObjectHandle,
+  type JobObjectFactory,
+} from './supervisor.js';
+
+export { createJobObject } from './job_object.js';

@@ -54,3 +54,10 @@ export {
   exportSnapshot,
   buildSnapshotBytes,
 } from './exporter.js';
+
+export {
+  type ReplayPlan,
+  type ReplayOutcome,
+  ReplayError,
+  executeReplay,
+} from './replay.js';

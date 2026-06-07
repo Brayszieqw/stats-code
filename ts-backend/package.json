@@ -1,0 +1,44 @@
+{
+  "name": "stats-code-ts-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript rewrite of the Stats Code backend (Rust → TS, contract-preserving).",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/api",
+    "packages/core",
+    "packages/server",
+    "packages/engine"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "typecheck": "tsc --build --noEmit",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:property": "vitest run tests/property",
+    "test:parity": "vitest run tests/parity",
+    "bundle": "node scripts/bundle.mjs",
+    "sea": "node scripts/build-sea.mjs",
+    "release-meta": "node scripts/release-meta.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^8.57.1",
+    "eslint-import-resolver-typescript": "^3.7.0",
+    "eslint-plugin-import": "^2.31.0",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "fast-check": "^3.23.1"
+  }
+}

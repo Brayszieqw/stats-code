@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.tsbuildinfo
+build/
+sea/
+*.exe
+coverage/
+.vitest/

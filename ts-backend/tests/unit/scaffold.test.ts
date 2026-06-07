@@ -7,7 +7,7 @@ describe('scaffold', () => {
   });
 
   it('declares the forbidden runtimes', () => {
-    expect(FORBIDDEN_RUNTIMES).toContain('rscript');
+    expect(FORBIDDEN_RUNTIMES).toContain('Rscript');
     expect(FORBIDDEN_RUNTIMES).toContain('python');
   });
 });

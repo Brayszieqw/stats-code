@@ -10,7 +10,18 @@ export * as snapshot from './snapshot/index.js';
 export * as parity from './parity/index.js';
 export * as launcher from './launcher/index.js';
 export { redact } from './redact.js';
-export { guardedSpawn, ForbiddenSpawnError, FORBIDDEN_RUNTIMES } from './spawn_policy.js';
+export {
+  guardedSpawn,
+  ForbiddenSpawnError,
+  FORBIDDEN_RUNTIMES,
+  FORBIDDEN_LIBRARIES,
+  checkSpawn,
+  checkLibraryLoad,
+  matchForbiddenCommand,
+  normalizeCommand,
+  basename,
+  isGuardActive,
+} from './spawn_policy.js';
 export { ALGORITHM_IDS } from './stats/index.js';
 export type { AlgorithmId } from './stats/index.js';
 export { main, classifyInvocation, KNOWN_SUBCOMMANDS, USAGE } from './cli.js';

@@ -4,3 +4,5 @@ export interface SnapshotManifestEntry {
   path: string;
   sha256: string;
 }
+
+export * as workflowYaml from './workflow_yaml.js';

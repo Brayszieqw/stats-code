@@ -15,6 +15,9 @@ export {
   type Session,
   type DatasetSummary,
   type SessionSettings,
+  type AgentEvent,
+  type UserMessageInput,
+  type MessageHandler,
   type LlmConfig,
   type LlmConfigStore,
   type LlmProbe,
@@ -22,6 +25,7 @@ export {
   type SidecarProvider,
   type SnapshotProvider,
 } from './state.js';
+export { serializeSseFrame } from './sse.js';
 
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;

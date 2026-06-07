@@ -66,6 +66,55 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
+  it('POST messages relays orchestrator AgentEvents as SSE frames (task 3.3)', async () => {
+    const handler = {
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async *handleMessage() {
+        yield { type: 'text_delta', text: '你好' } as const;
+        yield { type: 'skill_call', skill_id: 'ttest', args: { y: 'age' } } as const;
+        yield { type: 'interpretation', text: 'done thinking' } as const;
+        yield { type: 'done' } as const;
+      },
+    };
+    const app = buildRouter({ state: makeState({ messageHandler: handler }) });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: { text: 'hi' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    const body = res.body;
+    expect(body).toContain('event: text_delta\ndata: {"text":"你好"}\n\n');
+    expect(body).toContain('event: skill_call\ndata: {"skill_id":"ttest","args":{"y":"age"}}\n\n');
+    expect(body).toContain('event: interpretation\ndata: {"text":"done thinking"}\n\n');
+    expect(body.trimEnd().endsWith('event: done\ndata: {}')).toBe(true);
+    await app.close();
+  });
+
+  it('POST messages emits an error frame when the handler throws mid-stream', async () => {
+    const handler = {
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async *handleMessage() {
+        yield { type: 'text_delta', text: 'partial' } as const;
+        throw new Error('boom');
+      },
+    };
+    const app = buildRouter({ state: makeState({ messageHandler: handler }) });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: { text: 'hi' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('event: text_delta');
+    expect(res.body).toContain('event: error');
+    expect(res.body).toContain('SkillExecutionFailed');
+    await app.close();
+  });
+
   it('POST messages with no text → 413', async () => {
     const app = buildRouter({ state: makeState() });
     const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();

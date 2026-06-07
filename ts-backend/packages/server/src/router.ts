@@ -15,6 +15,7 @@ import {
   sidecar as sidecarContract,
 } from './contract/index.js';
 import { StoreError, type AppState } from './state.js';
+import { serializeSseFrame } from './sse.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
@@ -136,13 +137,42 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       }
       throw err;
     }
-    // Minimal SSE acknowledgement; the orchestrator relay lands in task 3.3.
+    // Stream the orchestrator's AgentEvents as SSE frames (task 3.3). When no
+    // message handler is configured (Phase-0 scaffold), emit a single terminal
+    // `done` frame so the SSE contract shape still holds.
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
-    reply.raw.write('event: done\ndata: {}\n\n');
+
+    const handler = state.messageHandler;
+    if (!handler) {
+      reply.raw.write(serializeSseFrame({ type: 'done' }));
+      reply.raw.end();
+      return reply;
+    }
+
+    try {
+      const session = await state.sessionStore.get(req.params.sid);
+      const stream = handler.handleMessage(req.params.sid, {
+        text,
+        settings: session.settings,
+      });
+      for await (const event of stream) {
+        reply.raw.write(serializeSseFrame(event));
+      }
+    } catch (err) {
+      // Mid-stream failure: emit a structured error frame then terminate. The
+      // HTTP status is already 200 (headers flushed), matching the Rust SSE
+      // behavior where errors surface as `event: error` frames.
+      reply.raw.write(
+        serializeSseFrame({
+          type: 'error',
+          payload: { error_code: 'SkillExecutionFailed', message: (err as Error).message },
+        }),
+      );
+    }
     reply.raw.end();
     return reply;
   });

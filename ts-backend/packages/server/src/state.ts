@@ -58,8 +58,40 @@ export interface SnapshotProvider {
   export(runId: string, destination: string): z.infer<typeof sidecar.snapshotExportResponse>;
 }
 
+// ---------------------------------------------------------------------------
+// Orchestrator message handler + AgentEvent stream (task 3.3).
+// Mirrors agent_core::orchestrator::AgentEvent and the Rust SSE emitter in
+// crates/agent-server/src/handlers/message.rs. Each variant maps to a distinct
+// SSE `event:` name with a JSON `data:` payload.
+// ---------------------------------------------------------------------------
+
+export type AgentEvent =
+  | { type: 'text_delta'; text: string }
+  | { type: 'choice_prompt'; prompt: unknown }
+  | { type: 'skill_call'; skill_id: string; args: unknown }
+  | { type: 'skill_result'; result: unknown }
+  | { type: 'interpretation'; text: string }
+  | { type: 'error'; payload: unknown }
+  | { type: 'done' };
+
+/** Input handed to the orchestrator for one user message. */
+export interface UserMessageInput {
+  text: string;
+  settings: SessionSettings;
+}
+
+/**
+ * Orchestrator abstraction: consume a user message and produce an async stream
+ * of AgentEvents to relay over SSE. Optional — when absent, the messages route
+ * emits a single terminal `done` frame (Phase-0 scaffold behavior).
+ */
+export interface MessageHandler {
+  handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent>;
+}
+
 export interface AppState {
   sessionStore: SessionStore;
+  messageHandler?: MessageHandler;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
   coverageMatrixProvider?: CoverageMatrixProvider;

@@ -57,3 +57,6 @@ export * as standardization from './standardization.js';
 // Iterative algorithms (Phase 4, task 9.1).
 export * as logistic from './logistic.js';
 export * as cox from './cox.js';
+
+// Power family (Phase 5, task 11.1).
+export * as power from './power.js';

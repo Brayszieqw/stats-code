@@ -10,6 +10,8 @@ export * as snapshot from './snapshot/index.js';
 export * as parity from './parity/index.js';
 export * as launcher from './launcher/index.js';
 export { redact } from './redact.js';
+export { redactPure, redactionPolicy, REDACTED, EXTERNAL } from './redact.js';
+export type { RedactionPolicy } from './redact.js';
 export {
   guardedSpawn,
   ForbiddenSpawnError,

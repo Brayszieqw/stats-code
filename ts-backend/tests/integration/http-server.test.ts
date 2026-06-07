@@ -228,4 +228,72 @@ describe('HTTP contract routes', () => {
     expect(res.statusCode).toBe(413);
     await app.close();
   });
+
+  describe('SPA embedding + catch-all fallback (task 3.4)', () => {
+    const enc = (s: string) => new TextEncoder().encode(s);
+    const assetSource = {
+      get(routePath: string) {
+        if (routePath === '/assets/app.js') {
+          return { bytes: enc('console.log(1)'), contentType: 'text/javascript; charset=utf-8' };
+        }
+        return undefined;
+      },
+      indexHtml() {
+        return {
+          bytes: enc('<!doctype html><div id=root></div>'),
+          contentType: 'text/html; charset=utf-8',
+        };
+      },
+    };
+
+    function spaApp() {
+      return buildRouter({
+        state: makeState(),
+        installSpaFallback: true,
+        spaAssetSource: assetSource,
+      });
+    }
+
+    it('serves a known embedded asset by exact path', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/assets/app.js' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/javascript');
+      expect(res.body).toBe('console.log(1)');
+      await app.close();
+    });
+
+    it('falls back to index.html for a deep link route', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/sessions/abc/deep/link' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.body).toContain('id=root');
+      await app.close();
+    });
+
+    it('falls back to index.html for an unknown asset-looking path', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/assets/missing.js' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      await app.close();
+    });
+
+    it('unmatched /api routes still return a JSON 404, not the SPA shell', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/api/does-not-exist' });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error_code).toBe('NotFound');
+      await app.close();
+    });
+
+    it('contract routes are unaffected by the fallback', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/api/health' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: 'ok' });
+      await app.close();
+    });
+  });
 });

@@ -26,6 +26,18 @@ export {
   type SnapshotProvider,
 } from './state.js';
 export { serializeSseFrame } from './sse.js';
+export {
+  installSpaFallback,
+  ASSET_PREFIXES,
+  ROOT_ASSET_FILES,
+  type ServedAsset,
+  type SpaAssetSource,
+} from './spa.js';
+export {
+  createSeaAssetSource,
+  createDiskAssetSource,
+  createDefaultAssetSource,
+} from './spa-assets.js';
 
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;

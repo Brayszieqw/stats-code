@@ -16,6 +16,8 @@ import {
 } from './contract/index.js';
 import { StoreError, type AppState } from './state.js';
 import { serializeSseFrame } from './sse.js';
+import { installSpaFallback, type SpaAssetSource } from './spa.js';
+import { createDefaultAssetSource } from './spa-assets.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
@@ -34,8 +36,10 @@ function storeErrorResponse(err: StoreError): { status: number; body: unknown } 
 
 export interface BuildRouterOptions {
   state: AppState;
-  /** Disable the SPA fallback (task 3.4 installs it in prod). */
+  /** Install the SPA fallback (task 3.4). Prod enables this; tests may opt in. */
   installSpaFallback?: boolean;
+  /** Override the embedded asset source (defaults to SEA/disk auto-detect). */
+  spaAssetSource?: SpaAssetSource;
 }
 
 /**
@@ -317,6 +321,13 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       return reply.code(500).send({ error_code: 'InternalError', message: (err as Error).message });
     }
   });
+
+  // SPA embedding + catch-all fallback (task 3.4). Opt-in so contract tests
+  // can assert raw 404s; prod and the launcher enable it.
+  if (opts.installSpaFallback) {
+    const source = opts.spaAssetSource ?? createDefaultAssetSource();
+    installSpaFallback(app, source);
+  }
 
   return app;
 }

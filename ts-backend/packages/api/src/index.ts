@@ -4,3 +4,5 @@
 // Depends on: @stats-code/server, @stats-code/engine.
 
 export const API_PACKAGE = '@stats-code/api' as const;
+
+export { runLauncher, defaultState, type LauncherArgs, type RunLauncherOptions } from './launcher.js';

@@ -9,7 +9,21 @@
 // from embedded assets), 1.1 (HTTP_Server binds loopback).
 
 import type { AddressInfo } from 'node:net';
-import { buildRouter, createDefaultAssetSource, MemSessionStore, type AppState } from '@stats-code/server';
+import {
+  buildRouter,
+  createDefaultAssetSource,
+  createCoverageMatrixProvider,
+  createSidecarProvider,
+  createFileLlmConfigStore,
+  createLlmProbe,
+  createFsDatasetStore,
+  createLlmProvider,
+  createOrchestrator,
+  SkillRegistry,
+  SkillRunner,
+  MemSessionStore,
+  type AppState,
+} from '@stats-code/server';
 import { launcher as engineLauncher } from '@stats-code/engine';
 
 export interface LauncherArgs {
@@ -25,9 +39,66 @@ export interface RunLauncherOptions {
   log?: (line: string) => void;
 }
 
-/** Minimal default state: in-memory session store + embedded SPA assets. */
-function defaultState(): AppState {
-  return { sessionStore: new MemSessionStore() };
+/**
+ * Minimal default state: in-memory session store + the trust-credential
+ * providers (coverage matrix + sidecar) wired from the engine factories.
+ *
+ * The snapshot provider is intentionally left absent: the production launcher
+ * wires no run-state resolver, so `POST /api/snapshot/export` continues to
+ * return HTTP 503 (Requirement 1.5).
+ */
+/**
+ * Production application state: in-memory session store + the trust-credential
+ * providers + the full conversation stack (dataset store, LLM config store +
+ * probe, skill registry/runner, and the orchestrator MessageHandler).
+ *
+ * The orchestrator reads the CURRENT persisted LLM config per message via the
+ * provider factory closure, so a runtime POST /api/llm-config takes effect on
+ * the next message without a restart (Requirement 10.2).
+ *
+ * The snapshot provider is intentionally left absent: the production launcher
+ * wires no run-state resolver, so POST /api/snapshot/export returns HTTP 503
+ * (Requirement 1.5). OAuth is unavailable (API-key providers only) and the
+ * speech-to-text route remains a stub (Requirement 11).
+ */
+export function defaultState(): AppState {
+  const sessionStore = new MemSessionStore();
+  const datasetStore = createFsDatasetStore();
+  const llmConfigStore = createFileLlmConfigStore();
+  const llmProbe = createLlmProbe();
+  const registry = SkillRegistry.withDefaults();
+  const runner = new SkillRunner(registry);
+
+  const llmProviderFactory = () => {
+    const cfg = llmConfigStore.read();
+    return cfg && cfg.api_key
+      ? createLlmProvider({
+          provider: cfg.provider,
+          apiKey: cfg.api_key,
+          baseUrl: cfg.base_url ?? undefined,
+          model: cfg.model ?? undefined,
+        })
+      : null;
+  };
+
+  const messageHandler = createOrchestrator({
+    sessionStore,
+    datasetStore,
+    registry,
+    runner,
+    llmProviderFactory,
+  });
+
+  return {
+    sessionStore,
+    datasetStore,
+    coverageMatrixProvider: createCoverageMatrixProvider(),
+    sidecarProvider: createSidecarProvider(),
+    llmConfigStore,
+    llmProbe,
+    messageHandler,
+    oauthCapability: { available: false },
+  };
 }
 
 /**

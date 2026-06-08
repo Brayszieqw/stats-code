@@ -58,6 +58,46 @@ export {
   OAUTH_REQUIRED_PROVIDERS,
 } from './llm.js';
 
+export * as conversation from './conversation/index.js';
+export {
+  createLlmProvider,
+  DEFAULT_BASE_URLS,
+  DEFAULT_MODELS,
+  type LlmEvent,
+  type LlmMessage,
+  type LlmRequest,
+  type LlmProviderOptions,
+} from './conversation/index.js';
+export type { LlmProvider as LlmStreamProvider } from './conversation/index.js';
+export {
+  createFileLlmConfigStore,
+  defaultLlmConfigPath,
+  type FileLlmConfigStoreOptions,
+} from './conversation/index.js';
+export { createLlmProbe, type CreateLlmProbeOptions } from './conversation/index.js';
+export {
+  skillToAlgorithm,
+  SkillRegistry,
+  SkillRunner,
+  SkillRunErrorException,
+  createFsDatasetStore,
+  defaultDatasetRoot,
+  detectRiskSignals,
+  type SkillDescriptor,
+  type SkillInvoker,
+  type SkillContext,
+  type SkillRunnerOptions,
+  type SkillRunError,
+  type DatasetStore,
+  type FsDatasetStoreOptions,
+  type AnalysisResultMeta,
+} from './conversation/index.js';
+export {
+  createOrchestrator,
+  type OrchestratorDeps,
+  type IntentResult,
+} from './conversation/index.js';
+
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;
   stop(): Promise<void>;

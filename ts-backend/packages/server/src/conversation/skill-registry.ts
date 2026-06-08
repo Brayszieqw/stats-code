@@ -1,0 +1,232 @@
+// server/conversation/skill-registry.ts — SkillRegistry + default skill set.
+//
+// Mirrors crates/agent-core/src/skill/registry.rs: the 6-skill default set with
+// identical ids, display names (Chinese), and input/output JSON schemas. The
+// registry preserves deterministic insertion order via an internal ordered key
+// list (the Rust `order: Vec<String>`).
+//
+// Output-level skills (model_*, survival_km) use {kind:'algorithm'} invokers
+// resolved through skillToAlgorithm; inspect/power use {kind:'native'}.
+
+import type { AlgorithmId } from '@stats-code/engine';
+import type { SkillResult } from './skill-runner-types.js';
+
+export interface SkillContext {
+  datasetBytes: Uint8Array;
+  datasetSummary: import('../state.js').DatasetSummary;
+}
+
+export type SkillInvoker =
+  | { kind: 'algorithm'; algorithmId: AlgorithmId }
+  | { kind: 'native'; run: (args: Record<string, unknown>, ctx: SkillContext) => Promise<SkillResult> };
+
+export interface SkillDescriptor {
+  skillId: string;
+  displayName: string;
+  /** JSON Schema (Draft 2020-12) describing accepted input parameters. */
+  inputSchema: Record<string, unknown>;
+  /** JSON Schema describing the structured output. */
+  outputSchema: Record<string, unknown>;
+  invoker: SkillInvoker;
+}
+
+export class SkillRegistry {
+  private readonly skills = new Map<string, SkillDescriptor>();
+  private readonly order: string[] = [];
+
+  /** Register a descriptor; overwrites in place but preserves first-seen order. */
+  register(desc: SkillDescriptor): void {
+    if (!this.skills.has(desc.skillId)) {
+      this.order.push(desc.skillId);
+    }
+    this.skills.set(desc.skillId, desc);
+  }
+
+  get(skillId: string): SkillDescriptor | undefined {
+    return this.skills.get(skillId);
+  }
+
+  /** Enumerate registered skills in deterministic insertion order. */
+  list(): SkillDescriptor[] {
+    return this.order
+      .map((id) => this.skills.get(id))
+      .filter((d): d is SkillDescriptor => d !== undefined);
+  }
+
+  get size(): number {
+    return this.skills.size;
+  }
+
+  /**
+   * Pre-populated registry with the minimum skill set (Requirement 4.1):
+   * model_linear, model_logistic, model_cox, survival_km, power, inspect.
+   * The four output-level skills use algorithm invokers; power/inspect are
+   * native invokers (wired by the SkillRunner factory, not here).
+   */
+  static withDefaults(): SkillRegistry {
+    const reg = new SkillRegistry();
+
+    reg.register({
+      skillId: 'model_linear',
+      displayName: '线性回归',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          outcome: { type: 'string', description: '因变量列名' },
+          predictors: { type: 'array', items: { type: 'string' }, description: '自变量列名列表' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['outcome', 'predictors', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          coefficients: { type: 'array' },
+          r_squared: { type: 'number' },
+          adj_r_squared: { type: 'number' },
+          f_statistic: { type: 'number' },
+          p_value: { type: 'number' },
+          aic: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'linear' },
+    });
+
+    reg.register({
+      skillId: 'model_logistic',
+      displayName: 'Logistic 回归',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          outcome: { type: 'string', description: '因变量列名（二分类）' },
+          predictors: { type: 'array', items: { type: 'string' }, description: '自变量列名列表' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['outcome', 'predictors', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          coefficients: { type: 'array' },
+          odds_ratios: { type: 'array' },
+          p_values: { type: 'array' },
+          aic: { type: 'number' },
+          concordance: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'logistic' },
+    });
+
+    reg.register({
+      skillId: 'model_cox',
+      displayName: 'Cox 回归',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          time: { type: 'string', description: '时间变量列名' },
+          event: { type: 'string', description: '事件变量列名' },
+          predictors: { type: 'array', items: { type: 'string' }, description: '协变量列名列表' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['time', 'event', 'predictors', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          coefficients: { type: 'array' },
+          hazard_ratios: { type: 'array' },
+          p_values: { type: 'array' },
+          concordance: { type: 'number' },
+          ph_test: { type: 'object' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'cox' },
+    });
+
+    reg.register({
+      skillId: 'survival_km',
+      displayName: 'Kaplan-Meier 生存分析',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          time: { type: 'string', description: '时间变量列名' },
+          event: { type: 'string', description: '事件变量列名' },
+          group: { type: 'string', description: '分组变量列名（可选）' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['time', 'event', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          survival_table: { type: 'array' },
+          median_survival: { type: 'number' },
+          log_rank_p: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'kaplan_meier' },
+    });
+
+    reg.register({
+      skillId: 'power',
+      displayName: '功效分析',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          test_type: { type: 'string', description: '检验类型（如 ttest, anova, proportion）' },
+          effect_size: { type: 'number', description: '效应量' },
+          alpha: { type: 'number', description: '显著性水平', default: 0.05 },
+          power: { type: 'number', description: '目标功效', default: 0.8 },
+          n: { type: 'integer', description: '样本量（可选，用于计算功效）' },
+        },
+        required: ['test_type', 'effect_size'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          required_n: { type: 'integer' },
+          achieved_power: { type: 'number' },
+          effect_size: { type: 'number' },
+          alpha: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'native', run: nativeNotWired('power') },
+    });
+
+    reg.register({
+      skillId: 'inspect',
+      displayName: '数据探索',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          dataset_id: { type: 'string', description: '数据集 ID' },
+          columns: { type: 'array', items: { type: 'string' }, description: '要探索的列名列表（可选，默认全部）' },
+        },
+        required: ['dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          row_count: { type: 'integer' },
+          columns: { type: 'array' },
+          summary_statistics: { type: 'object' },
+        },
+      },
+      invoker: { kind: 'native', run: nativeNotWired('inspect') },
+    });
+
+    return reg;
+  }
+}
+
+/**
+ * Placeholder native invoker. The SkillRunner owns the concrete native
+ * implementations (power/inspect) and dispatches by skill id, so the registry
+ * descriptors only need to declare the invoker kind. If a native invoker is
+ * ever called directly without the runner, it surfaces a clear error.
+ */
+function nativeNotWired(
+  skillId: string,
+): (args: Record<string, unknown>, ctx: SkillContext) => Promise<SkillResult> {
+  return () => Promise.reject(new Error(`native skill '${skillId}' must be run via SkillRunner`));
+}

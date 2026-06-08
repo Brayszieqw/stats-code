@@ -208,11 +208,41 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
         }
         throw err;
       }
-      // Full dataset parsing/quota lands with the dataset store; the contract
-      // shape and status code (201) are established here.
-      return reply
-        .code(500)
-        .send({ error_code: 'SkillExecutionFailed', message: '数据集存储服务尚未初始化' });
+      // Dataset parsing/persistence requires a configured DatasetStore.
+      if (!state.datasetStore) {
+        return reply
+          .code(500)
+          .send({ error_code: 'SkillExecutionFailed', message: '数据集存储服务尚未初始化' });
+      }
+      // Decode the base64 payload (Requirement 6.1). Reject empty/invalid input.
+      let bytes: Uint8Array;
+      try {
+        const buf = Buffer.from(parsed.data.data, 'base64');
+        bytes = new Uint8Array(buf);
+      } catch {
+        return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid base64 dataset' });
+      }
+      if (bytes.byteLength === 0) {
+        return reply.code(422).send({ error_code: 'DatasetEmpty', message: '数据集为空' });
+      }
+      try {
+        const summary = await state.datasetStore.saveAndParse(
+          req.params.sid,
+          parsed.data.filename,
+          bytes,
+        );
+        await state.sessionStore.appendDataset(req.params.sid, summary);
+        return reply.code(201).send(summary);
+      } catch (err) {
+        if (err instanceof StoreError) {
+          const { status, body } = storeErrorResponse(err);
+          return reply.code(status).send(body);
+        }
+        // Parse failure (Requirement 6.7): reject without appending a summary.
+        return reply
+          .code(422)
+          .send({ error_code: 'SkillInvalidArgs', message: (err as Error).message });
+      }
     },
   );
 

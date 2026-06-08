@@ -7,6 +7,7 @@ import type { z } from 'zod';
 
 export type Session = z.infer<typeof domain.session>;
 export type DatasetSummary = z.infer<typeof domain.datasetSummary>;
+export type ColumnSummary = z.infer<typeof domain.columnSummary>;
 export type SessionSettings = z.infer<typeof domain.sessionSettings>;
 
 export class StoreError extends Error {
@@ -58,6 +59,12 @@ export interface SnapshotProvider {
   export(runId: string, destination: string): z.infer<typeof sidecar.snapshotExportResponse>;
 }
 
+/** Dataset persistence + parsing abstraction (conversation layer). */
+export interface DatasetStore {
+  saveAndParse(sid: string, fileName: string, bytes: Uint8Array): Promise<DatasetSummary>;
+  readRawById(datasetId: string): Promise<Uint8Array>;
+}
+
 // ---------------------------------------------------------------------------
 // Orchestrator message handler + AgentEvent stream (task 3.3).
 // Mirrors agent_core::orchestrator::AgentEvent and the Rust SSE emitter in
@@ -92,6 +99,7 @@ export interface MessageHandler {
 export interface AppState {
   sessionStore: SessionStore;
   messageHandler?: MessageHandler;
+  datasetStore?: DatasetStore;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
   /** Whether the backend can drive an OAuth flow (Requirement 13.4/13.5). */

@@ -83,8 +83,8 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
     // CodePanel section heading (preserved on small screens, R4.3).
     expect(screen.getByText('等价代码')).toBeInTheDocument();
-    // AssistantPanel input.
-    expect(screen.getByLabelText('助手消息输入框')).toBeInTheDocument();
+    // AssistantPanel empty state shows the welcome composer.
+    expect(screen.getAllByLabelText('消息输入框').length).toBeGreaterThan(0);
     // ReportViewer empty state (no result, no selected dataset).
     expect(screen.getByText(/暂无分析结果/)).toBeInTheDocument();
     // Draggable vertical splitter between report and assistant.

@@ -30,8 +30,6 @@ const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
 const { Text } = Typography;
 
-const SIDEBAR_WIDTH = 240;
-const CODE_WIDTH = 400;
 const PANEL_BG = '#fbfaf7';
 const BORDER = '1px solid #e3e1d8';
 const PRIMARY = '#38618c';
@@ -106,12 +104,17 @@ export function ProModeView({
 
   const docTitle = (selectedDataset ?? lastProfiledDataset)?.file_name ?? '分析报告';
 
+  // 响应式尺寸：随视口宽度自适应，越窄越紧凑，让页面更简洁。
+  const sidebarWidth = screens.xxl ? 260 : screens.xl ? 230 : 210;
+  const codeWidth = screens.xxl ? 440 : screens.xl ? 380 : 320;
+  const contentMaxWidth = screens.xxl ? 1080 : 920;
+
   return (
     <Layout style={{ height: '100vh' }}>
       <Layout style={{ background: PANEL_BG }}>
         {/* 左侧：与简易模式一致的 Stats 智能分析导航 */}
         <Sider
-          width={SIDEBAR_WIDTH}
+          width={sidebarWidth}
           collapsible
           collapsed={sidebarCollapsed}
           collapsedWidth={0}
@@ -213,7 +216,9 @@ export function ProModeView({
             style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
           >
             <div style={{ flexGrow: reportFlex, flexShrink: 1, flexBasis: 0, overflowY: 'auto', minHeight: 0, padding: 20 }}>
-              <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
+              <div style={{ maxWidth: contentMaxWidth, margin: '0 auto' }}>
+                <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
+              </div>
             </div>
 
             {/* 上下拖拽分隔条 */}
@@ -236,10 +241,10 @@ export function ProModeView({
             </div>
 
             <div style={{ flexGrow: 1 - reportFlex, flexShrink: 1, flexBasis: 0, minHeight: 0, background: PANEL_BG, padding: 12, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600 }}>
+              <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600, maxWidth: contentMaxWidth, margin: '0 auto 8px', width: '100%' }}>
                 AI 助手 · Stats 分析顾问
               </div>
-              <div style={{ flex: 1, minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 0, maxWidth: contentMaxWidth, margin: '0 auto', width: '100%' }}>
                 <AssistantPanel
                   sessionId={sessionId}
                   chat={chat}
@@ -255,7 +260,7 @@ export function ProModeView({
         </Content>
 
         {/* 右侧代码面板 */}
-        <Sider width={CODE_WIDTH} theme="light" style={{ background: PANEL_BG, borderLeft: BORDER, overflowY: 'auto', padding: 12 }}>
+        <Sider width={codeWidth} theme="light" style={{ background: PANEL_BG, borderLeft: BORDER, overflowY: 'auto', padding: 12 }}>
           <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
         </Sider>
       </Layout>

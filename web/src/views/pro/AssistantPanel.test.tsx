@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AssistantPanel } from './AssistantPanel';
-import type { UseSseChatReturn } from '../../hooks/useSseChat';
+import type { UseSseChatReturn, ChatMessage } from '../../hooks/useSseChat';
 
 function makeChat(overrides: Partial<UseSseChatReturn> = {}): UseSseChatReturn {
   return {
@@ -21,13 +21,17 @@ function makeChat(overrides: Partial<UseSseChatReturn> = {}): UseSseChatReturn {
   };
 }
 
+// A non-empty history so the conversation-mode ChatInputBar renders (the empty
+// state shows the WelcomeHero composer instead).
+const history: ChatMessage[] = [{ id: 'a1', role: 'agent', content: '你好', timestamp: new Date() }];
+
 describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
   it('routes send through onSend (R8.2)', () => {
     const onSend = vi.fn();
     render(
       <AssistantPanel
         sessionId="s1"
-        chat={makeChat()}
+        chat={makeChat({ messages: history })}
         isArchived={false}
         onSend={onSend}
         onChoiceSubmit={() => {}}
@@ -45,7 +49,7 @@ describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
     render(
       <AssistantPanel
         sessionId="s1"
-        chat={makeChat({ isStreaming: true, status: 'streaming' })}
+        chat={makeChat({ messages: history, isStreaming: true, status: 'streaming' })}
         isArchived={false}
         onSend={onSend}
         onChoiceSubmit={() => {}}
@@ -66,7 +70,7 @@ describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
     render(
       <AssistantPanel
         sessionId="s1"
-        chat={makeChat()}
+        chat={makeChat({ messages: history })}
         isArchived
         onSend={() => {}}
         onChoiceSubmit={() => {}}

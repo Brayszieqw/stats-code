@@ -9,13 +9,14 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, Table, Tag, Typography, Space, theme as antdTheme } from 'antd';
+import { Card, Table, Typography, Space, theme as antdTheme } from 'antd';
 import { RobotOutlined, UserOutlined, BulbOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../hooks/useSseChat';
-import type { SkillResult, RiskSignal, ChoiceAnswer } from '../api/types';
+import type { SkillResult, ChoiceAnswer } from '../api/types';
 import { ChoicePromptCard } from './ChoicePromptCard';
 import { ThreeLineTable } from './ThreeLineTable';
 import { StatsChartRenderer } from './StatsChartRenderer';
+import { RiskSignalTags } from './RiskSignalTags';
 import { shouldMountAnalysisResultView } from '../lib/analysisResultMount';
 import { AnalysisResultView } from './AnalysisResultView';
 import { useCoverageMatrix } from '../lib/coverageMatrixContext';
@@ -35,30 +36,6 @@ export interface MessageListProps {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function RiskSignalTags({ signals }: { signals: RiskSignal[] }) {
-  if (!signals || signals.length === 0) return null;
-
-  const labelMap: Record<RiskSignal, { text: string; color: string }> = {
-    PValueAboveAlpha: { text: 'P > 0.05', color: 'orange' },
-    VifTooHigh: { text: 'VIF > 10', color: 'red' },
-    LowPower: { text: '检验功效 < 0.8', color: 'volcano' },
-    CoxPhAssumptionViolated: { text: 'Cox PH 假设违反', color: 'magenta' },
-  };
-
-  return (
-    <Space size={4} wrap style={{ marginTop: 8 }}>
-      {signals.map((signal, idx) => {
-        const info = labelMap[signal] ?? { text: signal, color: 'default' };
-        return (
-          <Tag key={idx} color={info.color}>
-            {info.text}
-          </Tag>
-        );
-      })}
-    </Space>
-  );
-}
 
 function GenericKVTable({ payload }: { payload: any }) {
   const entries =

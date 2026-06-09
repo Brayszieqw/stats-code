@@ -11,23 +11,18 @@
  * Validates: Requirements 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 9.3, 9.4
  */
 
-import { useCallback, useRef, useState } from 'react';
 import {
   Layout,
-  Input,
-  Button,
-  Typography,
   Alert,
   theme as antdTheme,
 } from 'antd';
-import { SendOutlined, LoadingOutlined } from '@ant-design/icons';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { WelcomeHero } from './simple/WelcomeHero';
 import { SuggestionCards } from './simple/SuggestionCards';
 import { ModeToggle } from '../components/ModeToggle';
 import { MessageList } from '../components/MessageList';
 import { ErrorBanner } from '../components/ErrorBanner';
-import { VoiceRecorder } from '../components/VoiceRecorder';
+import { ChatInputBar } from '../components/ChatInputBar';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
@@ -35,8 +30,6 @@ import type { ViewMode } from '../hooks/useModePreference';
 import type { ChoiceAnswer } from '../api/types';
 
 const { Sider, Header, Content } = Layout;
-const { Text } = Typography;
-const { TextArea } = Input;
 
 const SIDER_WIDTH = 280;
 
@@ -68,32 +61,6 @@ export function SimpleModeView({
   const { isArchived, sessionId } = controller;
 
   const isWelcome = messages.length === 0;
-
-  // ─── Conversation-mode input bar ────────────────────────────────────────
-  const [inputValue, setInputValue] = useState('');
-  const textAreaRef = useRef<{ resizableTextArea?: { textArea: HTMLTextAreaElement } }>(null);
-
-  const handleSend = useCallback(
-    (overrideText?: string) => {
-      const text = (overrideText ?? inputValue).trim();
-      if (!text || isArchived) return;
-      onSend(text);
-      if (overrideText === undefined) {
-        setInputValue('');
-      }
-    },
-    [inputValue, isArchived, onSend],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
-  );
 
   return (
     <Layout style={{ height: '100vh' }}>
@@ -167,8 +134,8 @@ export function SimpleModeView({
                 padding: '24px 16px',
               }}
             >
-              <WelcomeHero onSend={(t) => handleSend(t)} disabled={isArchived} />
-              <SuggestionCards onSend={(t) => handleSend(t)} disabled={isArchived} />
+              <WelcomeHero onSend={onSend} disabled={isArchived} />
+              <SuggestionCards onSend={onSend} disabled={isArchived} />
             </div>
           ) : (
             <>
@@ -186,62 +153,15 @@ export function SimpleModeView({
                 <ErrorBanner error={error} onRetry={onRetry} />
               </div>
 
-              <div
-                style={{
-                  maxWidth: 880,
-                  width: '100%',
-                  margin: '12px auto 0',
-                  padding: 12,
-                  background: token.colorBgContainer,
-                  borderRadius: token.borderRadiusLG,
-                  boxShadow: token.boxShadowTertiary,
-                  border: `1px solid ${token.colorBorderSecondary}`,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <VoiceRecorder
-                    sessionId={sessionId}
-                    onTranscript={onVoiceTranscript}
-                    disabled={isStreaming || isArchived}
-                  />
-                  <TextArea
-                    ref={textAreaRef as never}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      isArchived
-                        ? '当前会话已归档，无法发送消息'
-                        : '输入统计分析问题，Enter 发送，Shift+Enter 换行'
-                    }
-                    autoSize={{ minRows: 1, maxRows: 6 }}
-                    disabled={isArchived}
-                    style={{ flex: 1, resize: 'none' }}
-                    aria-label="消息输入框"
-                  />
-                  <Button
-                    type="primary"
-                    icon={isStreaming ? <LoadingOutlined spin /> : <SendOutlined />}
-                    onClick={() => handleSend()}
-                    disabled={!inputValue.trim() || isArchived}
-                    size="large"
-                    aria-label="发送"
-                  >
-                    发送
-                  </Button>
-                </div>
-                <div
-                  style={{
-                    marginTop: 6,
-                    fontSize: 11,
-                    color: token.colorTextTertiary,
-                    textAlign: 'right',
-                  }}
-                >
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    结果由 AI 生成，请结合专业判断
-                  </Text>
-                </div>
+              <div style={{ maxWidth: 880, width: '100%', margin: '12px auto 0' }}>
+                <ChatInputBar
+                  sessionId={sessionId}
+                  isStreaming={isStreaming}
+                  isArchived={isArchived}
+                  onSend={onSend}
+                  onVoiceTranscript={onVoiceTranscript}
+                  footer="结果由 AI 生成，请结合专业判断"
+                />
               </div>
             </>
           )}

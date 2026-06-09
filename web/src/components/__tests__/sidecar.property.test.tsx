@@ -205,8 +205,13 @@ describe('Property 8: SPA active-tab rendering reflects matrix coverage', () => 
             } else {
               // Non-none → snippet rendered
               expect(screen.getByTestId('sidecar-snippet')).toBeInTheDocument();
+              // `toHaveTextContent` normalizes/collapses whitespace on the DOM
+              // side, so compare against a like-normalized body to avoid false
+              // mismatches when the generated body has internal whitespace runs
+              // (e.g. "!  !" renders as "! !").
+              const normalizedBody = snippetBody.replace(/\s+/g, ' ').trim();
               expect(screen.getByTestId('sidecar-snippet')).toHaveTextContent(
-                snippetBody.trim(),
+                normalizedBody,
               );
 
               if (coverageState === 'sidecar_only') {

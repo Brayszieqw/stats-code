@@ -75,11 +75,11 @@ function renderView() {
 }
 
 describe('ProModeView (Requirements 4.1, 4.3)', () => {
-  it('renders the multiple panels (TopBar, ReportViewer, CodePanel, AssistantPanel)', () => {
+  it('renders the multiple panels (sidebar, ReportViewer, CodePanel, AssistantPanel)', () => {
     renderView();
-    // TopBar title.
-    expect(screen.getByText(/患者数据分析/)).toBeInTheDocument();
-    // ModeToggle in the TopBar.
+    // Document tab title.
+    expect(screen.getByText('分析报告')).toBeInTheDocument();
+    // ModeToggle relocated to the document tab strip.
     expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
     // CodePanel section heading (preserved on small screens, R4.3).
     expect(screen.getByText('等价代码')).toBeInTheDocument();
@@ -87,6 +87,8 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     expect(screen.getByLabelText('助手消息输入框')).toBeInTheDocument();
     // ReportViewer empty state (no result, no selected dataset).
     expect(screen.getByText(/暂无分析结果/)).toBeInTheDocument();
+    // Draggable vertical splitter between report and assistant.
+    expect(screen.getByLabelText('调整报告与助手区域比例')).toBeInTheDocument();
   });
 
   it('keeps the CodePanel visible even when ExplorerPanel collapses at narrow widths (R4.3)', () => {

@@ -12,8 +12,8 @@
 import { useEffect, useState } from 'react';
 import { Grid, Layout, Button, Typography, Tag } from 'antd';
 import { UploadOutlined, FileTextOutlined, CloseOutlined } from '@ant-design/icons';
-import { TopBar } from './pro/TopBar';
 import { SimpleSidebar } from './simple/SimpleSidebar';
+import { ModeToggle } from '../components/ModeToggle';
 import { ReportViewer } from './pro/ReportViewer';
 import { CodePanel } from './pro/CodePanel';
 import { AssistantPanel } from './pro/AssistantPanel';
@@ -50,30 +50,6 @@ export interface ProModeViewProps {
   onOpenSettings?: () => void;
 }
 
-function DocumentTab({ title }: { title: string }) {
-  return (
-    <div style={{ display: 'flex', height: 36, background: '#f0eee8', borderBottom: BORDER, alignItems: 'stretch' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '0 14px',
-          background: '#fff',
-          borderRight: BORDER,
-          borderTop: `2px solid ${PRIMARY}`,
-          fontSize: 13,
-          color: '#2b3a4a',
-        }}
-      >
-        <FileTextOutlined style={{ color: PRIMARY, fontSize: 13 }} />
-        {title}
-        <CloseOutlined style={{ fontSize: 10, color: '#9aa7b4' }} />
-      </div>
-    </div>
-  );
-}
-
 export function ProModeView({
   controller,
   chat,
@@ -84,8 +60,6 @@ export function ProModeView({
   onChoiceSubmit,
   onRetry,
   onVoiceTranscript,
-  model,
-  onOpenSettings,
 }: ProModeViewProps) {
   const screens = useBreakpoint();
   const { sessionId, datasets, isArchived, addDataset } = controller;
@@ -93,6 +67,29 @@ export function ProModeView({
   const [selectedDataset, setSelectedDataset] = useState<DatasetSummary | null>(null);
   const [lastProfiledDataset, setLastProfiledDataset] = useState<DatasetSummary | null>(null);
   const [uploaderOpen, setUploaderOpen] = useState(false);
+  // 上下可拖拽比例：报告区占中部高度的比例（0.2–0.85）。
+  const [reportFlex, setReportFlex] = useState(0.56);
+  const centerRef = useState<{ el: HTMLDivElement | null }>(() => ({ el: null }))[0];
+
+  const startVDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = centerRef.el;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const onMove = (ev: MouseEvent) => {
+      const ratio = (ev.clientY - rect.top) / rect.height;
+      const clamped = Math.min(0.85, Math.max(0.2, ratio));
+      setReportFlex(clamped);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
@@ -111,7 +108,6 @@ export function ProModeView({
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <TopBar title="MediStat 工作台 | 患者数据分析" model={model} mode={mode} onModeChange={onModeChange} onOpenSettings={onOpenSettings} />
       <Layout style={{ background: PANEL_BG }}>
         {/* 左侧：与简易模式一致的 Stats 智能分析导航 */}
         <Sider
@@ -138,7 +134,30 @@ export function ProModeView({
 
         {/* 中部：文档标签 + 数据集条 + 报告 + 助手 */}
         <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
-          <DocumentTab title={docTitle} />
+          <div style={{ display: 'flex', alignItems: 'center', height: 36, background: '#f0eee8', borderBottom: BORDER }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 14px',
+                height: '100%',
+                background: '#fff',
+                borderRight: BORDER,
+                borderTop: `2px solid ${PRIMARY}`,
+                fontSize: 13,
+                color: '#2b3a4a',
+              }}
+            >
+              <FileTextOutlined style={{ color: PRIMARY, fontSize: 13 }} />
+              {docTitle}
+              <CloseOutlined style={{ fontSize: 10, color: '#9aa7b4' }} />
+            </div>
+            <div style={{ flex: 1 }} />
+            <div style={{ paddingRight: 12 }}>
+              <ModeToggle mode={mode} onChange={onModeChange} />
+            </div>
+          </div>
 
           {/* 数据集工具条 */}
           <div
@@ -187,22 +206,51 @@ export function ProModeView({
             })}
           </div>
 
-          <div style={{ flex: '1 1 56%', overflowY: 'auto', minHeight: 0, padding: 20 }}>
-            <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
-          </div>
-          <div style={{ flex: '1 1 44%', minHeight: 0, borderTop: BORDER, background: PANEL_BG, padding: 12 }}>
-            <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600 }}>
-              AI 助手 · Stats 分析顾问
+          <div
+            ref={(el) => {
+              centerRef.el = el;
+            }}
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+          >
+            <div style={{ flexGrow: reportFlex, flexShrink: 1, flexBasis: 0, overflowY: 'auto', minHeight: 0, padding: 20 }}>
+              <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
             </div>
-            <AssistantPanel
-              sessionId={sessionId}
-              chat={chat}
-              isArchived={isArchived}
-              onSend={onSend}
-              onChoiceSubmit={onChoiceSubmit}
-              onRetry={onRetry}
-              onVoiceTranscript={onVoiceTranscript}
-            />
+
+            {/* 上下拖拽分隔条 */}
+            <div
+              role="separator"
+              aria-label="调整报告与助手区域比例"
+              onMouseDown={startVDrag}
+              style={{
+                height: 6,
+                cursor: 'row-resize',
+                background: '#eceae3',
+                borderTop: BORDER,
+                borderBottom: BORDER,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <div style={{ width: 36, height: 3, borderRadius: 2, background: '#c2cad3' }} />
+            </div>
+
+            <div style={{ flexGrow: 1 - reportFlex, flexShrink: 1, flexBasis: 0, minHeight: 0, background: PANEL_BG, padding: 12, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600 }}>
+                AI 助手 · Stats 分析顾问
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <AssistantPanel
+                  sessionId={sessionId}
+                  chat={chat}
+                  isArchived={isArchived}
+                  onSend={onSend}
+                  onChoiceSubmit={onChoiceSubmit}
+                  onRetry={onRetry}
+                  onVoiceTranscript={onVoiceTranscript}
+                />
+              </div>
+            </div>
           </div>
         </Content>
 

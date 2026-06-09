@@ -9,7 +9,7 @@
  * Validates: Requirements 7.1, 7.2, 7.3, 7.5
  */
 
-import { Empty, Typography, Divider } from 'antd';
+import { Empty, Typography } from 'antd';
 import { EquivalentCodeSidecar } from '../../components/EquivalentCodeSidecar';
 import { RunControls } from './RunControls';
 import { useCoverageMatrix } from '../../lib/coverageMatrixContext';
@@ -51,29 +51,36 @@ export function CodePanel({ sessionId, analysis, disabled = false }: CodePanelPr
   const releaseVersion = matrix?.release_version ?? '';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Text strong style={{ fontSize: 13 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <Text strong style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8 }}>
         等价代码
       </Text>
 
-      {analysis ? (
-        <EquivalentCodeSidecar
-          algorithmId={analysis.algorithm_id}
-          datasetSha256={analysis.dataset_sha256 ?? ''}
-          columns={toSidecarColumns(analysis)}
-          params={toParams(analysis)}
-          releaseVersion={releaseVersion}
-        />
-      ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={<Text type="secondary">暂无可展示的等价代码，请先完成一次分析</Text>}
-        />
-      )}
+      <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0 }}>
+        {/* 代码区 */}
+        <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
+          {analysis ? (
+            <EquivalentCodeSidecar
+              algorithmId={analysis.algorithm_id}
+              datasetSha256={analysis.dataset_sha256 ?? ''}
+              columns={toSidecarColumns(analysis)}
+              params={toParams(analysis)}
+              releaseVersion={releaseVersion}
+            />
+          ) : (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<Text type="secondary">暂无可展示的等价代码，请先完成一次分析</Text>}
+              style={{ marginTop: 40 }}
+            />
+          )}
+        </div>
 
-      <Divider style={{ margin: '8px 0' }} />
-
-      <RunControls sessionId={sessionId} analysis={analysis} disabled={disabled} />
+        {/* 右侧运行控制竖条 */}
+        <div style={{ width: 130, flexShrink: 0, borderLeft: '1px solid #e3e1d8', paddingLeft: 10 }}>
+          <RunControls sessionId={sessionId} analysis={analysis} disabled={disabled} layout="vertical" />
+        </div>
+      </div>
     </div>
   );
 }

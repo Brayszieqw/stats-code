@@ -31,6 +31,8 @@ export interface RunControlsProps {
   copyText?: string;
   /** Read-only (archived) session disables run regardless of analysis. */
   disabled?: boolean;
+  /** 'horizontal' (default) or 'vertical' button arrangement. */
+  layout?: 'horizontal' | 'vertical';
 }
 
 function buildRunRequest(analysis: AnalysisResultMeta): RunRequest {
@@ -46,7 +48,9 @@ function buildRunRequest(analysis: AnalysisResultMeta): RunRequest {
   };
 }
 
-export function RunControls({ sessionId, analysis, copyText, disabled = false }: RunControlsProps) {
+const GREEN = '#2f9e44';
+
+export function RunControls({ sessionId, analysis, copyText, disabled = false, layout = 'horizontal' }: RunControlsProps) {
   const { state, run, reset, stop } = useCodeRun();
 
   const isRunning = state.status === 'running';
@@ -57,29 +61,33 @@ export function RunControls({ sessionId, analysis, copyText, disabled = false }:
     void run(sessionId, buildRunRequest(analysis));
   }, [analysis, run, sessionId]);
 
+  const vertical = layout === 'vertical';
+  const btnBlock = vertical;
+
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
-      <Space size={8} wrap>
+      <Space direction={vertical ? 'vertical' : 'horizontal'} size={8} style={{ width: vertical ? '100%' : undefined }} wrap={!vertical}>
         <Button
-          type="primary"
           icon={isRunning ? <LoadingOutlined spin /> : <PlayCircleOutlined />}
           loading={isRunning}
           disabled={!canRun}
           onClick={handleRun}
+          block={btnBlock}
           aria-label="运行"
+          style={{ background: canRun ? GREEN : undefined, borderColor: canRun ? GREEN : undefined, color: canRun ? '#fff' : undefined, textAlign: 'left' }}
         >
-          运行
+          运行所选
         </Button>
-        <Button icon={<BugOutlined />} disabled={!canRun} onClick={handleRun} aria-label="调试">
+        <Button icon={<BugOutlined />} disabled={!canRun} onClick={handleRun} block={btnBlock} aria-label="调试" style={{ textAlign: 'left' }}>
           调试
         </Button>
-        <Button icon={<StopOutlined />} disabled={!isRunning} onClick={stop} aria-label="停止">
+        <Button icon={<ClearOutlined />} disabled={state.status === 'idle'} onClick={reset} block={btnBlock} aria-label="清空" style={{ textAlign: 'left' }}>
+          清空控制台
+        </Button>
+        <Button icon={<StopOutlined />} disabled={!isRunning} onClick={stop} block={btnBlock} aria-label="停止" style={{ textAlign: 'left' }}>
           停止
         </Button>
-        <Button icon={<ClearOutlined />} disabled={state.status === 'idle'} onClick={reset} aria-label="清空">
-          清空
-        </Button>
-        <CopyToClipboard text={copyText} label="复制" />
+        <CopyToClipboard text={copyText} label="复制代码" />
       </Space>
 
       {isRunning && (

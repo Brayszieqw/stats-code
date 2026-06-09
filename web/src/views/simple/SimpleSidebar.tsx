@@ -8,7 +8,7 @@
  * Validates: Requirements 2.1, 2.2, 9.6, 9.7, 11.1
  */
 
-import { Button, Typography, Empty, message } from 'antd';
+import { Typography, Empty, message } from 'antd';
 import {
   EditOutlined,
   SearchOutlined,
@@ -169,25 +169,6 @@ export function SimpleSidebar({
             );
           })
         )}
-      </div>
-
-      {/* 底部信息卡 */}
-      <div style={{ padding: 10 }}>
-        <div style={{ border: '1px solid #e3e1d8', borderRadius: 12, background: '#fff', padding: 12 }}>
-          <Text style={{ fontSize: 12, fontWeight: 600, color: '#2b3a4a' }}>本地进程内运行</Text>
-          <div style={{ marginTop: 4 }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              数据不出本机，分析在进程内完成
-            </Text>
-          </div>
-          <Button
-            block
-            onClick={comingSoon}
-            style={{ marginTop: 8, background: PRIMARY, color: '#fff', border: 'none', borderRadius: 8 }}
-          >
-            查看使用指南
-          </Button>
-        </div>
       </div>
     </div>
   );

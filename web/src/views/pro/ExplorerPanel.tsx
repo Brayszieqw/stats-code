@@ -1,21 +1,23 @@
 /**
- * ExplorerPanel — 专业模式资源管理器（左 Sider）。
+ * ExplorerPanel — 专业模式资源管理器（左侧栏）。
  *
- * 列表展示 controller.datasets（文件名/行数/列数）+ 上传入口（DatasetUploader）
- * + 选中态。选中触发 DataExplorer 展示（由父组件根据 selectedDataset 渲染）；
- * 取消选中保留上次画像（lastProfiledDataset 由父组件维护）；空态 Empty。
- * Archived 时禁用上传与选择。
+ * 顶部 EXPLORER 标题条与文档标签条对齐（36px），下方为上传入口 + 已载入数据集
+ * 列表/空态。选中触发画像展示（父组件据 selectedDataset 渲染）；取消选中保留
+ * 上次画像；Archived 时禁用上传与选择。内容紧贴顶部，无多余空白。
  *
  * Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 9.3
  */
 
 import { useState } from 'react';
-import { Button, Space, Typography, Tag, Empty, Drawer, theme as antdTheme } from 'antd';
-import { DatabaseOutlined } from '@ant-design/icons';
+import { Button, Typography, Tag, Empty, Drawer } from 'antd';
+import { DatabaseOutlined, UploadOutlined } from '@ant-design/icons';
 import { DatasetUploader } from '../../components/DatasetUploader';
 import type { DatasetSummary } from '../../api/types';
 
 const { Text } = Typography;
+
+const PRIMARY = '#38618c';
+const BORDER = '1px solid #e3e1d8';
 
 export interface ExplorerPanelProps {
   datasets: DatasetSummary[];
@@ -34,34 +36,50 @@ export function ExplorerPanel({
   onUploadComplete,
   disabled = false,
 }: ExplorerPanelProps) {
-  const { token } = antdTheme.useToken();
   const [uploaderOpen, setUploaderOpen] = useState(false);
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Text strong style={{ fontSize: 13 }}>
-        <DatabaseOutlined /> 资源管理器
-      </Text>
-
-      <Button
-        type="dashed"
-        block
-        icon={<DatabaseOutlined />}
-        onClick={() => setUploaderOpen(true)}
-        disabled={disabled}
-        aria-label="上传数据集"
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* 标题条：与文档标签条同高 (36px)，消除顶部空白 */}
+      <div
+        style={{
+          height: 36,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '0 12px',
+          borderBottom: BORDER,
+          fontSize: 11,
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
+          color: '#8a93a0',
+          flexShrink: 0,
+        }}
       >
-        上传数据集
-      </Button>
+        <DatabaseOutlined /> 资源管理器
+      </div>
 
-      <div>
-        <Text strong style={{ fontSize: 13 }}>
+      <div style={{ padding: 10, flex: 1, overflowY: 'auto' }}>
+        <Button
+          type="dashed"
+          block
+          icon={<UploadOutlined />}
+          onClick={() => setUploaderOpen(true)}
+          disabled={disabled}
+          aria-label="上传数据集"
+          style={{ marginBottom: 12 }}
+        >
+          上传数据集
+        </Button>
+
+        <Text strong style={{ fontSize: 12, color: '#3a4654' }}>
           已载入数据集 ({datasets.length})
         </Text>
+
         {datasets.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据集" style={{ marginTop: 12 }} />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据集" style={{ marginTop: 24 }} />
         ) : (
-          <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {datasets.map((ds) => {
               const isSel = selectedDatasetId === ds.dataset_id;
               return (
@@ -87,8 +105,8 @@ export function ExplorerPanel({
                     borderRadius: 6,
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     opacity: disabled ? 0.6 : 1,
-                    background: isSel ? token.colorFillSecondary : token.colorFillTertiary,
-                    border: `1px solid ${isSel ? token.colorPrimaryBorder : 'transparent'}`,
+                    background: isSel ? 'rgba(56,97,140,0.1)' : 'transparent',
+                    border: `1px solid ${isSel ? PRIMARY : 'transparent'}`,
                   }}
                 >
                   <Text strong style={{ fontSize: 12 }} ellipsis>
@@ -103,7 +121,7 @@ export function ExplorerPanel({
                 </div>
               );
             })}
-          </Space>
+          </div>
         )}
       </div>
 
@@ -122,7 +140,7 @@ export function ExplorerPanel({
           }}
         />
       </Drawer>
-    </Space>
+    </div>
   );
 }
 

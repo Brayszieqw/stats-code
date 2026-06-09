@@ -72,7 +72,7 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
   it('renders the multiple panels (TopBar, ReportViewer, CodePanel, AssistantPanel)', () => {
     renderView();
     // TopBar title.
-    expect(screen.getByText('Stats 智能科研分析')).toBeInTheDocument();
+    expect(screen.getByText(/患者数据分析/)).toBeInTheDocument();
     // ModeToggle in the TopBar.
     expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
     // CodePanel section heading (preserved on small screens, R4.3).

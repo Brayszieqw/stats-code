@@ -15,6 +15,7 @@ vi.mock('../lib/coverageMatrixContext', () => ({
 import { ProModeView } from './ProModeView';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn, ChatMessage } from '../hooks/useSseChat';
+import type { UseSessionListReturn } from '../hooks/useSessionList';
 
 beforeEach(() => {
   useCoverageMatrixSpy.mockReturnValue({
@@ -52,11 +53,16 @@ function makeChat(messages: ChatMessage[] = []): UseSseChatReturn {
   };
 }
 
+function makeList(): UseSessionListReturn {
+  return { sessions: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
+}
+
 function renderView() {
   return render(
     <ProModeView
       controller={makeController()}
       chat={makeChat()}
+      sessionList={makeList()}
       mode="pro"
       onModeChange={vi.fn()}
       onSend={vi.fn()}

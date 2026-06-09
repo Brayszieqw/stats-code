@@ -1,43 +1,36 @@
 /**
- * ProModeView — 专业模式视图（布局对齐参考图 1 的 IDE 工作台，视觉为 Stats Code
- * 原创，不照搬具体产品）。
+ * ProModeView — 专业模式视图。
  *
- * 结构：TopBar（macOS 窗口栏）/ 左侧活动图标栏 + EXPLORER 文件树 /
- * 中部文档标签页 + ReportViewer / 右侧 CodePanel（R|SAS|Python|SPSS + 运行控制）/
- * 中下 AssistantPanel。响应式：低于 lg(992px) 折叠 EXPLORER，保留 CodePanel。
+ * 左侧采用与简易模式一致的 Stats 智能分析导航（SimpleSidebar：导航 + 历史会话），
+ * 替换原 IDE 活动栏 + 资源管理器。中部为文档标签 + 报告区（含数据集上传/选择与
+ * 画像），右侧为多语言等价代码面板 + 运行控制，中下为常驻 AI 助手。
+ * 响应式：低于 lg(992px) 折叠左侧栏，保留 CodePanel 可见。
  *
  * Validates: Requirements 4.1, 4.2, 4.3, 4.4
  */
 
 import { useEffect, useState } from 'react';
-import { Grid, Layout } from 'antd';
-import {
-  FileOutlined,
-  SearchOutlined,
-  BranchesOutlined,
-  PlayCircleOutlined,
-  AppstoreOutlined,
-  UserOutlined,
-  SettingOutlined,
-  CloseOutlined,
-  FileTextOutlined,
-} from '@ant-design/icons';
+import { Grid, Layout, Button, Typography, Tag } from 'antd';
+import { UploadOutlined, FileTextOutlined, CloseOutlined } from '@ant-design/icons';
 import { TopBar } from './pro/TopBar';
-import { ExplorerPanel } from './pro/ExplorerPanel';
+import { SimpleSidebar } from './simple/SimpleSidebar';
 import { ReportViewer } from './pro/ReportViewer';
 import { CodePanel } from './pro/CodePanel';
 import { AssistantPanel } from './pro/AssistantPanel';
+import { DatasetUploader } from '../components/DatasetUploader';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
+import { Drawer } from 'antd';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
+import type { UseSessionListReturn } from '../hooks/useSessionList';
 import type { ViewMode } from '../hooks/useModePreference';
 import type { ChoiceAnswer, DatasetSummary } from '../api/types';
 
 const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
+const { Text } = Typography;
 
-const RAIL_WIDTH = 48;
-const EXPLORER_WIDTH = 230;
+const SIDEBAR_WIDTH = 240;
 const CODE_WIDTH = 400;
 const PANEL_BG = '#fbfaf7';
 const BORDER = '1px solid #e3e1d8';
@@ -46,6 +39,7 @@ const PRIMARY = '#38618c';
 export interface ProModeViewProps {
   controller: SessionController;
   chat: UseSseChatReturn;
+  sessionList: UseSessionListReturn;
   mode: ViewMode;
   onModeChange: (m: ViewMode) => void;
   onSend: (text: string) => void;
@@ -54,56 +48,6 @@ export interface ProModeViewProps {
   onVoiceTranscript: (t: string) => void;
   model?: string | null;
   onOpenSettings?: () => void;
-}
-
-function ActivityRail() {
-  const items = [
-    { icon: <FileOutlined />, active: true, label: '资源管理器' },
-    { icon: <SearchOutlined />, active: false, label: '搜索' },
-    { icon: <BranchesOutlined />, active: false, label: '版本' },
-    { icon: <PlayCircleOutlined />, active: false, label: '运行' },
-    { icon: <AppstoreOutlined />, active: false, label: '扩展' },
-  ];
-  return (
-    <div
-      style={{
-        width: RAIL_WIDTH,
-        background: '#f0eee8',
-        borderRight: BORDER,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        paddingTop: 10,
-        gap: 4,
-      }}
-    >
-      {items.map((it) => (
-        <div
-          key={it.label}
-          title={it.label}
-          style={{
-            width: 40,
-            height: 40,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 18,
-            color: it.active ? PRIMARY : '#8a93a0',
-            borderLeft: it.active ? `2px solid ${PRIMARY}` : '2px solid transparent',
-          }}
-        >
-          {it.icon}
-        </div>
-      ))}
-      <div style={{ flex: 1 }} />
-      <div style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a93a0', fontSize: 18 }}>
-        <UserOutlined />
-      </div>
-      <div style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a93a0', fontSize: 18 }}>
-        <SettingOutlined />
-      </div>
-    </div>
-  );
 }
 
 function DocumentTab({ title }: { title: string }) {
@@ -133,6 +77,7 @@ function DocumentTab({ title }: { title: string }) {
 export function ProModeView({
   controller,
   chat,
+  sessionList,
   mode,
   onModeChange,
   onSend,
@@ -147,10 +92,11 @@ export function ProModeView({
 
   const [selectedDataset, setSelectedDataset] = useState<DatasetSummary | null>(null);
   const [lastProfiledDataset, setLastProfiledDataset] = useState<DatasetSummary | null>(null);
+  const [uploaderOpen, setUploaderOpen] = useState(false);
 
-  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
-    setExplorerCollapsed(!screens.lg);
+    setSidebarCollapsed(!screens.lg);
   }, [screens.lg]);
 
   const { result } = useLatestAnalysis(chat.messages);
@@ -167,50 +113,84 @@ export function ProModeView({
     <Layout style={{ height: '100vh' }}>
       <TopBar title="MediStat 工作台 | 患者数据分析" model={model} mode={mode} onModeChange={onModeChange} onOpenSettings={onOpenSettings} />
       <Layout style={{ background: PANEL_BG }}>
-        {/* 活动图标栏 */}
-        <div style={{ display: 'flex' }}>
-          <ActivityRail />
-        </div>
-
-        {/* EXPLORER 文件树 */}
+        {/* 左侧：与简易模式一致的 Stats 智能分析导航 */}
         <Sider
-          width={EXPLORER_WIDTH}
+          width={SIDEBAR_WIDTH}
           collapsible
-          collapsed={explorerCollapsed}
+          collapsed={sidebarCollapsed}
           collapsedWidth={0}
           trigger={null}
           breakpoint="lg"
-          onBreakpoint={(broken) => setExplorerCollapsed(broken)}
-          style={{ background: PANEL_BG, borderRight: BORDER, overflowY: 'auto' }}
+          onBreakpoint={(broken) => setSidebarCollapsed(broken)}
+          style={{ background: '#f7f6f3', borderRight: BORDER, overflowY: 'auto' }}
         >
-          <ExplorerPanel
-            datasets={datasets}
-            sessionId={sessionId}
-            selectedDatasetId={selectedDataset?.dataset_id ?? null}
-            onSelect={handleSelect}
-            onUploadComplete={(s) => {
-              addDataset(s);
-              handleSelect(s);
+          <SimpleSidebar
+            sessionList={sessionList}
+            activeSessionId={sessionId}
+            onNewSession={() => {
+              void controller.startNewSession();
             }}
-            disabled={isArchived}
+            onSelectSession={(sid) => {
+              void controller.loadSession(sid);
+            }}
           />
         </Sider>
 
-        {/* 中部：文档标签 + 报告 + 助手 */}
+        {/* 中部：文档标签 + 数据集条 + 报告 + 助手 */}
         <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
           <DocumentTab title={docTitle} />
+
+          {/* 数据集工具条 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '8px 16px',
+              borderBottom: BORDER,
+              background: PANEL_BG,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Button
+              size="small"
+              icon={<UploadOutlined />}
+              onClick={() => setUploaderOpen(true)}
+              disabled={isArchived}
+              aria-label="上传数据集"
+            >
+              上传数据集
+            </Button>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              已载入 {datasets.length}
+            </Text>
+            {datasets.map((ds) => {
+              const isSel = (selectedDataset?.dataset_id ?? null) === ds.dataset_id;
+              return (
+                <Tag.CheckableTag
+                  key={ds.dataset_id}
+                  checked={isSel}
+                  onChange={() => {
+                    if (isArchived) return;
+                    handleSelect(isSel ? null : ds);
+                  }}
+                  style={{
+                    border: `1px solid ${isSel ? PRIMARY : '#d9d9d9'}`,
+                    padding: '2px 10px',
+                    fontSize: 12,
+                  }}
+                  aria-label={`数据集: ${ds.file_name}`}
+                >
+                  {ds.file_name} · {ds.row_count}行
+                </Tag.CheckableTag>
+              );
+            })}
+          </div>
+
           <div style={{ flex: '1 1 56%', overflowY: 'auto', minHeight: 0, padding: 20 }}>
             <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
           </div>
-          <div
-            style={{
-              flex: '1 1 44%',
-              minHeight: 0,
-              borderTop: BORDER,
-              background: PANEL_BG,
-              padding: 12,
-            }}
-          >
+          <div style={{ flex: '1 1 44%', minHeight: 0, borderTop: BORDER, background: PANEL_BG, padding: 12 }}>
             <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600 }}>
               AI 助手 · Stats 分析顾问
             </div>
@@ -231,6 +211,18 @@ export function ProModeView({
           <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
         </Sider>
       </Layout>
+
+      {/* 上传数据集抽屉 */}
+      <Drawer title="上传数据集" placement="left" width={420} open={uploaderOpen} onClose={() => setUploaderOpen(false)}>
+        <DatasetUploader
+          sessionId={sessionId}
+          onUploadComplete={(s) => {
+            addDataset(s);
+            handleSelect(s);
+            setUploaderOpen(false);
+          }}
+        />
+      </Drawer>
     </Layout>
   );
 }

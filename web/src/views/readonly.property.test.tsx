@@ -101,6 +101,7 @@ describe('Property 5: 只读态封锁写操作 (Requirements 9.3, 9.4)', () => {
           <ProModeView
             controller={makeController(archived)}
             chat={makeChat(oneMessage)}
+            sessionList={makeList()}
             mode="pro"
             onModeChange={vi.fn()}
             onSend={vi.fn()}

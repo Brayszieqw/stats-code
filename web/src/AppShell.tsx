@@ -208,6 +208,7 @@ export function AppShell() {
         <ProModeView
           controller={controller}
           chat={chat}
+          sessionList={sessionList}
           mode={mode}
           onModeChange={setMode}
           onSend={handleSend}

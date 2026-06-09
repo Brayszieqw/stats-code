@@ -1,36 +1,85 @@
 /**
- * SimpleSidebar — left navigation for the simple mode: new-conversation entry,
- * placeholder search/plugins/automation entries, a project group, and the
- * history-session list (consumes useSessionList). History errors render a
- * non-blocking placeholder.
+ * SimpleSidebar — 简易模式左侧导航。
+ *
+ * 布局对齐参考图 2（顶部入口列表 + 分组历史 + 底部信息卡），视觉与文案为
+ * Stats Code 原创，不照搬 Codex 元素。搜索/插件/自动化/模板为占位
+ * message.info；历史项点击调用 onSelectSession。历史加载错误显示占位，不阻塞。
  *
  * Validates: Requirements 2.1, 2.2, 9.6, 9.7, 11.1
  */
 
-import { Button, Space, Typography, Empty, message, theme as antdTheme } from 'antd';
+import { Button, Typography, Empty, message } from 'antd';
 import {
-  PlusOutlined,
+  EditOutlined,
   SearchOutlined,
   ApiOutlined,
   ThunderboltOutlined,
+  AppstoreOutlined,
+  FolderOpenOutlined,
   HistoryOutlined,
-  FolderOutlined,
 } from '@ant-design/icons';
 import type { UseSessionListReturn } from '../../hooks/useSessionList';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
+
+const PRIMARY = '#38618c';
 
 export interface SimpleSidebarProps {
   sessionList: UseSessionListReturn;
-  /** Start a brand-new conversation. */
   onNewSession: () => void;
-  /** Load a history session by id. */
   onSelectSession: (sessionId: string) => void;
-  /** Currently active session id (for highlight). */
   activeSessionId?: string;
 }
 
 const comingSoon = () => message.info('即将推出');
+
+const NAV_ITEMS = [
+  { key: 'new', label: '新对话', icon: <EditOutlined /> },
+  { key: 'search', label: '搜索', icon: <SearchOutlined /> },
+  { key: 'plugins', label: '插件', icon: <ApiOutlined /> },
+  { key: 'automation', label: '自动化', icon: <ThunderboltOutlined /> },
+  { key: 'templates', label: '分析模板', icon: <AppstoreOutlined /> },
+];
+
+function NavRow({
+  icon,
+  label,
+  onClick,
+  accent = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        width: '100%',
+        padding: '8px 10px',
+        border: 'none',
+        background: 'transparent',
+        borderRadius: 8,
+        cursor: 'pointer',
+        color: accent ? PRIMARY : '#3a4654',
+        fontSize: 14,
+        fontWeight: accent ? 600 : 400,
+        textAlign: 'left',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56,97,140,0.07)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      <span style={{ fontSize: 15, color: accent ? PRIMARY : '#6a7a8c' }}>{icon}</span>
+      {label}
+    </button>
+  );
+}
 
 export function SimpleSidebar({
   sessionList,
@@ -38,92 +87,109 @@ export function SimpleSidebar({
   onSelectSession,
   activeSessionId,
 }: SimpleSidebarProps) {
-  const { token } = antdTheme.useToken();
   const { sessions, error } = sessionList;
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Title level={4} style={{ margin: 0 }}>
-        <ThunderboltOutlined style={{ color: token.colorPrimary }} /> Stats 智能分析
-      </Title>
-
-      <Button type="primary" block icon={<PlusOutlined />} onClick={onNewSession} aria-label="新对话">
-        新对话
-      </Button>
-
-      <Space direction="vertical" size={4} style={{ width: '100%' }}>
-        <Button type="text" block icon={<SearchOutlined />} onClick={comingSoon} style={{ textAlign: 'left' }} aria-label="搜索">
-          搜索
-        </Button>
-        <Button type="text" block icon={<ApiOutlined />} onClick={comingSoon} style={{ textAlign: 'left' }} aria-label="插件">
-          插件
-        </Button>
-        <Button type="text" block icon={<ThunderboltOutlined />} onClick={comingSoon} style={{ textAlign: 'left' }} aria-label="自动化">
-          自动化
-        </Button>
-      </Space>
-
-      <div>
-        <Text strong style={{ fontSize: 13 }}>
-          <FolderOutlined /> 项目
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* 品牌 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 14px 8px' }}>
+        <ThunderboltOutlined style={{ color: PRIMARY, fontSize: 18 }} />
+        <Text strong style={{ fontSize: 15, color: '#2b3a4a' }}>
+          Stats 智能分析
         </Text>
-        <div style={{ marginTop: 6 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>默认项目</Text>
-        </div>
       </div>
 
-      <div>
-        <Text strong style={{ fontSize: 13 }}>
+      {/* 顶部入口 */}
+      <div style={{ padding: '4px 8px' }}>
+        {NAV_ITEMS.map((it) => (
+          <NavRow
+            key={it.key}
+            icon={it.icon}
+            label={it.label}
+            accent={it.key === 'new'}
+            onClick={it.key === 'new' ? onNewSession : comingSoon}
+          />
+        ))}
+      </div>
+
+      {/* 历史区 */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
+          <FolderOpenOutlined /> 默认项目
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
           <HistoryOutlined /> 历史会话
-        </Text>
+        </div>
+
         {error ? (
-          <div style={{ marginTop: 8 }} role="note">
+          <div style={{ padding: '8px 10px' }} role="note">
             <Text type="secondary" style={{ fontSize: 12 }}>
               历史会话加载失败，不影响当前对话
             </Text>
           </div>
         ) : sessions.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史" style={{ marginTop: 12 }} />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史" style={{ marginTop: 24 }} />
         ) : (
-          <Space direction="vertical" size={4} style={{ width: '100%', marginTop: 8 }}>
-            {sessions.map((s) => {
-              const active = s.id === activeSessionId;
-              return (
-                <div
-                  key={s.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`历史会话: ${s.title}`}
-                  onClick={() => onSelectSession(s.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onSelectSession(s.id);
-                    }
-                  }}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    background: active ? token.colorFillSecondary : token.colorFillTertiary,
-                    border: `1px solid ${active ? token.colorPrimaryBorder : 'transparent'}`,
-                  }}
-                >
-                  <Text style={{ fontSize: 12 }} ellipsis>
-                    {s.title}
-                  </Text>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      {s.message_count} 条消息
-                    </Text>
-                  </div>
-                </div>
-              );
-            })}
-          </Space>
+          sessions.map((s) => {
+            const active = s.id === activeSessionId;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                aria-label={`历史会话: ${s.title}`}
+                onClick={() => onSelectSession(s.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '8px 10px',
+                  border: 'none',
+                  background: active ? 'rgba(56,97,140,0.12)' : 'transparent',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: '#3a4654',
+                  fontSize: 13,
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = 'rgba(56,97,140,0.07)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>
+                  {s.title}
+                </span>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {s.message_count}
+                </Text>
+              </button>
+            );
+          })
         )}
       </div>
-    </Space>
+
+      {/* 底部信息卡 */}
+      <div style={{ padding: 10 }}>
+        <div style={{ border: '1px solid #e3e1d8', borderRadius: 12, background: '#fff', padding: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: 600, color: '#2b3a4a' }}>本地进程内运行</Text>
+          <div style={{ marginTop: 4 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              数据不出本机，分析在进程内完成
+            </Text>
+          </div>
+          <Button
+            block
+            onClick={comingSoon}
+            style={{ marginTop: 8, background: PRIMARY, color: '#fff', border: 'none', borderRadius: 8 }}
+          >
+            查看使用指南
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

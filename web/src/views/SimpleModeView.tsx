@@ -1,24 +1,17 @@
 /**
- * SimpleModeView — 简易模式视图（参考 MiroFish 极简首页）。
+ * SimpleModeView — 简易模式视图（对齐 MiroFish 参考图 2）。
  *
- * 组装 SimpleSidebar（左导航 + 历史会话）+ 右上 ModeToggle：
- *   - 欢迎态（messages.length === 0）：居中 WelcomeHero + SuggestionCards。
- *   - 对话态：上方 MessageList + ErrorBanner，下方输入栏（VoiceRecorder +
- *     TextArea + 发送）。
- * 内联展示 SkillResult / ChoicePrompt 由 MessageList 负责。Archived 时禁用
- * 发送 / 上传 / 选择，但 ModeToggle 保持可用。
+ * 左侧米色 SimpleSidebar（导航 + 分组历史 + 用量卡片），右侧白色主区：
+ *   - 欢迎态（messages.length === 0）：居中 WelcomeHero（大标题 + 圆角输入框）。
+ *   - 对话态：上方 MessageList + ErrorBanner，下方 ChatInputBar。
+ * 右上角放置低调的 ModeToggle。Archived 时禁用写操作，ModeToggle 仍可用。
  *
  * Validates: Requirements 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 9.3, 9.4
  */
 
-import {
-  Layout,
-  Alert,
-  theme as antdTheme,
-} from 'antd';
+import { Layout, Alert } from 'antd';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { WelcomeHero } from './simple/WelcomeHero';
-import { SuggestionCards } from './simple/SuggestionCards';
 import { ModeToggle } from '../components/ModeToggle';
 import { MessageList } from '../components/MessageList';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -29,9 +22,9 @@ import type { UseSessionListReturn } from '../hooks/useSessionList';
 import type { ViewMode } from '../hooks/useModePreference';
 import type { ChoiceAnswer } from '../api/types';
 
-const { Sider, Header, Content } = Layout;
+const { Sider, Content } = Layout;
 
-const SIDER_WIDTH = 280;
+const SIDER_WIDTH = 260;
 
 export interface SimpleModeViewProps {
   controller: SessionController;
@@ -56,7 +49,6 @@ export function SimpleModeView({
   onRetry,
   onVoiceTranscript,
 }: SimpleModeViewProps) {
-  const { token } = antdTheme.useToken();
   const { messages, error, isStreaming } = chat;
   const { isArchived, sessionId } = controller;
 
@@ -66,12 +58,7 @@ export function SimpleModeView({
     <Layout style={{ height: '100vh' }}>
       <Sider
         width={SIDER_WIDTH}
-        style={{
-          background: token.colorBgContainer,
-          borderRight: `1px solid ${token.colorBorderSecondary}`,
-          padding: 16,
-          overflowY: 'auto',
-        }}
+        style={{ background: '#f7f6f3', borderRight: '1px solid #ececec' }}
         breakpoint="md"
         collapsedWidth={0}
       >
@@ -87,86 +74,72 @@ export function SimpleModeView({
         />
       </Sider>
 
-      <Layout>
-        <Header
-          style={{
-            background: token.colorBgContainer,
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            padding: '0 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            height: 56,
-            lineHeight: '56px',
-          }}
-        >
+      <Content style={{ position: 'relative', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+        {/* 右上角模式切换 */}
+        <div style={{ position: 'absolute', top: 14, right: 18, zIndex: 5 }}>
           <ModeToggle mode={mode} onChange={onModeChange} />
-        </Header>
+        </div>
 
-        <Content
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            padding: 16,
-            background: token.colorBgLayout,
-            overflow: 'hidden',
-          }}
-        >
-          {isArchived && (
-            <Alert
-              message="此会话已归档 (只读模式)"
-              description="该会话处于只读状态。您无法再发送消息或进行选择。"
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16, maxWidth: 880, width: '100%', margin: '0 auto 16px' }}
-            />
-          )}
+        {isArchived && (
+          <Alert
+            message="此会话已归档 (只读模式)"
+            description="该会话处于只读状态。您无法再发送消息或进行选择。"
+            type="warning"
+            showIcon
+            style={{ margin: '52px auto 0', maxWidth: 760, width: '100%' }}
+          />
+        )}
 
-          {isWelcome ? (
+        {isWelcome ? (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: '24px',
+            }}
+          >
+            <WelcomeHero onSend={onSend} disabled={isArchived} />
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              padding: '56px 16px 16px',
+            }}
+          >
             <div
               style={{
                 flex: 1,
                 overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: '24px 16px',
+                paddingRight: 8,
+                maxWidth: 820,
+                width: '100%',
+                margin: '0 auto',
               }}
             >
-              <WelcomeHero onSend={onSend} disabled={isArchived} />
-              <SuggestionCards onSend={onSend} disabled={isArchived} />
+              <MessageList messages={messages} onChoiceSubmit={onChoiceSubmit} disabled={isArchived} />
+              <ErrorBanner error={error} onRetry={onRetry} />
             </div>
-          ) : (
-            <>
-              <div
-                style={{
-                  flex: 1,
-                  overflowY: 'auto',
-                  paddingRight: 8,
-                  maxWidth: 880,
-                  width: '100%',
-                  margin: '0 auto',
-                }}
-              >
-                <MessageList messages={messages} onChoiceSubmit={onChoiceSubmit} disabled={isArchived} />
-                <ErrorBanner error={error} onRetry={onRetry} />
-              </div>
 
-              <div style={{ maxWidth: 880, width: '100%', margin: '12px auto 0' }}>
-                <ChatInputBar
-                  sessionId={sessionId}
-                  isStreaming={isStreaming}
-                  isArchived={isArchived}
-                  onSend={onSend}
-                  onVoiceTranscript={onVoiceTranscript}
-                  footer="结果由 AI 生成，请结合专业判断"
-                />
-              </div>
-            </>
-          )}
-        </Content>
-      </Layout>
+            <div style={{ maxWidth: 820, width: '100%', margin: '12px auto 0' }}>
+              <ChatInputBar
+                sessionId={sessionId}
+                isStreaming={isStreaming}
+                isArchived={isArchived}
+                onSend={onSend}
+                onVoiceTranscript={onVoiceTranscript}
+                footer="结果由 AI 生成，请结合专业判断"
+              />
+            </div>
+          </div>
+        )}
+      </Content>
     </Layout>
   );
 }

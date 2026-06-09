@@ -69,11 +69,11 @@ const userMessage: ChatMessage = {
 };
 
 describe('SimpleModeView (Requirements 2.3, 3.1, 9.3, 9.4)', () => {
-  it('renders the welcome hero + suggestion cards in the empty state (R2.3)', () => {
+  it('renders the welcome hero in the empty state (R2.3)', () => {
     renderView({ chat: makeChat([]) });
-    expect(screen.getByText('欢迎使用 Stats 智能分析')).toBeInTheDocument();
-    // A preset suggestion card is present.
-    expect(screen.getByLabelText('建议: 线性回归')).toBeInTheDocument();
+    expect(screen.getByText('开始你的统计分析')).toBeInTheDocument();
+    // The centered composer input is present.
+    expect(screen.getByLabelText('消息输入框')).toBeInTheDocument();
   });
 
   it('renders the message list in the conversation state (R3.1)', () => {

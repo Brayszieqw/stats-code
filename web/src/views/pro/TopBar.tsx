@@ -1,16 +1,23 @@
 /**
- * TopBar — 专业模式顶栏：项目/会话标题 + ModeToggle + 设置入口。
- * 复用 AntD token 与 index.css 主题变量。
+ * TopBar — 专业模式顶栏（对齐 MiroFish 参考图 1，macOS 窗口风格）。
+ *
+ * 左：红/黄/绿交通灯 + 前进后退箭头。中：圆角标题胶囊 + ＋。右：模式切换 +
+ * 设置/分屏/头像等图标。复用 AntD token。
  *
  * Validates: Requirements 4.2, 4.4, 10.1
  */
 
-import { Button, Space, Typography, Tag, theme as antdTheme } from 'antd';
-import { ThunderboltOutlined, SettingOutlined } from '@ant-design/icons';
+import { Button, Space } from 'antd';
+import {
+  LeftOutlined,
+  RightOutlined,
+  PlusOutlined,
+  SettingOutlined,
+  ClockCircleOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import { ModeToggle } from '../../components/ModeToggle';
 import type { ViewMode } from '../../hooks/useModePreference';
-
-const { Text } = Typography;
 
 export interface TopBarProps {
   title?: string;
@@ -20,38 +27,77 @@ export interface TopBarProps {
   onOpenSettings?: () => void;
 }
 
-export function TopBar({ title = 'Stats 智能科研分析', model, mode, onModeChange, onOpenSettings }: TopBarProps) {
-  const { token } = antdTheme.useToken();
+function TrafficLight({ color }: { color: string }) {
+  return <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />;
+}
 
+export function TopBar({ title = 'MediStat Pro | Patient Data Analysis', mode, onModeChange, onOpenSettings }: TopBarProps) {
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        height: 56,
-        padding: '0 20px',
-        background: token.colorBgContainer,
-        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        height: 44,
+        padding: '0 14px',
+        background: '#ececec',
+        borderBottom: '1px solid #dcdcdc',
+        gap: 12,
       }}
     >
-      <Space size={8} align="center">
-        <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 18 }} />
-        <Text strong style={{ fontSize: 15 }}>
-          {title}
-        </Text>
+      {/* 交通灯 */}
+      <Space size={8}>
+        <TrafficLight color="#ff5f57" />
+        <TrafficLight color="#febc2e" />
+        <TrafficLight color="#28c840" />
       </Space>
 
-      <Space size={16} align="center">
-        {model ? <Tag color="blue">{model}</Tag> : null}
+      {/* 前进后退 */}
+      <Space size={2} style={{ marginLeft: 6, color: '#888' }}>
+        <Button type="text" size="small" icon={<LeftOutlined />} aria-label="后退" style={{ color: '#888' }} />
+        <Button type="text" size="small" icon={<RightOutlined />} aria-label="前进" style={{ color: '#888' }} />
+      </Space>
+
+      {/* 中部标题胶囊 */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            background: '#fff',
+            border: '1px solid #e0e0e0',
+            borderRadius: 8,
+            padding: '4px 16px',
+            minWidth: 360,
+            justifyContent: 'center',
+            color: '#3a3a3a',
+            fontSize: 13,
+          }}
+        >
+          {title}
+          <PlusOutlined style={{ fontSize: 11, color: '#999' }} />
+        </div>
+      </div>
+
+      {/* 右侧图标 */}
+      <Space size={10} align="center">
         <ModeToggle mode={mode} onChange={onModeChange} />
-        <Button
-          type="text"
-          icon={<SettingOutlined />}
-          onClick={onOpenSettings}
-          title="设置"
-          aria-label="设置"
-        />
+        <Button type="text" size="small" icon={<SettingOutlined />} onClick={onOpenSettings} aria-label="设置" style={{ color: '#888' }} />
+        <Button type="text" size="small" icon={<ClockCircleOutlined />} aria-label="历史" style={{ color: '#888' }} />
+        <span
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: '50%',
+            background: '#cdd6e0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#5a6e85',
+          }}
+        >
+          <UserOutlined style={{ fontSize: 13 }} />
+        </span>
       </Space>
     </div>
   );

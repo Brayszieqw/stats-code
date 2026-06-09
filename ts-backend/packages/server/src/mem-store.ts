@@ -2,7 +2,26 @@
 // Mirrors agent_core::store::MemSessionStore semantics.
 
 import { randomUUID } from 'node:crypto';
-import { StoreError, type Session, type SessionStore, type SessionSettings, type DatasetSummary } from './state.js';
+import { StoreError, type Session, type SessionStore, type SessionSettings, type DatasetSummary, type SessionSummary } from './state.js';
+
+const TITLE_MAX_CHARS = 20;
+const DEFAULT_TITLE = '新对话';
+
+/** Derive a history title from the first User text message, else the default. */
+function deriveTitle(session: Session): string {
+  for (const msg of session.messages) {
+    if ('User' in msg) {
+      const content = msg.User.content;
+      if ('Text' in content) {
+        const text = content.Text.trim();
+        if (text.length > 0) {
+          return [...text].slice(0, TITLE_MAX_CHARS).join('');
+        }
+      }
+    }
+  }
+  return DEFAULT_TITLE;
+}
 
 export class MemSessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
@@ -49,5 +68,20 @@ export class MemSessionStore implements SessionStore {
     }
     s.datasets.push(dataset);
     return Promise.resolve();
+  }
+
+  list(): Promise<SessionSummary[]> {
+    const summaries: SessionSummary[] = [...this.sessions.values()].map((s) => ({
+      id: s.id,
+      status: s.status,
+      created_at: s.created_at,
+      last_active_at: s.last_active_at,
+      message_count: s.messages.length,
+      title: deriveTitle(s),
+      dataset_count: s.datasets.length,
+    }));
+    // Sort by last_active_at descending (most recent first, Requirement 11.2).
+    summaries.sort((a, b) => b.last_active_at.localeCompare(a.last_active_at));
+    return Promise.resolve(summaries);
   }
 }

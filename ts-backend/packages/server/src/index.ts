@@ -15,6 +15,7 @@ export {
   type Session,
   type DatasetSummary,
   type SessionSettings,
+  type SessionSummary,
   type AgentEvent,
   type UserMessageInput,
   type MessageHandler,
@@ -24,6 +25,10 @@ export {
   type CoverageMatrixProvider,
   type SidecarProvider,
   type SnapshotProvider,
+  type SkillRunnerLike,
+  type SkillRegistryLike,
+  type RunSkillContext,
+  type RunSkillDescriptor,
 } from './state.js';
 export { serializeSseFrame } from './sse.js';
 export {

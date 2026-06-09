@@ -10,6 +10,21 @@ export type DatasetSummary = z.infer<typeof domain.datasetSummary>;
 export type ColumnSummary = z.infer<typeof domain.columnSummary>;
 export type SessionSettings = z.infer<typeof domain.sessionSettings>;
 
+/**
+ * Lightweight session summary for the history list (Requirement 11). Shaped to
+ * match the `sessionSummary` zod contract (contract/domain.ts). Never includes
+ * sensitive fields (no api_key — the session entity does not carry one).
+ */
+export interface SessionSummary {
+  id: string;
+  status: z.infer<typeof domain.sessionStatus>;
+  created_at: string;
+  last_active_at: string;
+  message_count: number;
+  title: string;
+  dataset_count: number;
+}
+
 export class StoreError extends Error {
   constructor(
     public readonly kind: 'not_found' | 'archived' | 'internal',
@@ -26,6 +41,8 @@ export interface SessionStore {
   get(id: string): Promise<Session>;
   updateSettings(id: string, settings: SessionSettings): Promise<void>;
   appendDataset(id: string, dataset: DatasetSummary): Promise<void>;
+  /** List session summaries, sorted by last_active_at descending (Requirement 11.2). */
+  list(): Promise<SessionSummary[]>;
 }
 
 export interface LlmConfig {
@@ -66,6 +83,38 @@ export interface DatasetStore {
 }
 
 // ---------------------------------------------------------------------------
+// Code-run endpoint dependencies (Requirement 12). Structural interfaces so the
+// server router can stay decoupled from the concrete conversation-layer
+// SkillRunner/SkillRegistry implementations (avoids a circular import).
+// ---------------------------------------------------------------------------
+
+/** Context handed to a skill run: the raw dataset bytes + its summary. */
+export interface RunSkillContext {
+  datasetBytes: Uint8Array;
+  datasetSummary: DatasetSummary;
+}
+
+/** Minimal descriptor surface the runner consumes. */
+export interface RunSkillDescriptor {
+  skillId: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/** Structural view of the SkillRegistry (lookup by skill id). */
+export interface SkillRegistryLike {
+  get(skillId: string): RunSkillDescriptor | undefined;
+}
+
+/** Structural view of the in-process SkillRunner (Requirement 12.2: never spawns). */
+export interface SkillRunnerLike {
+  run(
+    descriptor: RunSkillDescriptor,
+    args: Record<string, unknown>,
+    ctx: RunSkillContext,
+  ): Promise<unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator message handler + AgentEvent stream (task 3.3).
 // Mirrors agent_core::orchestrator::AgentEvent and the Rust SSE emitter in
 // crates/agent-server/src/handlers/message.rs. Each variant maps to a distinct
@@ -100,6 +149,10 @@ export interface AppState {
   sessionStore: SessionStore;
   messageHandler?: MessageHandler;
   datasetStore?: DatasetStore;
+  /** In-process skill runner for the code-run endpoint (Requirement 12). */
+  skillRunner?: SkillRunnerLike;
+  /** Skill registry for resolving a run target descriptor (Requirement 12). */
+  skillRegistry?: SkillRegistryLike;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
   /** Whether the backend can drive an OAuth flow (Requirement 13.4/13.5). */

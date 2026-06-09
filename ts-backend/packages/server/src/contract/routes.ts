@@ -10,8 +10,11 @@
 import { z } from 'zod';
 import {
   session,
+  sessionSummary,
   sessionSettings,
   datasetSummary,
+  skillResult,
+  runRequest,
   errorPayload,
   llmProvider,
 } from './domain.js';
@@ -190,6 +193,22 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     path: '/api/snapshot/export',
     request: snapshotExportRequest,
     response: snapshotExportResponse,
+    successStatus: 200,
+  },
+  // --- additions for the dual-mode frontend (Requirements 11, 12) ----------
+  {
+    id: 'list_sessions',
+    method: 'GET',
+    path: '/api/sessions',
+    response: z.array(sessionSummary),
+    successStatus: 200,
+  },
+  {
+    id: 'run_skill',
+    method: 'POST',
+    path: '/api/sessions/:sid/run',
+    request: runRequest,
+    response: skillResult,
     successStatus: 200,
   },
 ];

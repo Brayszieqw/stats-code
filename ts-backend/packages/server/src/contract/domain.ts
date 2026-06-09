@@ -74,6 +74,17 @@ export const skillError = z.object({
   stderr_excerpt: z.string().nullable(),
 });
 
+/**
+ * RunRequest — code-run endpoint body (Requirement 12). Targets a skill (or its
+ * algorithm) + dataset with an args bag. Response reuses the `skillResult` shape.
+ */
+export const runRequest = z.object({
+  skill_id: z.string(),
+  dataset_id: z.string(),
+  args: z.record(z.string(), z.unknown()).default({}),
+});
+export type RunRequest = z.infer<typeof runRequest>;
+
 // SkillOutcome: externally-tagged enum.
 export const skillOutcome = z.union([
   z.literal('Pending'),
@@ -174,6 +185,22 @@ export const session = z.object({
   uploaded_bytes: z.number().int().nonnegative(),
 });
 export type Session = z.infer<typeof session>;
+
+/**
+ * SessionSummary — lightweight history-list projection (Requirement 11).
+ * Derived from a Session; never carries sensitive fields. `title` is the first
+ * user text message (truncated), otherwise "新对话".
+ */
+export const sessionSummary = z.object({
+  id: sessionId,
+  status: sessionStatus,
+  created_at: dateTime,
+  last_active_at: dateTime,
+  message_count: z.number().int().nonnegative(),
+  title: z.string(),
+  dataset_count: z.number().int().nonnegative(),
+});
+export type SessionSummary = z.infer<typeof sessionSummary>;
 
 // --- error.rs -------------------------------------------------------------
 

@@ -35,6 +35,55 @@ function storeErrorResponse(err: StoreError): { status: number; body: unknown } 
   }
 }
 
+/** Structural SkillRunError detail (avoids importing the conversation layer). */
+interface SkillRunErrorDetail {
+  kind: 'timeout' | 'invalid_args' | 'execution_failed';
+  message?: string;
+  missing?: string[];
+  diagnosticExcerpt?: string;
+  wallSecs?: number;
+}
+
+function skillRunDetail(err: unknown): SkillRunErrorDetail | null {
+  const detail = (err as { detail?: unknown } | null)?.detail;
+  if (
+    detail &&
+    typeof detail === 'object' &&
+    typeof (detail as { kind?: unknown }).kind === 'string'
+  ) {
+    return detail as SkillRunErrorDetail;
+  }
+  return null;
+}
+
+/** Map a SkillRunError → HTTP status (R12.4 invalid_args→422, R12.5 timeout→504). */
+function runErrorStatus(err: unknown): number {
+  const detail = skillRunDetail(err);
+  switch (detail?.kind) {
+    case 'invalid_args':
+      return 422;
+    case 'timeout':
+      return 504;
+    default:
+      return 500;
+  }
+}
+
+/** Map a SkillRunError → contract ErrorPayload body. */
+function runErrorBody(err: unknown): { error_code: string; message: string } {
+  const detail = skillRunDetail(err);
+  switch (detail?.kind) {
+    case 'invalid_args':
+      return { error_code: 'SkillInvalidArgs', message: detail.message ?? '缺少必需参数' };
+    case 'timeout':
+      return { error_code: 'SkillTimeout', message: `运行超时（${detail.wallSecs ?? 120}s）` };
+    case 'execution_failed':
+      return { error_code: 'SkillExecutionFailed', message: detail.diagnosticExcerpt ?? '运行失败' };
+    default:
+      return { error_code: 'SkillExecutionFailed', message: (err as Error)?.message ?? '运行失败' };
+  }
+}
+
 export interface BuildRouterOptions {
   state: AppState;
   /** Install the SPA fallback (task 3.4). Prod enables this; tests may opt in. */
@@ -79,6 +128,12 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   app.post('/api/sessions', async (_req, reply) => {
     const session = await state.sessionStore.create();
     return reply.code(201).send(session);
+  });
+
+  // GET /api/sessions → 200 with session summaries (empty → []). Requirement 11.
+  app.get('/api/sessions', async (_req, reply) => {
+    const summaries = await state.sessionStore.list();
+    return reply.send(summaries);
   });
 
   // GET /api/sessions/:sid
@@ -266,6 +321,70 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       }
     },
   );
+
+  // POST /api/sessions/:sid/run — in-process skill execution (Requirement 12).
+  app.post<{ Params: { sid: string } }>('/api/sessions/:sid/run', async (req, reply) => {
+    // Resolve the session first: 404 if missing, 409 if archived (R12.6).
+    let session;
+    try {
+      session = await state.sessionStore.get(req.params.sid);
+    } catch (err) {
+      if (err instanceof StoreError) {
+        const { status, body } = storeErrorResponse(err);
+        return reply.code(status).send(body);
+      }
+      throw err;
+    }
+    if (session.status === 'Archived') {
+      return reply.code(409).send({ error_code: 'SessionArchived', message: '会话已归档，仅支持只读访问' });
+    }
+
+    // Validate the request body against the contract (R12.1/12.3).
+    const parsed = domain.runRequest.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid run request body' });
+    }
+
+    // The runner + registry + dataset store must be wired (Requirement 12.2).
+    if (!state.skillRunner || !state.skillRegistry || !state.datasetStore) {
+      return reply
+        .code(500)
+        .send({ error_code: 'SkillExecutionFailed', message: '运行服务尚未初始化' });
+    }
+
+    const descriptor = state.skillRegistry.get(parsed.data.skill_id);
+    if (!descriptor) {
+      return reply
+        .code(422)
+        .send({ error_code: 'SkillInvalidArgs', message: `unknown skill: ${parsed.data.skill_id}` });
+    }
+
+    // Resolve the dataset summary from the session, then load its raw bytes.
+    const summary = session.datasets.find((d) => d.dataset_id === parsed.data.dataset_id);
+    if (!summary) {
+      return reply
+        .code(422)
+        .send({ error_code: 'SkillInvalidArgs', message: `dataset not found in session: ${parsed.data.dataset_id}` });
+    }
+    let datasetBytes: Uint8Array;
+    try {
+      datasetBytes = await state.datasetStore.readRawById(parsed.data.dataset_id);
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error_code: 'SkillExecutionFailed', message: (err as Error).message });
+    }
+
+    try {
+      const result = await state.skillRunner.run(descriptor, parsed.data.args, {
+        datasetBytes,
+        datasetSummary: summary,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return reply.code(runErrorStatus(err)).send(runErrorBody(err));
+    }
+  });
 
   // GET /api/llm-status — never exposes the api key.
   app.get('/api/llm-status', async () => {

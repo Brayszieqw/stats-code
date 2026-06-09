@@ -92,6 +92,8 @@ export function defaultState(): AppState {
   return {
     sessionStore,
     datasetStore,
+    skillRunner: runner,
+    skillRegistry: registry,
     coverageMatrixProvider: createCoverageMatrixProvider(),
     sidecarProvider: createSidecarProvider(),
     llmConfigStore,

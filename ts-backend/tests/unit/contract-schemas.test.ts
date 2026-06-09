@@ -4,8 +4,8 @@ import { contract } from '@stats-code/server';
 const { ROUTE_CONTRACTS, allRouteJsonSchemas, HTTP_STATUS_FOR, domain, sidecar } = contract;
 
 describe('route contracts', () => {
-  it('declares exactly the 13 API_Contract routes', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(13);
+  it('declares the 13 API_Contract routes plus the dual-mode additions', () => {
+    expect(ROUTE_CONTRACTS).toHaveLength(15);
     const ids = ROUTE_CONTRACTS.map((r) => r.id).sort();
     expect(ids).toEqual(
       [
@@ -15,6 +15,7 @@ describe('route contracts', () => {
         'get_llm_status',
         'get_session',
         'health',
+        'list_sessions',
         'patch_settings',
         'post_audio',
         'post_dataset',
@@ -22,6 +23,7 @@ describe('route contracts', () => {
         'post_message',
         'post_sidecar',
         'post_snapshot_export',
+        'run_skill',
       ].sort(),
     );
   });
@@ -41,7 +43,7 @@ describe('route contracts', () => {
 
   it('generates JSON Schema for every route with a body or response', () => {
     const schemas = allRouteJsonSchemas();
-    expect(Object.keys(schemas)).toHaveLength(13);
+    expect(Object.keys(schemas)).toHaveLength(15);
     // health has a response schema
     expect(schemas['health']?.response).toBeDefined();
     // patch_settings has both a request and a response

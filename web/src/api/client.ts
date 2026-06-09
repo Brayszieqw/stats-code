@@ -7,8 +7,11 @@
 
 import type {
   Session,
+  SessionSummary,
   SessionSettings,
   DatasetSummary,
+  RunRequest,
+  SkillResult,
   PostAudioResponse,
   HealthResponse,
   ErrorPayload,
@@ -62,6 +65,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export async function createSession(): Promise<Session> {
   const res = await fetch('/api/sessions', { method: 'POST' });
   return handleResponse<Session>(res);
+}
+
+/** GET /api/sessions — 列出会话摘要（历史会话，倒序）。Requirement 11. */
+export async function listSessions(): Promise<SessionSummary[]> {
+  const res = await fetch('/api/sessions');
+  return handleResponse<SessionSummary[]>(res);
 }
 
 /** GET /api/sessions/:sid — 获取会话状态与历史 */
@@ -171,6 +180,19 @@ export async function getDataset(
 ): Promise<DatasetSummary> {
   const res = await fetch(`/api/sessions/${sid}/datasets/${did}`);
   return handleResponse<DatasetSummary>(res);
+}
+
+/**
+ * POST /api/sessions/:sid/run — 运行指定 skill/algorithm（进程内执行）。
+ * Requirement 12. 成功返回 SkillResult；失败抛出携带错误码的 ApiError。
+ */
+export async function runSkill(sid: string, body: RunRequest): Promise<SkillResult> {
+  const res = await fetch(`/api/sessions/${sid}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<SkillResult>(res);
 }
 
 // ---------------------------------------------------------------------------

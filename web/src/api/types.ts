@@ -29,6 +29,21 @@ export interface Session {
   uploaded_bytes: number;
 }
 
+/**
+ * Lightweight session summary returned by `GET /api/sessions` (Requirement 11).
+ * Mirrors the backend `sessionSummary` zod contract; never carries sensitive
+ * fields. `title` is the first user text message (truncated) or "新对话".
+ */
+export interface SessionSummary {
+  id: SessionId;
+  status: SessionStatus;
+  created_at: string;
+  last_active_at: string;
+  message_count: number;
+  title: string;
+  dataset_count: number;
+}
+
 // ---------------------------------------------------------------------------
 // Message
 // ---------------------------------------------------------------------------
@@ -162,6 +177,17 @@ export type RiskSignal =
 export interface SkillError {
   message: string;
   stderr_excerpt: string | null;
+}
+
+/**
+ * RunRequest — body for `POST /api/sessions/:sid/run` (Requirement 12).
+ * Targets a skill (or its algorithm) + dataset with an args bag; the response
+ * reuses the `SkillResult` shape.
+ */
+export interface RunRequest {
+  skill_id: string;
+  dataset_id: DatasetId;
+  args: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

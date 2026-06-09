@@ -58,7 +58,11 @@ export function ReportViewer({ messages, selectedDataset }: ReportViewerProps) {
         }
         extra={
           analysis ? (
-            <ExportSnapshotButton runId={analysis.run_id} destination="" runStatus={analysis.run_status} />
+            <ExportSnapshotButton
+              runId={analysis.run_id}
+              destination={`snapshot-${analysis.run_id}.zip`}
+              runStatus={analysis.run_status}
+            />
           ) : undefined
         }
       >

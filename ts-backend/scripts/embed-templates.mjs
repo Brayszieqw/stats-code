@@ -39,7 +39,7 @@ for (const dir of readdirSync(templatesRoot)) {
   }
 }
 
-const banner = '// AUTO-GENERATED from crates/stats-code/src/sidecar/templates by scripts/embed-templates.mjs. Do not edit.\n';
+const banner = '// AUTO-GENERATED from packages/engine/src/sidecar/templates by scripts/embed-templates.mjs. Do not edit.\n';
 const body = `export const SIDECAR_TEMPLATES: Readonly<Record<string, string>> = ${JSON.stringify(entries, null, 2)};\n`;
 writeFileSync(out, banner + body);
 console.log(`embedded ${count} sidecar template(s) → ${out}`);

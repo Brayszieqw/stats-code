@@ -1,6 +1,4 @@
-﻿/target
-
-# Frontend generated/dependency outputs
+﻿# Frontend generated/dependency outputs
 /web/node_modules/
 /web/dist/
 /web/tsconfig.tsbuildinfo
@@ -9,8 +7,6 @@
 # Local runtime config/state
 /config/agent.yaml
 /data/
-# Local Cargo config / generated backups
-/.cargo/
 *.bak-*
 
 # Debug / scratch files
@@ -18,9 +14,6 @@
 *.log.err
 *.pdb
 err*.txt
-scratch_gamma.rs
-scratch_gamma.exe
-scratch_gamma.pdb
 render_lines.txt
 schema_types.txt
 install_log.txt
@@ -52,4 +45,3 @@ codex_tmp/
 /tables/
 stats-code-artifacts/
 /scratch-artifacts/
-crates/stats-code/examples/target/

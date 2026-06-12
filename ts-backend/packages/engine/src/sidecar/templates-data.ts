@@ -1,4 +1,4 @@
-// AUTO-GENERATED from crates/stats-code/src/sidecar/templates by scripts/embed-templates.mjs. Do not edit.
+// AUTO-GENERATED from packages/engine/src/sidecar/templates by scripts/embed-templates.mjs. Do not edit.
 export const SIDECAR_TEMPLATES: Readonly<Record<string, string>> = {
   "anova\u0000Python": "import pandas as pd\nimport statsmodels.api as sm\nfrom statsmodels.formula.api import ols\nfrom statsmodels.stats.anova import anova_lm\n\ndata = pd.read_csv(\"data.csv\")\nmodel = ols(\"{{column.0.name}} ~ C({{column.1.name}})\", data=data).fit()\nresult = anova_lm(model, typ=2)\nprint(result)\n",
   "attributable_risk\u0000Python": "import numpy as np\nimport pandas as pd\n\ndata = pd.read_csv(\"data.csv\")\ntable = pd.crosstab(data[\"{{column.0.name}}\"], data[\"{{column.1.name}}\"]).to_numpy(dtype=float)\nrisk_exposed = table[1, 1] / table[1].sum()\nrisk_unexposed = table[0, 1] / table[0].sum()\nattributable_risk = float(risk_exposed - risk_unexposed)\nattributable_risk_percent = float((risk_exposed - risk_unexposed) / risk_exposed) if risk_exposed > 0 else float(\"nan\")\nprint(attributable_risk)\nprint(attributable_risk_percent)\n",

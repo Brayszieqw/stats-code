@@ -2,7 +2,7 @@
 //
 // The parity suite diffs TS algorithm output against values recorded from the
 // Reference_Software (R/SAS/Python/SPSS) and stored under
-// crates/stats-code/validation/known_values/<software>/<algorithm>/baseline.json.
+// tests/parity/known_values/<software>/<algorithm>/baseline.json.
 // These recordings are the parity oracle: a `live` cell is parity-validatable
 // because a baseline exists here. A required-but-missing baseline is itself a
 // parity failure (Requirement 2.6).
@@ -12,17 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// tests/parity → repo/ts-backend/tests/parity ; baselines live in the Rust crate.
-export const KNOWN_VALUES_ROOT = join(
-  here,
-  '..',
-  '..',
-  '..',
-  'crates',
-  'stats-code',
-  'validation',
-  'known_values',
-);
+export const KNOWN_VALUES_ROOT = join(here, 'known_values');
 
 export interface Baseline {
   expected_outputs: Record<string, number>;

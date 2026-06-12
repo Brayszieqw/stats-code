@@ -1,7 +1,7 @@
 // scripts/embed-templates.mjs — embed sidecar templates as a TS map (task 13.3).
 //
-// Reads the authoritative templates from the Rust crate
-// (crates/stats-code/src/sidecar/templates/<software>/<id>.tmpl.txt) and emits
+// Reads the authoritative templates from
+// (packages/engine/src/sidecar/templates/<software>/<id>.tmpl.txt) and emits
 // packages/engine/src/sidecar/templates-data.ts with a frozen map keyed by
 // "<id>\u0000<software>". Mirrors the Rust include_str! approach so templates
 // survive esbuild/SEA bundling with no runtime file reads.
@@ -12,8 +12,7 @@ import { dirname, resolve, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const repoRoot = resolve(root, '..');
-const templatesRoot = resolve(repoRoot, 'crates/stats-code/src/sidecar/templates');
+const templatesRoot = resolve(root, 'packages/engine/src/sidecar/templates');
 const out = resolve(root, 'packages/engine/src/sidecar/templates-data.ts');
 
 const SOFTWARE_DIR_TO_TOKEN = { r: 'R', sas: 'SAS', python: 'Python', spss: 'SPSS' };

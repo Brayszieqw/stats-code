@@ -1,171 +1,100 @@
 <#
 .SYNOPSIS
-    Builds stats-code.exe in release/prod mode and assembles the
-    Distribution_Archive for the single-command-launcher feature.
+    Builds the single-file stats-code.exe (Node SEA) and assembles the
+    Distribution_Archive: stats-code-<version>-windows-x64.zip.
 
 .DESCRIPTION
-    Implements the Release_Script contract from the single-command-launcher
-    spec (Requirements 13.1 - 13.5):
+    TypeScript-backend release pipeline (replaces the retired cargo build):
+        1. Build the frontend (web/dist, embedded into the exe as SEA assets).
+        2. Build the backend (embed templates/matrix + tsc project references).
+        3. Produce stats-code.exe via Node SEA (npm run sea) and smoke-test it.
+        4. Stage stats-code.exe + install.ps1 (+ README.md if present),
+           write SHA256SUMS.txt, pack everything flat into the zip.
 
-        1. Resolve the workspace package version from the root Cargo.toml
-           (`[workspace.package].version`), with fallback to
-           `crates/stats-code/Cargo.toml`.
-        2. Build stats-code.exe in release mode without the `dev-vite`
-           feature (prod = web/dist embedded via rust-embed).
-        3. Stage `target/stats-code-release/` with stats-code.exe,
-           install.ps1, README.md.
-        4. Compute SHA-256 hashes for stats-code.exe and install.ps1,
-           write `SHA256SUMS.txt` (each line: <lowercase-hex>  <filename>).
-        5. Pack the four staged files into
-           `stats-code-<version>-windows-x64.zip` at the same staging dir.
+    Version source of truth: ts-backend/packages/engine/package.json.
+    Archive naming: scripts/lib/archive-name.ps1::archive_name.
 
 .NOTES
-    Preconditions:
-      - `install.ps1` MUST exist at the repository root.
-      - `README.md` MUST exist at the repository root.
-    Both are part of the Distribution_Archive contract (R13.2). The script
-    fails early with a clear error if either is missing.
-
-    Archive naming uses the shared helper
-    `scripts/lib/archive-name.ps1::archive_name`, mirroring the Rust helper
-    in `crates/stats-code/src/release.rs` so PowerShell + Rust agree on the
-    template `stats-code-<version>-windows-x64.zip` (Property 13).
-
-    SHA256SUMS.txt format mirrors the Linux `sha256sum` convention:
-        <64-hex-lowercase><two-spaces><filename>
-    so downstream consumers can verify with `sha256sum -c` (Property 14).
+    Run from anywhere; paths resolve relative to the repo root.
+    Requires Node.js >= 22 and installed npm dependencies (npm ci) in
+    both web/ and ts-backend/.
 #>
-
-[CmdletBinding()]
-param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ---------------------------------------------------------------------------
-# Paths & helpers
-# ---------------------------------------------------------------------------
-
-# scripts/release.ps1 lives one level under the repo root.
-$RepoRoot      = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$WorkspaceToml = Join-Path $RepoRoot 'Cargo.toml'
-$CrateToml     = Join-Path $RepoRoot 'crates/stats-code/Cargo.toml'
-$InstallScript = Join-Path $RepoRoot 'install.ps1'
-$ReadmeFile    = Join-Path $RepoRoot 'README.md'
-$ReleaseExe    = Join-Path $RepoRoot 'target/release/stats-code.exe'
-$StageDir      = Join-Path $RepoRoot 'target/stats-code-release'
-
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/archive-name.ps1')
 
-function Get-WorkspaceVersion {
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)] [string]$WorkspaceTomlPath,
-        [Parameter(Mandatory = $true)] [string]$CrateTomlPath
-    )
-
-    # Primary source: [workspace.package].version in the root Cargo.toml.
-    if (Test-Path -LiteralPath $WorkspaceTomlPath -PathType Leaf) {
-        $content = Get-Content -LiteralPath $WorkspaceTomlPath -Raw
-        # Match the [workspace.package] table block, then the first version =
-        # "..." inside it. Stop at the next [section] header or end of file.
-        $blockMatch = [regex]::Match(
-            $content,
-            '(?ms)^\[workspace\.package\]\s*\r?\n(?<body>.*?)(?=^\[|\Z)'
-        )
-        if ($blockMatch.Success) {
-            $verMatch = [regex]::Match(
-                $blockMatch.Groups['body'].Value,
-                '(?m)^\s*version\s*=\s*"(?<v>[^"]+)"'
-            )
-            if ($verMatch.Success) {
-                return $verMatch.Groups['v'].Value
-            }
-        }
-    }
-
-    # Fallback: scan crates/stats-code/Cargo.toml for an explicit
-    # `version = "..."` line under [package]. (The current crate inherits
-    # from the workspace via `version.workspace = true`, so this branch is
-    # only a safety net for configurations that pin a literal version.)
-    if (Test-Path -LiteralPath $CrateTomlPath -PathType Leaf) {
-        $content = Get-Content -LiteralPath $CrateTomlPath -Raw
-        $blockMatch = [regex]::Match(
-            $content,
-            '(?ms)^\[package\]\s*\r?\n(?<body>.*?)(?=^\[|\Z)'
-        )
-        if ($blockMatch.Success) {
-            $verMatch = [regex]::Match(
-                $blockMatch.Groups['body'].Value,
-                '(?m)^\s*version\s*=\s*"(?<v>[^"]+)"'
-            )
-            if ($verMatch.Success) {
-                return $verMatch.Groups['v'].Value
-            }
-        }
-    }
-
-    throw "Unable to resolve crate version: neither [workspace.package].version in '$WorkspaceTomlPath' nor [package].version in '$CrateTomlPath' is a literal string."
-}
+$WebDir        = Join-Path $RepoRoot 'web'
+$BackendDir    = Join-Path $RepoRoot 'ts-backend'
+$EnginePkg     = Join-Path $BackendDir 'packages/engine/package.json'
+$BuiltExe      = Join-Path $BackendDir 'build/stats-code.exe'
+$InstallScript = Join-Path $RepoRoot 'install.ps1'
+$ReadmeFile    = Join-Path $RepoRoot 'README.md'
+$StageDir      = Join-Path $BackendDir 'build/release/stage'
+$OutDir        = Join-Path $BackendDir 'build/release'
 
 function Get-Sha256Lower {
-    [OutputType([string])]
-    param([Parameter(Mandatory = $true)] [string]$Path)
-
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    param([Parameter(Mandatory = $true)][string]$Path)
+    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-# ---------------------------------------------------------------------------
-# Step 0 - Validate preconditions
-# ---------------------------------------------------------------------------
-
-if (-not (Test-Path -LiteralPath $InstallScript -PathType Leaf)) {
-    throw "Precondition failed: '$InstallScript' is missing. Distribution_Archive (R13.2) requires install.ps1 at the repository root. Author it (task 13.1) before running release.ps1."
-}
-
-if (-not (Test-Path -LiteralPath $ReadmeFile -PathType Leaf)) {
-    throw "Precondition failed: '$ReadmeFile' is missing. Distribution_Archive (R13.2) requires README.md at the repository root. Author it before running release.ps1."
-}
-
-$Version = Get-WorkspaceVersion -WorkspaceTomlPath $WorkspaceToml -CrateTomlPath $CrateToml
-$ArchiveName = archive_name -Version $Version
-$ArchivePath = Join-Path $StageDir $ArchiveName
-
-Write-Host "stats-code release builder"
-Write-Host "  repo root    : $RepoRoot"
-Write-Host "  version      : $Version"
-Write-Host "  staging dir  : $StageDir"
-Write-Host "  archive name : $ArchiveName"
-
-# ---------------------------------------------------------------------------
-# Step 1 - cargo build --release -p stats-code (prod, no dev-vite)
-# ---------------------------------------------------------------------------
-
-Write-Host ''
-Write-Host '[1/4] cargo build --release -p stats-code'
-Push-Location $RepoRoot
-try {
-    & cargo build --release -p stats-code
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo build failed with exit code $LASTEXITCODE."
+function Invoke-Npm {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkingDir,
+        [Parameter(Mandatory = $true)][string[]]$Args
+    )
+    Push-Location $WorkingDir
+    try {
+        & npm.cmd @Args
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm $($Args -join ' ') failed in $WorkingDir (exit $LASTEXITCODE)."
+        }
+    } finally {
+        Pop-Location
     }
 }
-finally {
-    Pop-Location
-}
-
-if (-not (Test-Path -LiteralPath $ReleaseExe -PathType Leaf)) {
-    throw "cargo build reported success but '$ReleaseExe' is missing."
-}
 
 # ---------------------------------------------------------------------------
-# Step 2 - Stage target/stats-code-release/
+# Version + archive name
+# ---------------------------------------------------------------------------
+
+$Version = (Get-Content -LiteralPath $EnginePkg -Raw | ConvertFrom-Json).version
+if (-not $Version) { throw "could not read version from $EnginePkg." }
+$ArchiveName = archive_name -Version $Version
+$ArchivePath = Join-Path $OutDir $ArchiveName
+
+Write-Host "stats-code release $Version -> $ArchiveName"
+
+# ---------------------------------------------------------------------------
+# Step 1 - frontend build (embedded into the exe)
 # ---------------------------------------------------------------------------
 
 Write-Host ''
-Write-Host "[2/4] staging files into $StageDir"
+Write-Host '[1/4] building frontend (web/dist)'
+Invoke-Npm -WorkingDir $WebDir -Args @('run', 'build')
 
-# Wipe a previous run's stage so we never ship stale bytes.
+# ---------------------------------------------------------------------------
+# Step 2 - backend build + SEA exe + smoke test
+# ---------------------------------------------------------------------------
+
+Write-Host ''
+Write-Host '[2/4] building backend + single-file exe (Node SEA)'
+Invoke-Npm -WorkingDir $BackendDir -Args @('run', 'build')
+Invoke-Npm -WorkingDir $BackendDir -Args @('run', 'sea')
+if (-not (Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
+    throw "SEA build reported success but '$BuiltExe' is missing."
+}
+Invoke-Npm -WorkingDir $BackendDir -Args @('run', 'smoke')
+
+# ---------------------------------------------------------------------------
+# Step 3 - stage files and write SHA256SUMS.txt
+# ---------------------------------------------------------------------------
+
+Write-Host ''
+Write-Host "[3/4] staging files into $StageDir"
+
 if (Test-Path -LiteralPath $StageDir) {
     Remove-Item -LiteralPath $StageDir -Recurse -Force
 }
@@ -173,40 +102,32 @@ New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
 $StagedExe     = Join-Path $StageDir 'stats-code.exe'
 $StagedInstall = Join-Path $StageDir 'install.ps1'
-$StagedReadme  = Join-Path $StageDir 'README.md'
 $StagedSums    = Join-Path $StageDir 'SHA256SUMS.txt'
 
-Copy-Item -LiteralPath $ReleaseExe    -Destination $StagedExe     -Force
+Copy-Item -LiteralPath $BuiltExe      -Destination $StagedExe     -Force
 Copy-Item -LiteralPath $InstallScript -Destination $StagedInstall -Force
-Copy-Item -LiteralPath $ReadmeFile    -Destination $StagedReadme  -Force
 
-# ---------------------------------------------------------------------------
-# Step 3 - Compute SHA-256 hashes and write SHA256SUMS.txt
-# ---------------------------------------------------------------------------
+$itemsToZip = @($StagedExe, $StagedInstall, $StagedSums)
+if (Test-Path -LiteralPath $ReadmeFile -PathType Leaf) {
+    $StagedReadme = Join-Path $StageDir 'README.md'
+    Copy-Item -LiteralPath $ReadmeFile -Destination $StagedReadme -Force
+    $itemsToZip += $StagedReadme
+} else {
+    Write-Host '  note: README.md not found at repo root; archive ships without it.'
+}
 
-Write-Host ''
-Write-Host '[3/4] computing SHA-256 for stats-code.exe and install.ps1'
-
-$ExeHash     = Get-Sha256Lower -Path $StagedExe
-$InstallHash = Get-Sha256Lower -Path $StagedInstall
-
-# Two-space separator matches the GNU coreutils sha256sum format so that
-# `sha256sum -c SHA256SUMS.txt` from inside the extracted archive verifies
-# both files in one shot.
+# GNU coreutils sha256sum format (two-space separator, LF, trailing newline)
+# so `sha256sum -c SHA256SUMS.txt` verifies the extracted archive in one shot.
 $sumsLines = @(
-    "$ExeHash  stats-code.exe",
-    "$InstallHash  install.ps1"
+    "$(Get-Sha256Lower -Path $StagedExe)  stats-code.exe",
+    "$(Get-Sha256Lower -Path $StagedInstall)  install.ps1"
 )
-# Use UTF8 without BOM and LF line endings to keep the file portable; the
-# trailing newline matches the sha256sum tool convention.
 $sumsContent = ($sumsLines -join "`n") + "`n"
 [System.IO.File]::WriteAllText($StagedSums, $sumsContent, [System.Text.UTF8Encoding]::new($false))
-
-Write-Host "  stats-code.exe : $ExeHash"
-Write-Host "  install.ps1    : $InstallHash"
+$sumsLines | ForEach-Object { Write-Host "  $_" }
 
 # ---------------------------------------------------------------------------
-# Step 4 - Pack Distribution_Archive
+# Step 4 - pack the Distribution_Archive (flat, no nested folder)
 # ---------------------------------------------------------------------------
 
 Write-Host ''
@@ -215,25 +136,10 @@ Write-Host "[4/4] writing $ArchivePath"
 if (Test-Path -LiteralPath $ArchivePath) {
     Remove-Item -LiteralPath $ArchivePath -Force
 }
-
-# Pack only the four expected files, each at the archive root (no nested
-# folder). Compress-Archive expands `*` into the staged file list and stores
-# them with their leaf names, satisfying R13.2's "root directory contains
-# and only contains" clause.
-$itemsToZip = @(
-    $StagedExe,
-    $StagedInstall,
-    $StagedReadme,
-    $StagedSums
-)
 Compress-Archive -Path $itemsToZip -DestinationPath $ArchivePath -Force
-
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
 
 Write-Host ''
 Write-Host 'Release build complete.'
 Write-Host "  version : $Version"
 Write-Host "  archive : $ArchivePath"
-Write-Host "  sha256  : $StagedSums"
+Write-Host "  sums    : $StagedSums"

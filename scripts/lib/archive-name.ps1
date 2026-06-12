@@ -4,9 +4,9 @@
 # Returns the distribution archive filename for a given version string.
 # Template: stats-code-<version>-windows-x64.zip
 #
-# Mirrors the Rust helper in crates/stats-code/src/release.rs so that
-# release.ps1 (Task 12.1) and the Rust property test (Task 12.3) agree
-# byte-for-byte on the archive naming convention.
+# Single source of the archive naming convention, shared by release.ps1
+# and ts-backend/scripts/release-meta.mjs (which derives the same name
+# from packages/engine/package.json).
 #
 # Usage:
 #   . "$PSScriptRoot/lib/archive-name.ps1"

@@ -20,6 +20,44 @@ import type {
 } from './types';
 
 // ---------------------------------------------------------------------------
+// Browser file helpers
+// ---------------------------------------------------------------------------
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+export async function fileToBase64(file: File): Promise<string> {
+  if (typeof file.arrayBuffer === 'function') {
+    return arrayBufferToBase64(await file.arrayBuffer());
+  }
+
+  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('error', () => {
+      reject(reader.error ?? new Error('failed to read file'));
+    });
+    reader.addEventListener('load', () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('file reader returned a non-array-buffer result'));
+    });
+    reader.readAsArrayBuffer(file);
+  });
+  return arrayBufferToBase64(buffer);
+}
+
+// ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
 
@@ -77,6 +115,22 @@ export async function listSessions(): Promise<SessionSummary[]> {
 export async function getSession(sid: string): Promise<Session> {
   const res = await fetch(`/api/sessions/${sid}`);
   return handleResponse<Session>(res);
+}
+
+export async function deleteSession(sid: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${sid}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let payload: ErrorPayload;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {
+        error_code: 'SkillExecutionFailed',
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+    throw new ApiError(res.status, payload);
+  }
 }
 
 /** PATCH /api/sessions/:sid/settings — 更新会话设置 */
@@ -163,12 +217,12 @@ export async function postDataset(
   sid: string,
   file: File,
 ): Promise<DatasetSummary> {
-  const formData = new FormData();
-  formData.append('file', file);
+  const data = await fileToBase64(file);
 
   const res = await fetch(`/api/sessions/${sid}/datasets`, {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, data }),
   });
   return handleResponse<DatasetSummary>(res);
 }

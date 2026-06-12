@@ -30,7 +30,7 @@ import {
   isKnownModel,
   OnboardingCard,
 } from './components/OnboardingCard';
-import { postLlmConfig, ApiError } from './api/client';
+import { postLlmConfig, deleteSession, ApiError } from './api/client';
 import type { ChoiceAnswer, LlmProvider } from './api/types';
 
 const { Paragraph } = Typography;
@@ -41,6 +41,7 @@ export function AppShell() {
   const chat = useSseChat(controller.sessionId);
   const llm = useLlmStatus();
   const sessionList = useSessionList();
+  const deletingSessionIds = useRef(new Set<string>());
 
   const { setMessages } = chat;
   const { initialMessages, loading, error, isArchived } = controller;
@@ -80,6 +81,37 @@ export function AppShell() {
   }, [handleSend]);
 
   const handleVoiceTranscript = useCallback((text: string) => handleSend(text), [handleSend]);
+
+  const previousChatStatus = useRef(chat.status);
+  useEffect(() => {
+    const previous = previousChatStatus.current;
+    const completed =
+      (previous === 'connecting' || previous === 'streaming') &&
+      (chat.status === 'idle' || chat.status === 'error');
+    previousChatStatus.current = chat.status;
+    if (completed) {
+      void sessionList.refresh();
+    }
+  }, [chat.status, sessionList]);
+
+  const handleDeleteSession = useCallback(
+    async (sid: string) => {
+      if (deletingSessionIds.current.has(sid)) {
+        return;
+      }
+      deletingSessionIds.current.add(sid);
+      try {
+        await deleteSession(sid);
+        if (sid === controller.sessionId) {
+          await controller.startNewSession();
+        }
+        await sessionList.refresh();
+      } finally {
+        deletingSessionIds.current.delete(sid);
+      }
+    },
+    [controller, sessionList],
+  );
 
   // ─── LLM 配置（Onboarding + 设置抽屉）──────────────────────────────────
   const [llmSubmitting, setLlmSubmitting] = useState(false);
@@ -166,10 +198,12 @@ export function AppShell() {
   };
 
   // ─── 顶层 loading / error ──────────────────────────────────────────────
+  const modelLabel = llm.model ?? (llm.provider === 'openai' ? 'OpenAI' : 'DeepSeek');
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin indicator={<LoadingOutlined style={{ fontSize: 36 }} spin />} tip="正在加载会话..." />
+        <Spin indicator={<LoadingOutlined style={{ fontSize: 36 }} spin />} />
       </div>
     );
   }
@@ -203,6 +237,9 @@ export function AppShell() {
           onChoiceSubmit={handleChoiceSubmit}
           onRetry={handleRetry}
           onVoiceTranscript={handleVoiceTranscript}
+          modelLabel={modelLabel}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onDeleteSession={handleDeleteSession}
         />
       ) : (
         <ProModeView
@@ -215,8 +252,9 @@ export function AppShell() {
           onChoiceSubmit={handleChoiceSubmit}
           onRetry={handleRetry}
           onVoiceTranscript={handleVoiceTranscript}
-          model={llm.model}
+          model={modelLabel}
           onOpenSettings={() => setSettingsOpen(true)}
+          onDeleteSession={handleDeleteSession}
         />
       )}
 

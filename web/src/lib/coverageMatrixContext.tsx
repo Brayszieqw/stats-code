@@ -20,7 +20,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useRef,
   useState,
   type ReactElement,
   type ReactNode,
@@ -65,8 +64,8 @@ export interface CoverageMatrixProviderProps {
 
 /**
  * Fetches `/api/coverage-matrix` once on mount and exposes the result via
- * context. StrictMode-safe: a `didStart` ref guards against the double-mount
- * effect run.
+ * context. StrictMode-safe: dev-only effect cleanup cancels the obsolete
+ * request, then the second setup starts the real request.
  */
 export function CoverageMatrixProvider({
   children,
@@ -77,14 +76,8 @@ export function CoverageMatrixProvider({
     loading: true,
     error: undefined,
   });
-  const didStart = useRef(false);
 
   useEffect(() => {
-    if (didStart.current) {
-      return;
-    }
-    didStart.current = true;
-
     let cancelled = false;
     const doFetch = fetchImpl ?? fetch;
 

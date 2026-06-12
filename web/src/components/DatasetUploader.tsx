@@ -2,7 +2,7 @@
  * DatasetUploader — 数据集上传组件
  *
  * 使用 Ant Design Upload.Dragger 提供拖拽上传入口。
- * 文件类型限制：.csv / .tsv / .xlsx / .xls
+ * 文件类型限制：.csv / .tsv
  * 显示上传进度，完成后展示 DatasetSummary 摘要卡片。
  *
  * Validates: Requirements 3.1, 3.2, 3.3
@@ -34,7 +34,7 @@ export interface DatasetUploaderProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-const ACCEPT = '.csv,.tsv,.xlsx,.xls';
+const ACCEPT = '.csv,.tsv';
 
 const COLUMN_TYPE_COLORS: Record<string, string> = {
   Numeric: 'blue',
@@ -107,7 +107,7 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
             </p>
             <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
             <p className="ant-upload-hint">
-              支持 .csv、.tsv、.xlsx、.xls 格式
+              支持 .csv、.tsv 格式
             </p>
           </Dragger>
           <Button

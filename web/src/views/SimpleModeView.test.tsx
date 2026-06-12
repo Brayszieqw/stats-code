@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SimpleModeView } from './SimpleModeView';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
@@ -57,6 +57,8 @@ function renderView(props: Partial<Parameters<typeof SimpleModeView>[0]> = {}) {
       onChoiceSubmit={vi.fn()}
       onRetry={vi.fn()}
       onVoiceTranscript={vi.fn()}
+      modelLabel={props.modelLabel}
+      onOpenSettings={props.onOpenSettings}
     />,
   );
 }
@@ -92,5 +94,15 @@ describe('SimpleModeView (Requirements 2.3, 3.1, 9.3, 9.4)', () => {
     expect(screen.getByLabelText('发送')).toBeDisabled();
     // ModeToggle stays enabled.
     expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
+  });
+
+  it('wires the welcome dataset and voice controls to real drawers', () => {
+    renderView({ chat: makeChat([]), onOpenSettings: vi.fn() });
+
+    fireEvent.click(screen.getByLabelText('选择数据集'));
+    expect(screen.getByText('选择 / 上传数据集')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('语音输入'));
+    expect(screen.getByText('语音输入')).toBeInTheDocument();
   });
 });

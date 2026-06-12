@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { listSessions, runSkill, ApiError } from './client';
-import type { SessionSummary, SkillResult } from './types';
+import { listSessions, deleteSession, postDataset, runSkill, ApiError } from './client';
+import type { DatasetSummary, SessionSummary, SkillResult } from './types';
 
 function mockFetchOnce(status: number, body: unknown) {
   const fn = vi.fn().mockResolvedValue({
@@ -74,5 +74,56 @@ describe('runSkill', () => {
     await expect(
       runSkill('sid-1', { skill_id: 'model_linear', dataset_id: 'ds-1', args: {} }),
     ).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('deleteSession', () => {
+  it('DELETEs /api/sessions/:sid and accepts an empty 204 response', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      statusText: 'No Content',
+    } as Response);
+    vi.stubGlobal('fetch', fetchFn);
+
+    await expect(deleteSession('sid-1')).resolves.toBeUndefined();
+    expect(fetchFn).toHaveBeenCalledWith('/api/sessions/sid-1', { method: 'DELETE' });
+  });
+
+  it('throws ApiError on delete failure', async () => {
+    mockFetchOnce(404, { error_code: 'SessionNotFound', message: 'missing' });
+    await expect(deleteSession('sid-1')).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('postDataset', () => {
+  it('POSTs the CSV file as backend-compatible JSON/base64', async () => {
+    const summary: DatasetSummary = {
+      dataset_id: '00000000-0000-4000-8000-000000000001',
+      file_name: 'data.csv',
+      size_bytes: 8,
+      encoding: 'Utf8',
+      row_count: 1,
+      columns: [{ name: 'a', inferred_type: 'Numeric', missing_count: 0 }],
+      uploaded_at: '2026-01-01T00:00:00.000Z',
+      sha256: null,
+    };
+    const fetchFn = mockFetchOnce(201, summary);
+    const file = new File(['a,b\n1,2\n'], 'data.csv', { type: 'text/csv' });
+
+    const out = await postDataset('sid-1', file);
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/sessions/sid-1/datasets',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const [, init] = fetchFn.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as { filename: string; data: string };
+    expect(body.filename).toBe('data.csv');
+    expect(atob(body.data)).toBe('a,b\n1,2\n');
+    expect(out).toEqual(summary);
   });
 });

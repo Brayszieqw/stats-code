@@ -5,13 +5,13 @@ import {
   PlayCircleOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
-import type { DatasetSummary } from '../api/types';
+import type { DatasetSummary, RunRequest } from '../api/types';
 
 const { Text, Title, Paragraph } = Typography;
 
 export interface AnalysisConfiguratorProps {
   summary: DatasetSummary | null;
-  onSubmit: (promptText: string) => void;
+  onSubmit: (request: RunRequest, promptText: string) => void;
   disabled?: boolean;
 }
 
@@ -48,6 +48,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
     if (!summary) return;
 
     let prompt = '';
+    let request: RunRequest | null = null;
     const fileName = summary.file_name;
 
     switch (analysisType) {
@@ -64,6 +65,15 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           prompt += `- 分类变量包括: ${categorical.map((c: string) => `"${c}"`).join(', ')}，请采用频数(百分比)描述，并执行卡方检验或 Fisher 精确检验。\n`;
         }
         prompt += `请输出符合 APA 期刊发表标准的三线表格式。`;
+        request = {
+          skill_id: 'tableone',
+          dataset_id: summary.dataset_id,
+          args: {
+            ...(group ? { group } : {}),
+            continuous: continuous ?? [],
+            categorical: categorical ?? [],
+          },
+        };
         break;
       }
       case 't_test': {
@@ -72,6 +82,11 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
         prompt += `- 分组自变量为 "${group}"（应包含两个分组类别）。\n`;
         prompt += `- 待检验因变量为 "${testVar}"（数值型连续变量）。\n`;
         prompt += `请计算两组的均值、标准差、t 统计量、自由度、双侧 p 值、95% 置信区间以及效应量 Cohen's d。请同时检查方差齐性 (Levene's Test)。请生成对比箱线图的数据和学术三线表。`;
+        request = {
+          skill_id: 'ttest',
+          dataset_id: summary.dataset_id,
+          args: { group, testVar },
+        };
         break;
       }
       case 'survival': {
@@ -83,17 +98,33 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           prompt += `- 分组比较变量为 "${group}"。\n`;
         }
         prompt += `请计算中位生存时间、各时间节点的生存率、Log-rank 检验统计量与 p 值，并输出 Kaplan-Meier 生存曲线数据与学术生存表。`;
+        request = {
+          skill_id: 'survival_km',
+          dataset_id: summary.dataset_id,
+          args: { time, event: status, ...(group ? { group } : {}) },
+        };
         break;
       }
       case 'regression': {
-        const { modelType, dependent, independent, timeVar } = values;
+        const { dependent, independent, timeVar } = values;
+        const modelType = values.modelType ?? regressionType;
         if (modelType === 'cox') {
           prompt = `请对数据集 "${fileName}" 构建 Cox 比例风险回归模型 (Cox Proportional Hazards Model)。\n`;
           prompt += `- 时间变量为 "${timeVar}"，终点事件变量为 "${dependent}"。\n`;
+          request = {
+            skill_id: 'model_cox',
+            dataset_id: summary.dataset_id,
+            args: { time: timeVar, event: dependent, predictors: independent },
+          };
         } else {
           const typeLabel = modelType === 'logistic' ? 'Logistic' : '多元线性';
           prompt = `请对数据集 "${fileName}" 构建 ${typeLabel} 回归模型 (Regression Model)。\n`;
           prompt += `- 因变量 (Y) 为 "${dependent}"。\n`;
+          request = {
+            skill_id: modelType === 'logistic' ? 'model_logistic' : 'model_linear',
+            dataset_id: summary.dataset_id,
+            args: { outcome: dependent, predictors: independent },
+          };
         }
         prompt += `- 自变量 (X) 包括: ${independent.map((c: string) => `"${c}"`).join(', ')}。\n`;
         prompt += `请输出回归系数 Beta 值、标准误 SE、p 值、${modelType === 'logistic' ? '比值比 OR' : modelType === 'cox' ? '风险比 HR' : '标准化系数'}、95% 置信区间以及模型拟合度评估 (如 R²、AIC)。同时输出自变量回归效应森林图所需的数据。`;
@@ -101,7 +132,9 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
       }
     }
 
-    onSubmit(prompt);
+    if (request) {
+      onSubmit(request, prompt);
+    }
   };
 
   if (!summary) {
@@ -117,7 +150,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           可视化统计分析配置
         </Title>
       }
-      bodyStyle={{ padding: '20px' }}
+      styles={{ body: { padding: '20px' } }}
     >
       <Paragraph style={{ fontSize: '13px', color: '#5a6e85', marginBottom: '16px' }}>
         选择期望运行的统计学模块，配置对应的自变量与因变量。平台将为您自动编译为符合统计分析规范的 AI 提示词并提交计算引擎。

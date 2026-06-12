@@ -48,6 +48,22 @@ describe('SimpleSidebar (Requirements 2.1, 2.2, 9.6)', () => {
     expect(onSelect).toHaveBeenCalledWith('hist-1');
   });
 
+  it('deletes a history item through the wired delete action', () => {
+    const onDelete = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <SimpleSidebar
+        sessionList={makeList({ sessions: [summary] })}
+        onNewSession={() => {}}
+        onSelectSession={onSelect}
+        onDeleteSession={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('删除会话: 血压回归'));
+    expect(onDelete).toHaveBeenCalledWith('hist-1');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('shows a non-blocking placeholder when history fails to load', () => {
     render(
       <SimpleSidebar sessionList={makeList({ error: '网络异常' })} onNewSession={() => {}} onSelectSession={() => {}} />,
@@ -60,5 +76,53 @@ describe('SimpleSidebar (Requirements 2.1, 2.2, 9.6)', () => {
     render(<SimpleSidebar sessionList={makeList()} onNewSession={onNew} onSelectSession={() => {}} />);
     fireEvent.click(screen.getByLabelText('新对话'));
     expect(onNew).toHaveBeenCalled();
+  });
+
+  it('opens search as a real history drawer and selects a result', () => {
+    const onSelect = vi.fn();
+    render(
+      <SimpleSidebar
+        sessionList={makeList({ sessions: [summary] })}
+        onNewSession={() => {}}
+        onSelectSession={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('搜索'));
+    expect(screen.getByPlaceholderText('输入会话标题关键词')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(`搜索结果: ${summary.title}`));
+    expect(onSelect).toHaveBeenCalledWith(summary.id);
+  });
+
+  it('opens plugin actions and delegates dataset upload', () => {
+    const onOpenDatasetUpload = vi.fn();
+    render(
+      <SimpleSidebar
+        sessionList={makeList()}
+        onNewSession={() => {}}
+        onSelectSession={() => {}}
+        onOpenDatasetUpload={onOpenDatasetUpload}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('插件'));
+    fireEvent.click(screen.getByText('数据集上传与选择'));
+    expect(onOpenDatasetUpload).toHaveBeenCalled();
+  });
+
+  it('opens analysis templates and sends a selected prompt', () => {
+    const onUseTemplate = vi.fn();
+    render(
+      <SimpleSidebar
+        sessionList={makeList()}
+        onNewSession={() => {}}
+        onSelectSession={() => {}}
+        onUseTemplate={onUseTemplate}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('分析模板'));
+    fireEvent.click(screen.getByText('线性回归'));
+    expect(onUseTemplate).toHaveBeenCalledWith(expect.stringContaining('线性关系'));
   });
 });

@@ -36,6 +36,28 @@ describe('WelcomeHero (Requirements 2.4, 2.5)', () => {
     fireEvent.click(screen.getByLabelText('发送'));
     expect(onSend).toHaveBeenCalledWith('go');
   });
+
+  it('opens the wired dataset, model, and voice actions', () => {
+    const onOpenDatasetPicker = vi.fn();
+    const onOpenSettings = vi.fn();
+    const onOpenVoiceInput = vi.fn();
+    render(
+      <WelcomeHero
+        onSend={() => {}}
+        onOpenDatasetPicker={onOpenDatasetPicker}
+        onOpenSettings={onOpenSettings}
+        onOpenVoiceInput={onOpenVoiceInput}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('选择数据集'));
+    fireEvent.click(screen.getByLabelText('模型选择'));
+    fireEvent.click(screen.getByLabelText('语音输入'));
+
+    expect(onOpenDatasetPicker).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenVoiceInput).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('SuggestionCards (Requirement 2.4)', () => {

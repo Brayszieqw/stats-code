@@ -444,7 +444,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
           </Tag>
         </Space>
       }
-      bodyStyle={{ padding: '16px' }}
+      styles={{ body: { padding: '16px' } }}
       style={{ marginTop: 12 }}
     >
       <ReactECharts

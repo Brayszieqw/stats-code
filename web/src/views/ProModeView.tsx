@@ -9,8 +9,8 @@
  * Validates: Requirements 4.1, 4.2, 4.3, 4.4
  */
 
-import { useEffect, useState } from 'react';
-import { Grid, Layout, Button, Typography, Tag } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Grid, Layout, Button, Typography, Tag, Alert } from 'antd';
 import { UploadOutlined, FileTextOutlined, CloseOutlined } from '@ant-design/icons';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { ModeToggle } from '../components/ModeToggle';
@@ -18,13 +18,16 @@ import { ReportViewer } from './pro/ReportViewer';
 import { CodePanel } from './pro/CodePanel';
 import { AssistantPanel } from './pro/AssistantPanel';
 import { DatasetUploader } from '../components/DatasetUploader';
+import { AnalysisConfigurator } from '../components/AnalysisConfigurator';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
+import { runSkill, ApiError } from '../api/client';
 import { Drawer } from 'antd';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
 import type { ViewMode } from '../hooks/useModePreference';
-import type { ChoiceAnswer, DatasetSummary } from '../api/types';
+import type { ChoiceAnswer, DatasetSummary, RunRequest, SkillResult } from '../api/types';
+import type { ChatMessage } from '../hooks/useSseChat';
 
 const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -46,6 +49,7 @@ export interface ProModeViewProps {
   onVoiceTranscript: (t: string) => void;
   model?: string | null;
   onOpenSettings?: () => void;
+  onDeleteSession?: (sessionId: string) => void | Promise<void>;
 }
 
 export function ProModeView({
@@ -58,6 +62,8 @@ export function ProModeView({
   onChoiceSubmit,
   onRetry,
   onVoiceTranscript,
+  onOpenSettings,
+  onDeleteSession,
 }: ProModeViewProps) {
   const screens = useBreakpoint();
   const { sessionId, datasets, isArchived, addDataset } = controller;
@@ -65,6 +71,10 @@ export function ProModeView({
   const [selectedDataset, setSelectedDataset] = useState<DatasetSummary | null>(null);
   const [lastProfiledDataset, setLastProfiledDataset] = useState<DatasetSummary | null>(null);
   const [uploaderOpen, setUploaderOpen] = useState(false);
+  const [directRunResult, setDirectRunResult] = useState<SkillResult | null>(null);
+  const [directRunPrompt, setDirectRunPrompt] = useState('');
+  const [directRunError, setDirectRunError] = useState<string | null>(null);
+  const [directRunRunning, setDirectRunRunning] = useState(false);
   // 上下可拖拽比例：报告区占中部高度的比例（0.2–0.85）。
   const [reportFlex, setReportFlex] = useState(0.56);
   const centerRef = useState<{ el: HTMLDivElement | null }>(() => ({ el: null }))[0];
@@ -94,12 +104,47 @@ export function ProModeView({
     setSidebarCollapsed(!screens.lg);
   }, [screens.lg]);
 
-  const { result } = useLatestAnalysis(chat.messages);
+  const directRunMessage = useMemo<ChatMessage | null>(() => {
+    if (!directRunResult) return null;
+    return {
+      id: `direct-run-${directRunResult.analysis?.run_id ?? Date.now()}`,
+      role: 'agent',
+      content: directRunPrompt,
+      skillResult: directRunResult,
+      timestamp: new Date(),
+    };
+  }, [directRunPrompt, directRunResult]);
+
+  const reportMessages = useMemo(
+    () => (directRunMessage ? [...chat.messages, directRunMessage] : chat.messages),
+    [chat.messages, directRunMessage],
+  );
+
+  const { result } = useLatestAnalysis(reportMessages);
   const analysis = result?.analysis ?? null;
 
   const handleSelect = (ds: DatasetSummary | null) => {
     setSelectedDataset(ds);
     if (ds) setLastProfiledDataset(ds);
+    setDirectRunResult(null);
+    setDirectRunPrompt('');
+    setDirectRunError(null);
+  };
+
+  const handleConfiguredRun = async (request: RunRequest, promptText: string) => {
+    if (isArchived) return;
+    setDirectRunRunning(true);
+    setDirectRunError(null);
+    setDirectRunPrompt(promptText);
+    try {
+      const skillResult = await runSkill(sessionId, request);
+      setDirectRunResult(skillResult);
+      await sessionList.refresh();
+    } catch (err) {
+      setDirectRunError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '运行失败');
+    } finally {
+      setDirectRunRunning(false);
+    }
   };
 
   const docTitle = (selectedDataset ?? lastProfiledDataset)?.file_name ?? '分析报告';
@@ -125,14 +170,22 @@ export function ProModeView({
         >
           <SimpleSidebar
             sessionList={sessionList}
-            activeSessionId={sessionId}
-            onNewSession={() => {
-              void controller.startNewSession();
+          activeSessionId={sessionId}
+          onNewSession={() => {
+              void controller.startNewSession().then(() => sessionList.refresh());
             }}
-            onSelectSession={(sid) => {
-              void controller.loadSession(sid);
-            }}
-          />
+          onSelectSession={(sid) => {
+            void controller.loadSession(sid);
+          }}
+          sessionId={sessionId}
+          isArchived={isArchived}
+          decisionAssistant={controller.decisionAssistant}
+          onDecisionAssistantChange={controller.setDecisionAssistant}
+          onOpenDatasetUpload={() => setUploaderOpen(true)}
+          onOpenSettings={onOpenSettings}
+          onUseTemplate={onSend}
+          onDeleteSession={onDeleteSession}
+        />
         </Sider>
 
         {/* 中部：文档标签 + 数据集条 + 报告 + 助手 */}
@@ -217,7 +270,22 @@ export function ProModeView({
           >
             <div style={{ flexGrow: reportFlex, flexShrink: 1, flexBasis: 0, overflowY: 'auto', minHeight: 0, padding: 20 }}>
               <div style={{ maxWidth: contentMaxWidth, margin: '0 auto' }}>
-                <ReportViewer messages={chat.messages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
+                {selectedDataset ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <AnalysisConfigurator
+                      summary={selectedDataset}
+                      onSubmit={handleConfiguredRun}
+                      disabled={isArchived || directRunRunning}
+                    />
+                  </div>
+                ) : null}
+                {directRunRunning ? (
+                  <Alert type="info" showIcon message="正在运行后端统计引擎" style={{ marginBottom: 12 }} />
+                ) : null}
+                {directRunError ? (
+                  <Alert type="error" showIcon message="运行失败" description={directRunError} style={{ marginBottom: 12 }} />
+                ) : null}
+                <ReportViewer messages={reportMessages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
               </div>
             </div>
 
@@ -273,6 +341,7 @@ export function ProModeView({
             addDataset(s);
             handleSelect(s);
             setUploaderOpen(false);
+            void sessionList.refresh();
           }}
         />
       </Drawer>

@@ -250,7 +250,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
       {/* Grid of basic health metrics */}
       <Row gutter={[16, 16]}>
         <Col xs={12} sm={6}>
-          <Card className="glass-panel" size="small" bodyStyle={{ padding: '16px' }}>
+          <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">样本数量 (行数)</Text>}
               value={summary.row_count}
@@ -260,7 +260,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="glass-panel" size="small" bodyStyle={{ padding: '16px' }}>
+          <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">变量个数 (列数)</Text>}
               value={summary.columns.length}
@@ -270,7 +270,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="glass-panel" size="small" bodyStyle={{ padding: '16px' }}>
+          <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">缺失值总量</Text>}
               value={totalMissing}
@@ -280,7 +280,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="glass-panel" size="small" bodyStyle={{ padding: '16px' }}>
+          <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">数据完整率</Text>}
               value={overallCompleteness}
@@ -304,7 +304,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
                 数据结构与字段描述
               </Title>
             }
-            bodyStyle={{ padding: '12px' }}
+            styles={{ body: { padding: '12px' } }}
           >
             <Table
               dataSource={summary.columns.map((col, idx) => ({ ...col, key: idx }))}
@@ -334,7 +334,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
                 )}
               </div>
             }
-            bodyStyle={{ padding: '12px' }}
+            styles={{ body: { padding: '12px' } }}
           >
             <Paragraph style={{ fontSize: '12px', color: '#687b90', marginBottom: '12px' }}>
               学术规范预览：表格标题统一居上，使用精简的医学/统计学网格规范，缺失单元格标记为 N/A。

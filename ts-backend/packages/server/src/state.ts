@@ -6,6 +6,8 @@ import type { domain, sidecar } from './contract/index.js';
 import type { z } from 'zod';
 
 export type Session = z.infer<typeof domain.session>;
+export type Message = z.infer<typeof domain.message>;
+export type AgentBlock = z.infer<typeof domain.agentBlock>;
 export type DatasetSummary = z.infer<typeof domain.datasetSummary>;
 export type ColumnSummary = z.infer<typeof domain.columnSummary>;
 export type SessionSettings = z.infer<typeof domain.sessionSettings>;
@@ -40,7 +42,9 @@ export interface SessionStore {
   create(): Promise<Session>;
   get(id: string): Promise<Session>;
   updateSettings(id: string, settings: SessionSettings): Promise<void>;
+  appendMessages(id: string, messages: Message[]): Promise<void>;
   appendDataset(id: string, dataset: DatasetSummary): Promise<void>;
+  deleteSession(id: string): Promise<void>;
   /** List session summaries, sorted by last_active_at descending (Requirement 11.2). */
   list(): Promise<SessionSummary[]>;
 }

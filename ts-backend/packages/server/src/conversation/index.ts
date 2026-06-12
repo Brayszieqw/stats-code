@@ -29,6 +29,11 @@ export {
   type DatasetStore,
   type FsDatasetStoreOptions,
 } from './dataset-store.js';
+export {
+  createFileSessionStore,
+  defaultSessionStorePath,
+  type FileSessionStoreOptions,
+} from './file-session-store.js';
 export { detectRiskSignals } from './risk-signals.js';
 export { SkillRunner, type SkillRunnerOptions } from './skill-runner.js';
 export {

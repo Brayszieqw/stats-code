@@ -5,11 +5,12 @@ const { ROUTE_CONTRACTS, allRouteJsonSchemas, HTTP_STATUS_FOR, domain, sidecar }
 
 describe('route contracts', () => {
   it('declares the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(15);
+    expect(ROUTE_CONTRACTS).toHaveLength(16);
     const ids = ROUTE_CONTRACTS.map((r) => r.id).sort();
     expect(ids).toEqual(
       [
         'create_session',
+        'delete_session',
         'get_coverage_matrix',
         'get_dataset',
         'get_llm_status',
@@ -43,7 +44,7 @@ describe('route contracts', () => {
 
   it('generates JSON Schema for every route with a body or response', () => {
     const schemas = allRouteJsonSchemas();
-    expect(Object.keys(schemas)).toHaveLength(15);
+    expect(Object.keys(schemas)).toHaveLength(16);
     // health has a response schema
     expect(schemas['health']?.response).toBeDefined();
     // patch_settings has both a request and a response

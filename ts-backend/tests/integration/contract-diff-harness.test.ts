@@ -63,12 +63,12 @@ function app() {
 
 describe('contract-diff harness — route registry completeness', () => {
   it('covers the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(15);
+    expect(ROUTE_CONTRACTS).toHaveLength(16);
   });
 
   it('every route declares a method, path, and success status', () => {
     for (const r of ROUTE_CONTRACTS) {
-      expect(['GET', 'POST', 'PATCH']).toContain(r.method);
+      expect(['GET', 'POST', 'PATCH', 'DELETE']).toContain(r.method);
       expect(r.path.startsWith('/api/')).toBe(true);
       expect(typeof r.successStatus).toBe('number');
     }

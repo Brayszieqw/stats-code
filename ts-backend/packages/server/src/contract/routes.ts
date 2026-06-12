@@ -26,7 +26,7 @@ import {
   snapshotExportResponse,
 } from './sidecar.js';
 
-export type HttpMethod = 'GET' | 'POST' | 'PATCH';
+export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export interface RouteContract {
   /** Stable identifier for fixtures/tests. */
@@ -116,6 +116,12 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     path: '/api/sessions/:sid',
     response: session,
     successStatus: 200,
+  },
+  {
+    id: 'delete_session',
+    method: 'DELETE',
+    path: '/api/sessions/:sid',
+    successStatus: 204,
   },
   {
     id: 'patch_settings',

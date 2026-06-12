@@ -55,6 +55,25 @@ describe('MemSessionStore.list()', () => {
     expect(summary!.message_count).toBe(2);
   });
 
+  it('appendMessages updates title, message_count, and last_active_at', async () => {
+    const store = new MemSessionStore();
+    const s = await store.create();
+    s.last_active_at = '2026-01-01T00:00:00.000Z';
+    await store.appendMessages(s.id, [userText('保存历史')]);
+    const [summary] = await store.list();
+    expect(summary!.title).toBe('保存历史');
+    expect(summary!.message_count).toBe(1);
+    expect(summary!.last_active_at).not.toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('deleteSession removes the session from list()', async () => {
+    const store = new MemSessionStore();
+    const s = await store.create();
+    await store.deleteSession(s.id);
+    await expect(store.get(s.id)).rejects.toMatchObject({ kind: 'not_found' });
+    await expect(store.list()).resolves.toEqual([]);
+  });
+
   it('counts datasets in dataset_count', async () => {
     const store = new MemSessionStore();
     const s = await store.create();

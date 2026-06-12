@@ -66,6 +66,37 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
+  it('POST messages persists user text and recoverable agent blocks', async () => {
+    const handler = {
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async *handleMessage() {
+        yield { type: 'text_delta', text: 'hello back' } as const;
+        yield { type: 'interpretation', text: 'saved interpretation' } as const;
+        yield { type: 'done' } as const;
+      },
+    };
+    const app = buildRouter({ state: makeState({ messageHandler: handler }) });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: { text: 'history title' },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const session = (await app.inject({ method: 'GET', url: `/api/sessions/${created.id}` })).json();
+    expect(session.messages).toHaveLength(2);
+    expect(session.messages[0].User.content.Text).toBe('history title');
+    expect(session.messages[1].Agent.blocks).toEqual([
+      { Text: 'hello back' },
+      { Interpretation: 'saved interpretation' },
+    ]);
+
+    const list = (await app.inject({ method: 'GET', url: '/api/sessions' })).json();
+    expect(list.find((s: { id: string }) => s.id === created.id).title).toBe('history title');
+    await app.close();
+  });
+
   it('POST messages relays orchestrator AgentEvents as SSE frames (task 3.3)', async () => {
     const handler = {
       // eslint-disable-next-line @typescript-eslint/require-await
@@ -142,6 +173,19 @@ describe('HTTP contract routes', () => {
     expect(body.configured).toBe(true);
     expect(body.provider).toBe('deepseek');
     expect(JSON.stringify(body)).not.toContain('sk-secret');
+    await app.close();
+  });
+
+  it('DELETE /api/sessions/:sid removes a session and returns 404 afterward', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const deleted = await app.inject({ method: 'DELETE', url: `/api/sessions/${created.id}` });
+    expect(deleted.statusCode).toBe(204);
+
+    const missing = await app.inject({ method: 'GET', url: `/api/sessions/${created.id}` });
+    expect(missing.statusCode).toBe(404);
+    const list = (await app.inject({ method: 'GET', url: '/api/sessions' })).json();
+    expect(list.some((s: { id: string }) => s.id === created.id)).toBe(false);
     await app.close();
   });
 

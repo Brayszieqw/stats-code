@@ -19,7 +19,7 @@ import {
   type DatasetSummary,
 } from '@stats-code/server';
 
-const CSV = 'y,x\n1,1\n2,2\n3,3.1\n4,3.9\n5,5\n';
+const CSV = 'y,x,arm\n1,1,A\n2,2,A\n3,3.1,A\n4,3.9,B\n5,5,B\n6,6,B\n';
 const BYTES = new TextEncoder().encode(CSV);
 
 function fakeSummary(datasetId: string): DatasetSummary {
@@ -28,10 +28,11 @@ function fakeSummary(datasetId: string): DatasetSummary {
     file_name: 'data.csv',
     size_bytes: BYTES.byteLength,
     encoding: 'Utf8',
-    row_count: 5,
+    row_count: 6,
     columns: [
       { name: 'y', inferred_type: 'Numeric', missing_count: 0 },
       { name: 'x', inferred_type: 'Numeric', missing_count: 0 },
+      { name: 'arm', inferred_type: 'Categorical', missing_count: 0 },
     ],
     uploaded_at: '2026-01-01T00:00:00Z',
     sha256: createHash('sha256').update(BYTES).digest('hex'),
@@ -82,13 +83,68 @@ describe('POST /api/sessions/:sid/run (Requirements 12.3–12.6)', () => {
     await app.close();
   });
 
+  it('accepts algorithm ids and top-level dataset_id, then returns frontend-ready analysis meta', async () => {
+    const state = fullState();
+    const { app, sid, datasetId } = await sessionWithDataset(state);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { skill_id: 'linear', dataset_id: datasetId, args: { outcome: 'y', predictors: ['x'] } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.analysis).toEqual(
+      expect.objectContaining({
+        algorithm_id: 'linear',
+        dataset_id: datasetId,
+        dataset_sha256: expect.any(String),
+        run_id: expect.any(String),
+        run_status: 'completed',
+      }),
+    );
+    expect(body.analysis.columns).toEqual(fakeSummary(datasetId).columns);
+    expect(body.analysis.params).toEqual({
+      dataset_id: datasetId,
+      outcome: 'y',
+      predictors: ['x'],
+    });
+    await app.close();
+  });
+
+  it('runs tableone and ttest skill ids used by the pro configurator', async () => {
+    const state = fullState();
+    const { app, sid, datasetId } = await sessionWithDataset(state);
+    const table = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: {
+        skill_id: 'tableone',
+        dataset_id: datasetId,
+        args: { group: 'arm', continuous: ['y', 'x'], categorical: ['arm'] },
+      },
+    });
+    expect(table.statusCode).toBe(200);
+    expect(table.json().analysis.algorithm_id).toBe('tableone');
+
+    const ttest = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { skill_id: 'ttest', dataset_id: datasetId, args: { group: 'arm', testVar: 'y' } },
+    });
+    expect(ttest.statusCode).toBe(200);
+    expect(ttest.json().analysis.algorithm_id).toBe('ttest');
+    expect(ttest.json().payload.p_value).toBeGreaterThanOrEqual(0);
+    await app.close();
+  });
+
   it('missing required args → 422 SkillInvalidArgs (R12.4)', async () => {
     const state = fullState();
     const { app, sid, datasetId } = await sessionWithDataset(state);
     const res = await app.inject({
       method: 'POST',
       url: `/api/sessions/${sid}/run`,
-      // omit predictors / dataset_id arg required by the skill schema
+      // omit predictors; the route supplies dataset_id from the top-level body.
       payload: { skill_id: 'model_linear', dataset_id: datasetId, args: { outcome: 'y' } },
     });
     expect(res.statusCode).toBe(422);

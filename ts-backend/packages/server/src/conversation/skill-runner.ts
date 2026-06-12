@@ -12,6 +12,7 @@
 //  - wrap execution in a 120 s wall-clock guard → timeout
 //  - catch thrown engine errors → execution_failed (excerpt ≤ 2048 chars)
 
+import { randomUUID } from 'node:crypto';
 import { stats } from '@stats-code/engine';
 import { detectRiskSignals } from './risk-signals.js';
 import { skillToAlgorithm } from './skill-algorithm-map.js';
@@ -48,13 +49,61 @@ function parseRows(bytes: Uint8Array, fileName: string): { headers: string[]; ro
 
 /** Extract a numeric column by name; throws if the column is missing/non-numeric. */
 function numericColumn(headers: string[], rows: string[][], name: string): number[] {
-  const idx = headers.indexOf(name);
-  if (idx === -1) throw new Error(`column not found: ${name}`);
+  const idx = columnIndex(headers, name);
   return rows.map((r) => {
     const v = Number(r[idx]);
     if (!Number.isFinite(v)) throw new Error(`non-numeric value in column ${name}: ${r[idx]}`);
     return v;
   });
+}
+
+function columnIndex(headers: string[], name: string): number {
+  const idx = headers.indexOf(name);
+  if (idx === -1) throw new Error(`column not found: ${name}`);
+  return idx;
+}
+
+function rowIndexes(rows: string[][]): number[] {
+  return rows.map((_, i) => i);
+}
+
+function nullableNumericColumn(headers: string[], rows: string[][], name: string, indexes: number[]): (number | null)[] {
+  const idx = columnIndex(headers, name);
+  return indexes.map((rowIndex) => {
+    const raw = rows[rowIndex]?.[idx]?.trim() ?? '';
+    if (raw.length === 0) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  });
+}
+
+function nullableStringColumn(headers: string[], rows: string[][], name: string, indexes: number[]): (string | null)[] {
+  const idx = columnIndex(headers, name);
+  return indexes.map((rowIndex) => {
+    const raw = rows[rowIndex]?.[idx]?.trim() ?? '';
+    return raw.length > 0 ? raw : null;
+  });
+}
+
+function numericValuesByGroup(
+  headers: string[],
+  rows: string[][],
+  group: string,
+  testVar: string,
+): Map<string, number[]> {
+  const groupIdx = columnIndex(headers, group);
+  const testIdx = columnIndex(headers, testVar);
+  const buckets = new Map<string, number[]>();
+  for (const row of rows) {
+    const label = row[groupIdx]?.trim() ?? '';
+    if (label.length === 0) continue;
+    const value = Number(row[testIdx]);
+    if (!Number.isFinite(value)) continue;
+    const values = buckets.get(label) ?? [];
+    values.push(value);
+    buckets.set(label, values);
+  }
+  return buckets;
 }
 
 function asString(value: unknown, name: string): string {
@@ -71,10 +120,98 @@ function asStringArray(value: unknown, name: string): string[] {
   return value as string[];
 }
 
+function asOptionalStringArray(value: unknown, name: string): string[] {
+  if (value === undefined || value === null) return [];
+  return asStringArray(value, name);
+}
+
 /** Build the [intercept, ...predictors] design matrix from the dataset. */
 function designMatrix(headers: string[], rows: string[][], predictors: string[]): number[][] {
   const cols = predictors.map((p) => numericColumn(headers, rows, p));
   return rows.map((_, i) => [1, ...cols.map((c) => c[i]!)]);
+}
+
+function tableOneColumns(args: Record<string, unknown>, ctx: SkillContext): { continuous: string[]; categorical: string[] } {
+  const continuous = asOptionalStringArray(args.continuous, 'continuous');
+  const categorical = asOptionalStringArray(args.categorical, 'categorical');
+  if (continuous.length > 0 || categorical.length > 0) {
+    return { continuous, categorical };
+  }
+  return {
+    continuous: ctx.datasetSummary.columns
+      .filter((column) => column.inferred_type === 'Numeric')
+      .map((column) => column.name),
+    categorical: ctx.datasetSummary.columns
+      .filter((column) => column.inferred_type === 'Categorical' || column.inferred_type === 'String')
+      .map((column) => column.name),
+  };
+}
+
+function runTableOne(headers: string[], rows: string[][], args: Record<string, unknown>, ctx: SkillContext): Record<string, unknown> {
+  const { continuous, categorical } = tableOneColumns(args, ctx);
+  const group = typeof args.group === 'string' && args.group.length > 0 ? args.group : null;
+  const allIndexes = rowIndexes(rows);
+  const groupIndexes = new Map<string, number[]>();
+
+  if (group) {
+    const groupIdx = columnIndex(headers, group);
+    for (const index of allIndexes) {
+      const label = rows[index]?.[groupIdx]?.trim() ?? '';
+      if (label.length === 0) continue;
+      const indexes = groupIndexes.get(label) ?? [];
+      indexes.push(index);
+      groupIndexes.set(label, indexes);
+    }
+  } else {
+    groupIndexes.set('Overall', allIndexes);
+  }
+
+  const groups = [...groupIndexes.entries()].map(([label, indexes]) => ({
+    label,
+    n: indexes.length,
+    continuous: continuous.map((name) =>
+      stats.tableone.summarizeContinuous(name, nullableNumericColumn(headers, rows, name, indexes)),
+    ),
+    categorical: categorical.map((name) =>
+      stats.tableone.summarizeCategorical(name, nullableStringColumn(headers, rows, name, indexes)),
+    ),
+  }));
+
+  return {
+    strata: group,
+    continuous,
+    categorical,
+    groups,
+  };
+}
+
+function runTtest(headers: string[], rows: string[][], args: Record<string, unknown>): Record<string, unknown> {
+  const group = asString(args.group, 'group');
+  const testVar = asString(args.testVar, 'testVar');
+  const alpha = args.alpha !== undefined ? Number(args.alpha) : 0.05;
+  const buckets = numericValuesByGroup(headers, rows, group, testVar);
+  const entries = [...buckets.entries()].filter(([, values]) => values.length > 0);
+  if (entries.length !== 2) {
+    throw new Error(`T test requires exactly two non-empty groups in ${group}; got ${entries.length}`);
+  }
+  const [first, second] = entries;
+  const result = stats.ttest.welchTtest(first![1], second![1], alpha);
+  return {
+    method: result.method,
+    group_variable: group,
+    test_variable: testVar,
+    groups: [
+      { label: first![0], n: first![1].length, mean: result.mean1 },
+      { label: second![0], n: second![1].length, mean: result.mean2 },
+    ],
+    mean_diff: result.meanDiff,
+    t_statistic: result.tStatistic,
+    df: result.df,
+    p_value: result.pValue,
+    ci_lower: result.ciLower,
+    ci_upper: result.ciUpper,
+    alpha: result.alpha,
+  };
 }
 
 export class SkillRunner {
@@ -140,8 +277,10 @@ export class SkillRunner {
         algorithm_id: algorithmId,
         dataset_id: ctx.datasetSummary.dataset_id,
         dataset_sha256: ctx.datasetSummary.sha256 ?? null,
-        columns: ctx.datasetSummary.columns.map((c) => c.name),
+        columns: ctx.datasetSummary.columns,
         params: args,
+        run_id: randomUUID(),
+        run_status: 'completed',
       };
     }
 
@@ -168,6 +307,10 @@ export class SkillRunner {
     const { headers, rows } = parseRows(ctx.datasetBytes, ctx.datasetSummary.file_name);
 
     switch (invoker.algorithmId) {
+      case 'tableone':
+        return runTableOne(headers, rows, args, ctx);
+      case 'ttest':
+        return runTtest(headers, rows, args);
       case 'linear': {
         const outcome = asString(args.outcome, 'outcome');
         const predictors = asStringArray(args.predictors, 'predictors');

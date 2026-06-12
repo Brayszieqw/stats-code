@@ -16,6 +16,10 @@ import type { AlgorithmId } from '@stats-code/engine';
  */
 export function skillToAlgorithm(skillId: string): AlgorithmId | null {
   switch (skillId) {
+    case 'tableone':
+      return 'tableone';
+    case 'ttest':
+      return 'ttest';
     case 'model_linear':
       return 'linear';
     case 'model_logistic':

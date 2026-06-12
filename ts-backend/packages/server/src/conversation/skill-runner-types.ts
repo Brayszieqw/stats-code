@@ -6,6 +6,7 @@
 // circular import.
 
 import type { domain } from '../contract/index.js';
+import type { ColumnSummary } from '../state.js';
 import type { z } from 'zod';
 
 export type RiskSignal = z.infer<typeof domain.riskSignal>;
@@ -16,8 +17,10 @@ export interface AnalysisResultMeta {
   algorithm_id: string;
   dataset_id: string;
   dataset_sha256: string | null;
-  columns: string[];
+  columns: ColumnSummary[];
   params: Record<string, unknown>;
+  run_id: string;
+  run_status: 'completed';
   [key: string]: unknown;
 }
 

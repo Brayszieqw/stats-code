@@ -1,6 +1,6 @@
 // tests/unit/skill-registry.test.ts — SkillRegistry defaults (task 5.4).
 //
-// withDefaults() exposes the 6 expected ids in insertion order; get hit/miss;
+// withDefaults() exposes the 8 expected ids in insertion order; get hit/miss;
 // every descriptor carries id, display name, input/output schema, and invoker.
 //
 // _Requirements: 4.1, 4.2, 4.3, 4.7_
@@ -9,6 +9,8 @@ import { describe, it, expect } from 'vitest';
 import { SkillRegistry } from '@stats-code/server';
 
 const EXPECTED_ORDER = [
+  'tableone',
+  'ttest',
   'model_linear',
   'model_logistic',
   'model_cox',
@@ -18,9 +20,9 @@ const EXPECTED_ORDER = [
 ];
 
 describe('SkillRegistry.withDefaults (Requirements 4.1, 4.2, 4.3, 4.7)', () => {
-  it('exposes the 6 expected skills in insertion order', () => {
+  it('exposes the 8 expected skills in insertion order', () => {
     const reg = SkillRegistry.withDefaults();
-    expect(reg.size).toBe(6);
+    expect(reg.size).toBe(8);
     expect(reg.list().map((d) => d.skillId)).toEqual(EXPECTED_ORDER);
   });
 
@@ -44,6 +46,8 @@ describe('SkillRegistry.withDefaults (Requirements 4.1, 4.2, 4.3, 4.7)', () => {
 
   it('output-level skills use algorithm invokers; power/inspect are native', () => {
     const reg = SkillRegistry.withDefaults();
+    expect(reg.get('tableone')?.invoker.kind).toBe('algorithm');
+    expect(reg.get('ttest')?.invoker.kind).toBe('algorithm');
     expect(reg.get('model_linear')?.invoker.kind).toBe('algorithm');
     expect(reg.get('survival_km')?.invoker.kind).toBe('algorithm');
     expect(reg.get('power')?.invoker.kind).toBe('native');

@@ -21,7 +21,7 @@ import {
   createOrchestrator,
   SkillRegistry,
   SkillRunner,
-  MemSessionStore,
+  createFileSessionStore,
   type AppState,
 } from '@stats-code/server';
 import { launcher as engineLauncher } from '@stats-code/engine';
@@ -33,6 +33,8 @@ export interface LauncherArgs {
 export interface RunLauncherOptions {
   /** Build the application state (stores + providers). Defaults to a minimal in-memory state. */
   buildState?: () => AppState;
+  /** Override the port scan range. Dev server uses this to stay aligned with Vite proxy. */
+  portRange?: { start: number; endExclusive: number };
   /** Open the given URL in the default browser (outside any guarded scope). */
   openBrowser?: (url: string) => void;
   /** Sink for status lines. */
@@ -62,7 +64,7 @@ export interface RunLauncherOptions {
  * speech-to-text route remains a stub (Requirement 11).
  */
 export function defaultState(): AppState {
-  const sessionStore = new MemSessionStore();
+  const sessionStore = createFileSessionStore();
   const datasetStore = createFsDatasetStore();
   const llmConfigStore = createFileLlmConfigStore();
   const llmProbe = createLlmProbe();
@@ -114,7 +116,7 @@ export async function runLauncher(args: LauncherArgs, opts: RunLauncherOptions =
   const state = (opts.buildState ?? defaultState)();
 
   // Find a free port using the engine's scanner, then hand the port to Fastify.
-  const probe = await engineLauncher.scanFirstBindable(engineLauncher.DEFAULT_RANGE);
+  const probe = await engineLauncher.scanFirstBindable(opts.portRange ?? engineLauncher.DEFAULT_RANGE);
   const port = (probe.address() as AddressInfo).port;
   // Release the probe socket so Fastify can bind the same port.
   await new Promise<void>((resolve) => probe.close(() => resolve()));

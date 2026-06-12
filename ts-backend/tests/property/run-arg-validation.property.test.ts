@@ -44,13 +44,12 @@ function memDatasetStore(): DatasetStore {
   };
 }
 
-// model_linear requires outcome, predictors, dataset_id. Each subset that drops
-// at least one required key must yield 422.
-const REQUIRED = ['outcome', 'predictors', 'dataset_id'] as const;
+// model_linear still needs its statistical arguments in args. The route owns
+// dataset_id at the top level and injects it into args before runner dispatch.
+const REQUIRED_ARGS = ['outcome', 'predictors'] as const;
 const FULL_ARGS: Record<string, unknown> = {
   outcome: 'y',
   predictors: ['x'],
-  dataset_id: 'will-be-overwritten',
 };
 
 describe('Property 10: run arg validation (Requirement 12.4)', () => {
@@ -58,7 +57,7 @@ describe('Property 10: run arg validation (Requirement 12.4)', () => {
     await fc.assert(
       fc.asyncProperty(
         // Choose a non-empty subset of required keys to OMIT.
-        fc.subarray([...REQUIRED], { minLength: 1 }),
+        fc.subarray([...REQUIRED_ARGS], { minLength: 1 }),
         async (omit) => {
           const registry = SkillRegistry.withDefaults();
           const state: AppState = {
@@ -89,5 +88,29 @@ describe('Property 10: run arg validation (Requirement 12.4)', () => {
       ),
       { numRuns: 20 },
     );
+  });
+
+  it('top-level dataset_id is enough; args.dataset_id is injected before validation', async () => {
+    const registry = SkillRegistry.withDefaults();
+    const state: AppState = {
+      sessionStore: new MemSessionStore(),
+      datasetStore: memDatasetStore(),
+      skillRegistry: registry,
+      skillRunner: new SkillRunner(registry),
+    };
+    const app = buildRouter({ state });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const datasetId = '44444444-4444-4444-8444-444444444444';
+    await state.sessionStore.appendDataset(created.id, summary(datasetId));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/run`,
+      payload: { skill_id: 'model_linear', dataset_id: datasetId, args: FULL_ARGS },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().analysis.params.dataset_id).toBe(datasetId);
+    await app.close();
   });
 });

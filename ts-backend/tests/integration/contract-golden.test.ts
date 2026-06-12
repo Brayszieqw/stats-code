@@ -37,11 +37,12 @@ const snapshotProvider: SnapshotProvider = {
 
 describe('every route is registered in the contract harness', () => {
   it('exposes the 13 original API_Contract routes plus the dual-mode additions', () => {
-    // 13 original routes + list_sessions + run_skill (Requirements 11, 12).
-    expect(ROUTE_CONTRACTS).toHaveLength(15);
+    // 13 original routes + list_sessions + run_skill + delete_session.
+    expect(ROUTE_CONTRACTS).toHaveLength(16);
     const ids = ROUTE_CONTRACTS.map((r) => r.id);
     expect(ids).toContain('list_sessions');
     expect(ids).toContain('run_skill');
+    expect(ids).toContain('delete_session');
   });
 
   it('each route id is unique', () => {

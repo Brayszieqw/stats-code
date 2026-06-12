@@ -32,10 +32,38 @@ function ctxFor(csv: string, columns: DatasetSummary['columns']): SkillContext {
 }
 
 const num = (name: string) => ({ name, inferred_type: 'Numeric' as const, missing_count: 0 });
+const cat = (name: string) => ({ name, inferred_type: 'Categorical' as const, missing_count: 0 });
 
 describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', () => {
   const reg = SkillRegistry.withDefaults();
   const runner = new SkillRunner(reg);
+
+  it('runs table one summaries and attaches analysis metadata', async () => {
+    const ctx = ctxFor('age,bmi,arm\n60,21,A\n64,23,A\n70,25,B\n72,29,B\n', [num('age'), num('bmi'), cat('arm')]);
+    const result = await runner.run(reg.get('tableone')!, {
+      group: 'arm',
+      continuous: ['age', 'bmi'],
+      categorical: ['arm'],
+      dataset_id: 'ds-1',
+    }, ctx);
+    const payload = result.payload as { groups: { label: string; continuous: unknown[] }[] };
+    expect(payload.groups.map((group) => group.label)).toEqual(['A', 'B']);
+    expect(payload.groups[0]!.continuous).toHaveLength(2);
+    expect(result.analysis?.algorithm_id).toBe('tableone');
+  });
+
+  it('runs Welch t-test and attaches analysis metadata', async () => {
+    const ctx = ctxFor('score,arm\n10,A\n11,A\n12,A\n20,B\n21,B\n22,B\n', [num('score'), cat('arm')]);
+    const result = await runner.run(reg.get('ttest')!, {
+      group: 'arm',
+      testVar: 'score',
+      dataset_id: 'ds-1',
+    }, ctx);
+    const payload = result.payload as { p_value: number; groups: unknown[] };
+    expect(payload.groups).toHaveLength(2);
+    expect(payload.p_value).toBeGreaterThanOrEqual(0);
+    expect(result.analysis?.algorithm_id).toBe('ttest');
+  });
 
   it('runs linear regression and attaches analysis metadata', async () => {
     const ctx = ctxFor('y,x\n1,1\n2,2\n3,3.1\n4,3.9\n5,5\n', [num('y'), num('x')]);

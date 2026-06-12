@@ -79,6 +79,11 @@ export {
   defaultLlmConfigPath,
   type FileLlmConfigStoreOptions,
 } from './conversation/index.js';
+export {
+  createFileSessionStore,
+  defaultSessionStorePath,
+  type FileSessionStoreOptions,
+} from './conversation/index.js';
 export { createLlmProbe, type CreateLlmProbeOptions } from './conversation/index.js';
 export {
   skillToAlgorithm,

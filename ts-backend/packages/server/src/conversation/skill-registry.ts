@@ -59,12 +59,61 @@ export class SkillRegistry {
 
   /**
    * Pre-populated registry with the minimum skill set (Requirement 4.1):
-   * model_linear, model_logistic, model_cox, survival_km, power, inspect.
+   * tableone, ttest, model_linear, model_logistic, model_cox, survival_km,
+   * power, inspect.
    * The four output-level skills use algorithm invokers; power/inspect are
    * native invokers (wired by the SkillRunner factory, not here).
    */
   static withDefaults(): SkillRegistry {
     const reg = new SkillRegistry();
+
+    reg.register({
+      skillId: 'tableone',
+      displayName: '基线特征表',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group: { type: 'string', description: '分组变量列名（可选）' },
+          continuous: { type: 'array', items: { type: 'string' }, description: '连续变量列名列表' },
+          categorical: { type: 'array', items: { type: 'string' }, description: '分类变量列名列表' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          strata: { type: ['string', 'null'] },
+          groups: { type: 'array' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'tableone' },
+    });
+
+    reg.register({
+      skillId: 'ttest',
+      displayName: 'T 检验',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group: { type: 'string', description: '二分类分组变量列名' },
+          testVar: { type: 'string', description: '待检验连续变量列名' },
+          alpha: { type: 'number', description: '显著性水平，默认 0.05' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['group', 'testVar', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          method: { type: 'string' },
+          group_variable: { type: 'string' },
+          test_variable: { type: 'string' },
+          p_value: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'ttest' },
+    });
 
     reg.register({
       skillId: 'model_linear',

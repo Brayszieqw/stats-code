@@ -6,6 +6,7 @@
 // body limits (datasets 70 MiB base64, audio 10 MiB). SSE for the messages
 // route (task 3.3) and the SPA fallback (task 3.4) are layered on separately.
 
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   domain,
@@ -14,7 +15,7 @@ import {
   postLlmConfigRequest,
   sidecar as sidecarContract,
 } from './contract/index.js';
-import { StoreError, type AppState } from './state.js';
+import { StoreError, type AgentBlock, type AgentEvent, type AppState, type Message, type RunSkillDescriptor, type SkillRegistryLike } from './state.js';
 import { serializeSseFrame } from './sse.js';
 import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
@@ -22,6 +23,85 @@ import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOA
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
+
+const ALGORITHM_TO_SKILL_ID: Readonly<Record<string, string>> = {
+  table_one: 'tableone',
+  tableone: 'tableone',
+  t_test: 'ttest',
+  ttest: 'ttest',
+  linear: 'model_linear',
+  logistic: 'model_logistic',
+  cox: 'model_cox',
+  kaplan_meier: 'survival_km',
+};
+
+function resolveRunDescriptor(
+  registry: SkillRegistryLike,
+  requestedId: string,
+): RunSkillDescriptor | undefined {
+  return registry.get(requestedId) ?? registry.get(ALGORITHM_TO_SKILL_ID[requestedId] ?? '');
+}
+
+function userTextMessage(text: string): Message {
+  return {
+    User: {
+      id: randomUUID(),
+      created_at: new Date().toISOString(),
+      content: { Text: text },
+    },
+  };
+}
+
+function agentMessage(blocks: AgentBlock[]): Message {
+  return {
+    Agent: {
+      id: randomUUID(),
+      created_at: new Date().toISOString(),
+      blocks,
+    },
+  };
+}
+
+function appendAgentBlockFromEvent(
+  event: AgentEvent,
+  blocks: AgentBlock[],
+  textBuffer: { value: string },
+): void {
+  const flushText = () => {
+    if (textBuffer.value.length === 0) return;
+    blocks.push({ Text: textBuffer.value });
+    textBuffer.value = '';
+  };
+
+  switch (event.type) {
+    case 'text_delta':
+      textBuffer.value += event.text;
+      break;
+    case 'choice_prompt':
+      flushText();
+      blocks.push({ ChoicePrompt: event.prompt } as AgentBlock);
+      break;
+    case 'skill_call':
+      flushText();
+      blocks.push({ Text: `[正在执行: ${event.skill_id}]` });
+      break;
+    case 'skill_result': {
+      flushText();
+      const result = event.result as { analysis?: { run_id?: unknown } };
+      const runId = typeof result.analysis?.run_id === 'string' ? result.analysis.run_id : randomUUID();
+      blocks.push({ SkillResult: { run_id: runId, result: event.result } } as AgentBlock);
+      break;
+    }
+    case 'interpretation':
+      flushText();
+      blocks.push({ Interpretation: event.text });
+      break;
+    case 'error':
+    case 'done':
+      flushText();
+      break;
+  }
+}
 
 /** Map a StoreError to the Rust status + error_code (see session.rs). */
 function storeErrorResponse(err: StoreError): { status: number; body: unknown } {
@@ -106,7 +186,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   // Permissive CORS (mirrors tower_http CorsLayer::permissive()).
   app.addHook('onSend', (_req, reply, payload, done) => {
     reply.header('access-control-allow-origin', '*');
-    reply.header('access-control-allow-methods', 'GET,POST,PATCH,OPTIONS');
+    reply.header('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     reply.header('access-control-allow-headers', '*');
     done(null, payload);
   });
@@ -141,6 +221,20 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     try {
       const session = await state.sessionStore.get(req.params.sid);
       return reply.send(session);
+    } catch (err) {
+      if (err instanceof StoreError) {
+        const { status, body } = storeErrorResponse(err);
+        return reply.code(status).send(body);
+      }
+      throw err;
+    }
+  });
+
+  // DELETE /api/sessions/:sid
+  app.delete<{ Params: { sid: string } }>('/api/sessions/:sid', async (req, reply) => {
+    try {
+      await state.sessionStore.deleteSession(req.params.sid);
+      return reply.code(204).send();
     } catch (err) {
       if (err instanceof StoreError) {
         const { status, body } = storeErrorResponse(err);
@@ -197,6 +291,17 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       }
       throw err;
     }
+
+    try {
+      await state.sessionStore.appendMessages(req.params.sid, [userTextMessage(text)]);
+    } catch (err) {
+      if (err instanceof StoreError) {
+        const { status, body: errBody } = storeErrorResponse(err);
+        return reply.code(status).send(errBody);
+      }
+      throw err;
+    }
+
     // Stream the orchestrator's AgentEvents as SSE frames (task 3.3). When no
     // message handler is configured (Phase-0 scaffold), emit a single terminal
     // `done` frame so the SSE contract shape still holds.
@@ -213,6 +318,9 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       return reply;
     }
 
+    const agentBlocks: AgentBlock[] = [];
+    const textBuffer = { value: '' };
+
     try {
       const session = await state.sessionStore.get(req.params.sid);
       const stream = handler.handleMessage(req.params.sid, {
@@ -220,18 +328,27 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
         settings: session.settings,
       });
       for await (const event of stream) {
+        appendAgentBlockFromEvent(event, agentBlocks, textBuffer);
         reply.raw.write(serializeSseFrame(event));
       }
     } catch (err) {
       // Mid-stream failure: emit a structured error frame then terminate. The
       // HTTP status is already 200 (headers flushed), matching the Rust SSE
       // behavior where errors surface as `event: error` frames.
-      reply.raw.write(
-        serializeSseFrame({
-          type: 'error',
-          payload: { error_code: 'SkillExecutionFailed', message: (err as Error).message },
-        }),
-      );
+      const errorEvent: AgentEvent = {
+        type: 'error',
+        payload: { error_code: 'SkillExecutionFailed', message: (err as Error).message },
+      };
+      appendAgentBlockFromEvent(errorEvent, agentBlocks, textBuffer);
+      reply.raw.write(serializeSseFrame(errorEvent));
+    }
+    appendAgentBlockFromEvent({ type: 'done' }, agentBlocks, textBuffer);
+    if (agentBlocks.length > 0) {
+      try {
+        await state.sessionStore.appendMessages(req.params.sid, [agentMessage(agentBlocks)]);
+      } catch {
+        // The SSE response has already been emitted; a concurrent deletion should not corrupt the stream.
+      }
     }
     reply.raw.end();
     return reply;
@@ -352,7 +469,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
         .send({ error_code: 'SkillExecutionFailed', message: '运行服务尚未初始化' });
     }
 
-    const descriptor = state.skillRegistry.get(parsed.data.skill_id);
+    const descriptor = resolveRunDescriptor(state.skillRegistry, parsed.data.skill_id);
     if (!descriptor) {
       return reply
         .code(422)
@@ -376,10 +493,16 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     }
 
     try {
-      const result = await state.skillRunner.run(descriptor, parsed.data.args, {
+      const runArgs = { ...parsed.data.args, dataset_id: parsed.data.dataset_id };
+      const result = await state.skillRunner.run(descriptor, runArgs, {
         datasetBytes,
         datasetSummary: summary,
       });
+      const runResult = result as { analysis?: { run_id?: unknown } };
+      const runId = typeof runResult.analysis?.run_id === 'string' ? runResult.analysis.run_id : randomUUID();
+      await state.sessionStore.appendMessages(req.params.sid, [
+        agentMessage([{ SkillResult: { run_id: runId, result } } as AgentBlock]),
+      ]);
       return reply.send(result);
     } catch (err) {
       return reply.code(runErrorStatus(err)).send(runErrorBody(err));

@@ -2,7 +2,7 @@
 // Mirrors agent_core::store::MemSessionStore semantics.
 
 import { randomUUID } from 'node:crypto';
-import { StoreError, type Session, type SessionStore, type SessionSettings, type DatasetSummary, type SessionSummary } from './state.js';
+import { StoreError, type Session, type SessionStore, type SessionSettings, type DatasetSummary, type SessionSummary, type Message } from './state.js';
 
 const TITLE_MAX_CHARS = 20;
 const DEFAULT_TITLE = '新对话';
@@ -61,12 +61,30 @@ export class MemSessionStore implements SessionStore {
     return Promise.resolve();
   }
 
+  appendMessages(id: string, messages: Message[]): Promise<void> {
+    const s = this.sessions.get(id);
+    if (!s) {
+      return Promise.reject(new StoreError('not_found', 'session not found'));
+    }
+    s.messages.push(...messages);
+    s.last_active_at = new Date().toISOString();
+    return Promise.resolve();
+  }
+
   appendDataset(id: string, dataset: DatasetSummary): Promise<void> {
     const s = this.sessions.get(id);
     if (!s) {
       return Promise.reject(new StoreError('not_found', 'session not found'));
     }
     s.datasets.push(dataset);
+    s.last_active_at = new Date().toISOString();
+    return Promise.resolve();
+  }
+
+  deleteSession(id: string): Promise<void> {
+    if (!this.sessions.delete(id)) {
+      return Promise.reject(new StoreError('not_found', 'session not found'));
+    }
     return Promise.resolve();
   }
 

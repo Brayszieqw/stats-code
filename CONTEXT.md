@@ -1,92 +1,90 @@
 # Stats Code · 领域语言
 
 > 共享词汇表。当代码里出现这些词，按这里的定义理解；当用户口头使用这些词，按这里的定义对齐。
+>
+> 后端为 **TypeScript（Node.js 22，`ts-backend/`）**。原 Rust workspace 已于
+> 2026-06 退役并从仓库移除，完整终态保留在 git tag `rust-final`。
 
 ## 产品命令
 
 ### `stats-code`（命令）
-全局可执行的二进制（`stats-code.exe`，放在 PATH 里）。
+全局可执行的二进制（`stats-code.exe`，Node SEA 单文件，放在 PATH 里）。
 
 **对用户暴露的唯一行为**：在任意目录敲 `stats-code`（不带子命令）会：
-1. 启动后端 HTTP 服务（axum，监听 `:8080`）
-2. 启动前端（dev：vite `:5173`；prod：从后端直接吐内嵌的静态资源）
-3. 自动打开浏览器到前端地址
+1. 启动后端 HTTP 服务（监听 `127.0.0.1:8080`，被占用则向后扫描）
+2. 伺服内嵌的前端静态资源（SEA assets，来自 `web/dist`）
+3. 自动打开浏览器到实际地址
 4. 前台运行，按 Ctrl+C 停止全部
 
-唯一的命令行旗标：`--version`、`--help`。**不再有公开子命令。**
+唯一的命令行旗标：`--version`、`--help`、`--no-browser`。**没有公开子命令。**
 
-### `stats-code` 二进制内部的算法子命令
-`tableone`、`survival`、`ttest`、`power`、`workflow`、`init`、`doctor`、`chat` 等——
-**不是公开 CLI 用法**，而是 `agent-core` 通过 `SkillInvoker::StatsCli` 子进程调用的内部 API。
-代码继续保留，但用户视角不可见、`--help` 不列出。
+### 内部算法子命令
+`tableone`、`survival`、`ttest`、`power` 等算法入口——
+**不是公开 CLI 用法**。17 个算法是 `packages/engine` 内的**进程内纯函数**
+（ADR-0003），由 HTTP 层直接调用，不 spawn 子进程；`engine/src/cli.ts`
+保留了与旧 CLI 一致的隐藏分发契约。
 
 ## 部署形态
 
 **本地单机模式**（localhost 应用，类似 OpenCode / Jupyter Lab / Streamlit）：
 - 每个用户在自己的电脑上跑 `stats-code.exe`
 - 后端绑 `127.0.0.1:8080`，不对外
-- 前端通过 `http://localhost:5173`（dev）或 `http://localhost:8080`（prod）访问
-- 数据落本地用户目录，无需多用户/认证/反代/集群
+- 数据落本地用户目录（`%APPDATA%\stats-code\`），无需多用户/认证/反代/集群
 
 未来若要服务端多用户部署，把绑定地址换 `0.0.0.0` 加反代即可，但**不在当前范围内**。
 
 ## 分发与安装
 
-**发布物**：单文件 `stats-code.exe`（约 30~80 MB，含内嵌前端 dist），通过 GitHub Releases 提供 zip 下载。
+**发布物**：单文件 `stats-code.exe`（Node SEA：内嵌 Node 运行时 + 前端 dist，
+约 90 MB），随 zip 附 `install.ps1` + `SHA256SUMS.txt`。
+构建入口：`scripts/release.ps1`（web build → ts-backend build → `npm run sea`
+→ `npm run smoke` → 打包）。
 
-**安装方式**：随 zip 附带的 `install.ps1`：
+**安装方式**：`install.ps1`：
 - 复制 `stats-code.exe` 到 `%LOCALAPPDATA%\Programs\stats-code\`
 - 把该目录加入用户级 PATH（不需要管理员权限）
 - 创建桌面快捷方式
-- 用户操作只有一步：右键 `install.ps1` → "用 PowerShell 运行"
 
-**进程形态**：纯前台 PowerShell 进程，关闭窗口或 Ctrl+C 即停止。
-不带系统托盘图标、不装 Windows 服务。
-
-**未来可能升级**：MSI / 代码签名 / Scoop / winget——但**不在当前范围内**，
-当前 0.x 阶段优先简单可逆。
+**进程形态**：纯前台进程，关闭窗口或 Ctrl+C 即停止。
+不带系统托盘图标、不装 Windows 服务。用户机器**不需要 Node.js / R / Python**。
 
 ## 运行模式
 
-`stats-code` 二进制有两种运行模式，由 Cargo feature `dev-vite` 切换：
-
-### prod 模式（默认，给最终用户）
-- `cargo build --release` 产出
-- 前端 `web/dist/` 在编译期通过 `rust-embed` / `include_dir!` 嵌入二进制
-- 单进程：axum 在 `:8080` 同时伺服 API（`/api/*`）和静态资源（`/*`）
+### prod 模式（给最终用户）
+- `scripts/release.ps1` 产出单文件 exe
+- 单进程：同端口同时伺服 API（`/api/*`）和内嵌静态资源（`/*`）
 - 浏览器访问 `http://localhost:8080/`
-- 用户机器**不需要 Node.js**
 
 ### dev 模式（开发用，仅限自己）
-- `cargo run -p stats-code -F dev-vite`
-- Rust 主进程 spawn 一个 vite dev server 子进程（`npm run dev`）
-- 同时启 axum :8080 + vite :5173
-- 浏览器访问 `http://localhost:5173/`，vite 把 `/api/*` 代理到 :8080
-- Rust 主进程退出（Ctrl+C）时**保证**杀掉 vite 子进程，无残留
-- 必须本地装 Node.js 与 npm 依赖
+- 入口：仓库根 `启动Stats前端.bat`
+- 流程：先在 `ts-backend/` 跑 `npm run build`（保证 dist 与源码一致），再起
+  `node dev-server.mjs`（API `:8080`）和 Vite dev server（`:5173`）
+- 浏览器访问 `http://localhost:5173/`，vite 把 `/api/*` 代理到 `:8080`
+- ⚠ `dev-server.mjs` 跑的是 `packages/api/dist/` **编译产物**——改完源码必须
+  重新 build 才生效（bat 已内置该步骤）
+- 必须本地装 Node.js ≥ 22 与 npm 依赖
 
 ## 启动行为
 
 **端口选择**：从 `8080` 开始扫描，第一个能成功 `bind` 的端口即为本次实际端口。
-扫描范围 `8080..8200`，全部占用则报错退出。
 启动日志打印实际端口，浏览器自动打开的 URL 也跟随实际端口。
 
-**浏览器**：`stats-code` 起来后自动用系统默认浏览器打开实际地址。
+**浏览器**：起来后自动用系统默认浏览器打开实际地址（`--no-browser` 跳过）。
 
 **单实例**：检测已有实例运行 → 直接打开浏览器到那个实例的 URL，不再起新进程。
-实现：在 `%APPDATA%\stats-code\running.lock` 写当前实例的 PID + URL；
-启动时若文件存在、PID 仍活、端口可访问，则 `start <url>` 后退出。
-进程退出时清理 lock 文件。
+实现：lock 文件记录当前实例的 PID + URL；启动时若 PID 仍活、端口可访问，
+则打开既有 URL 后退出。进程退出时清理 lock 文件。
 
 ## LLM 配置
 
-**Key 存储**：明文 TOML 文件，路径 `%APPDATA%\stats-code\config.toml`。
-文件依赖 NTFS 默认权限（仅当前用户可读）。
-不使用 DPAPI、不使用 Windows Credential Manager。
+**Key 存储**：JSON 文件，路径 `%APPDATA%\stats-code\llm-config.json`
+（`packages/server/src/conversation/llm-config-store.ts`）。
+原子写入（temp + rename）；文件损坏时自动改名备份为 `.corrupt-<时间戳>` 并视为未配置。
+文件依赖 NTFS 默认权限（仅当前用户可读），不使用 DPAPI / Credential Manager。
 
 **首次运行**：
-- 启动时若 config 文件不存在或无 key，仍正常启动服务
-- `/api/health`（或专属端点）暴露 `{configured: bool, provider: string|null}`
+- config 不存在或无 key，仍正常启动服务
+- `/api/llm-status` 暴露 `{configured, provider, base_url, model}`
 - 前端检测到未配置 → 主界面被居中卡片**遮罩**，不可聊天
 - 卡片表单：provider 下拉 + API Key 输入 + 「测试并保存」按钮
 - 点击保存 → 后端做一次 LLM 连通性测试 → 通过则写入 config 文件 → 卡片消失
@@ -99,44 +97,45 @@
 ## 角色
 
 ### 前端（frontend）
-`web/`，Vite + TypeScript。用户唯一面对的界面：聊天、上传文件、选选项、看结果。
+`web/`，React 19 + Vite + Ant Design。用户唯一面对的界面：双模式
+（简易聊天 / 专业工作台），聊天、上传数据、选选项、看结果、等价代码侧栏、
+审计快照导出。
 
-### 后端（backend / agent-server）
-`crates/agent-server`，axum HTTP 服务。接前端请求、调 LLM、调用算法。
-本身不实现任何统计算法。
+### 后端（backend / server）
+`ts-backend/packages/server`，HTTP 传输层 + 会话/消息编排 + LLM 接线。
+13 条契约路由定义在 `src/contract/routes.ts`（zod schema，单一事实来源）。
+会话持久化：`%APPDATA%\stats-code\sessions.json`（file-session-store）。
 
 ### 算法引擎（stats engine）
-`crates/stats-code` 内部的 `stats/`、`tableone.rs`、`survival.rs` 等模块。
-被 `agent-core` 通过 spawn `stats-code <subcommand> --json` 子进程调用。
+`ts-backend/packages/engine`，纯计算包：17 个 Output-Level 算法、数学核心
+（distributions/linalg/special）、sidecar 渲染、snapshot/replay、redactor、
+Spawn_Policy 哨兵（主动阻断对 R/SAS/Python/SPSS 等外部统计运行时的 spawn）。
 
-> ⚠ **TS 后端不同**（见 ADR-0003）：TypeScript 重写（`ts-backend/`）把算法实现为
-> **进程内纯函数**（`packages/engine/src/stats/*.ts`），由 HTTP 层直接调用，**不 spawn 子进程**，
-> 并用 Spawn_Policy 哨兵主动阻断对外部统计运行时（R/SAS/Python/SPSS）的 spawn。
-> 本节描述的子进程模型仅适用于 Rust 版。
+### 应用组合（api）
+`ts-backend/packages/api`，launcher 组装 + SEA 二进制入口。
+依赖方向（eslint 强制）：**api → server → engine**。
 
-### Agent Core
-`crates/agent-core`，业务编排层。在后端进程内运行，
-负责会话、消息流、Skill 注册表、把统计请求路由到 stats engine。
+## 信任凭证三件套
 
-> ⚠ **TS 后端不同**（见 ADR-0004）：TypeScript 重写采用三层包结构
-> `api → server → engine`，**没有独立的 agent-core 对应包**。会话/消息编排/LLM
-> 等职责落在 `packages/server` 内（`state.ts`、`mem-store.ts`、`llm.ts`、`sse.ts`）。
-
-## TS 后端架构速览（见 `.kiro/specs/typescript-backend-rewrite/` + ADR-0003/0004/0005）
-
-- **包结构**：`api`（应用组合 + SEA bin 入口）→ `server`（HTTP 传输 + 编排）→ `engine`（纯计算）。
-- **算法**：17 个 Output-Level 算法为进程内纯函数，禁止 spawn 外部统计运行时（ADR-0003）。
-- **产物**：Node SEA 单文件 `stats-code.exe`，内嵌运行时 + 前端资源，零外部依赖。
-- **Power 家族**：刻意对齐 SAS PROC POWER 而非 Rust normal-approximation（ADR-0005）——
-  这是唯一刻意偏离「TS↔Rust 数值等价」的算法。
+1. **等价代码侧栏**：每个分析附 R/SAS/Python/SPSS 四语言等价代码；
+   模板在 `packages/engine/src/sidecar/templates/`，构建期嵌入。
+2. **数值平价**：`tests/parity/` vitest 套件对照 32 个录制基线
+   （`tests/parity/known_values/`），随 `npm test` 全量跑。
+3. **审计快照**：导出确定性 zip（manifest/workflow/provenance/narrative），
+   支持 `--replay` 完整性门控复现。
 
 ## 历史用法（已废弃）
 
-- `start.ps1` 双窗口启动脚本 → **已删除**，由 `stats-code` 单命令取代
-- `package-release.ps1` 旧版打包（只装 CLI 不带前端）→ **已删除**，由新的 `release.ps1` 重写
-- 公开的 `stats-code init / doctor / workflow run` 用法 → 用户不再直接敲，但代码保留供 `SkillInvoker::StatsCli` 内部使用
-- `stats-code chat` 终端 REPL → **已删除**（v0.x），chat 模块与 ui/ TUI 子系统一并移除；`SkillInvoker::StatsCli` 注册表不调用 chat 子命令
+- **整个 Rust workspace（4 crates，~65k LOC）** → 已退役删除，tag `rust-final` 留档
+- Python `validation/` 平价套件 → 由 `ts-backend/tests/parity` 取代
+- `cargo run -p stats-code -F dev-vite` dev 模式 → 由 `启动Stats前端.bat` 取代
+- `%APPDATA%\stats-code\config.toml` → TS 后端读 `llm-config.json`，toml 为遗留文件
+- `start.ps1` 双窗口启动脚本 → 已删除
+- `stats-code chat` 终端 REPL / TUI → 已删除
 
 ## Spec 位置
 
-本特性的 spec：`.kiro/specs/single-command-launcher/`
+- TS 重写：`.kiro/specs/typescript-backend-rewrite/`
+- 会话编排：`.kiro/specs/ts-backend-conversation/`
+- 双模式前端：`.kiro/specs/dual-mode-frontend/`
+- 单命令启动器（历史，Rust 时代）：`.kiro/specs/single-command-launcher/`

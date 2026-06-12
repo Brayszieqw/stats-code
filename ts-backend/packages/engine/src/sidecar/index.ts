@@ -55,6 +55,55 @@ export interface GenerateOptions {
   workingDirectory?: string;
 }
 
+function parseNameList(value: string | undefined): string[] | undefined {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) {
+      const names = parsed.filter((item): item is string => typeof item === 'string' && item.trim() !== '');
+      return names.length > 0 ? names : undefined;
+    }
+  } catch {
+    // Fall back to comma-separated strings below.
+  }
+  const names = value
+    .split(',')
+    .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+    .filter((part) => part.length > 0);
+  return names.length > 0 ? names : undefined;
+}
+
+function quoteString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function normalizeRenderParams(
+  algorithmId: string,
+  params: RenderParams,
+  columns: readonly Column[],
+): RenderParams {
+  if (algorithmId !== 'tableone') {
+    return params;
+  }
+
+  const group =
+    params.group ?? params.strata ?? params.by ?? columns[1]?.name ?? columns[0]?.name ?? '';
+  const continuous =
+    parseNameList(params.continuous) ??
+    parseNameList(params.vars) ??
+    (columns[0] ? [columns[0].name] : []);
+
+  return {
+    ...params,
+    group,
+    group_quoted: quoteString(group),
+    continuous_space: continuous.join(' '),
+    continuous_quoted: continuous.map(quoteString).join(', '),
+  };
+}
+
 /**
  * Generate a sidecar snippet for one (algorithm, software) cell.
  * - `none` coverage → structured Uncovered sentinel (no body, copy disabled).
@@ -94,7 +143,8 @@ export function generateSnippet(
     }
 
     const releaseVersion = matrix.release_version;
-    const body = renderPure(template, params, columns, datasetSha256, releaseVersion);
+    const renderParams = normalizeRenderParams(algorithmId, params, columns);
+    const body = renderPure(template, renderParams, columns, datasetSha256, releaseVersion);
 
     const policy = redactionPolicy({
       secrets: opts.apiKeys ?? [],

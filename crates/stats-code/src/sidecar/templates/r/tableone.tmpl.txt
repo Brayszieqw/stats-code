@@ -1,6 +1,6 @@
 library(tableone)
 data <- read.csv("data.csv")
-vars <- c("{{column.0.name}}")
-strata <- "{{column.1.name}}"
+vars <- c({{params.continuous_quoted}})
+strata <- {{params.group_quoted}}
 result <- tableone::CreateTableOne(vars = vars, strata = strata, data = data)
 print(result)

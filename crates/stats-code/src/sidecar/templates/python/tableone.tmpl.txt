@@ -2,8 +2,11 @@ import pandas as pd
 from scipy import stats
 
 data = pd.read_csv("data.csv")
-groups = data["{{column.1.name}}"].unique()
-group_a = data[data["{{column.1.name}}"] == groups[0]]["{{column.0.name}}"]
-group_b = data[data["{{column.1.name}}"] == groups[1]]["{{column.0.name}}"]
-result = stats.ttest_ind(group_a, group_b)
-print(result)
+group = {{params.group_quoted}}
+continuous = [{{params.continuous_quoted}}]
+groups = data[group].dropna().unique()
+for variable in continuous:
+    group_a = data[data[group] == groups[0]][variable]
+    group_b = data[data[group] == groups[1]][variable]
+    result = stats.ttest_ind(group_a, group_b)
+    print(variable, result)

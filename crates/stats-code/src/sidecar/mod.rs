@@ -43,6 +43,79 @@ use crate::spawn_policy::{forbid_external_runtimes_scope, SpawnError};
 pub use self::header::{format_header, Column, ColumnDtype};
 pub use self::render::{render_pure, RenderError, RenderParams};
 
+fn parse_name_list(value: Option<&String>) -> Option<Vec<String>> {
+    let raw = value?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(parsed) = serde_json::from_str::<Vec<String>>(trimmed) {
+        let names: Vec<String> = parsed
+            .into_iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect();
+        if !names.is_empty() {
+            return Some(names);
+        }
+    }
+
+    let names: Vec<String> = trimmed
+        .split(',')
+        .map(|part| part.trim().trim_matches(['"', '\'']).to_string())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if names.is_empty() {
+        None
+    } else {
+        Some(names)
+    }
+}
+
+fn quote_string(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn normalize_render_params(
+    algorithm_id: &str,
+    params: &RenderParams,
+    columns: &[Column],
+) -> RenderParams {
+    if algorithm_id != "tableone" {
+        return params.clone();
+    }
+
+    let group = params
+        .get("group")
+        .or_else(|| params.get("strata"))
+        .or_else(|| params.get("by"))
+        .cloned()
+        .or_else(|| columns.get(1).map(|col| col.name.clone()))
+        .or_else(|| columns.first().map(|col| col.name.clone()))
+        .unwrap_or_default();
+
+    let continuous = parse_name_list(params.get("continuous"))
+        .or_else(|| parse_name_list(params.get("vars")))
+        .or_else(|| columns.first().map(|col| vec![col.name.clone()]))
+        .unwrap_or_default();
+
+    let mut normalized = params.clone();
+    normalized.insert("group".to_string(), group.clone());
+    normalized.insert("group_quoted".to_string(), quote_string(&group));
+    normalized.insert("continuous_space".to_string(), continuous.join(" "));
+    normalized.insert(
+        "continuous_quoted".to_string(),
+        continuous
+            .iter()
+            .map(|name| quote_string(name))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    normalized
+}
+
 /// One emitted Sidecar snippet, either fully rendered or a structured
 /// "uncovered" sentinel.
 ///
@@ -234,7 +307,14 @@ fn generate_snippet_inner(
     })?;
 
     let release_version = matrix.release_version();
-    let body = render_pure(template, params, columns, dataset_sha256, release_version)?;
+    let render_params = normalize_render_params(algorithm_id, params, columns);
+    let body = render_pure(
+        template,
+        &render_params,
+        columns,
+        dataset_sha256,
+        release_version,
+    )?;
 
     // Step 5: redaction. Build the policy fresh per call so the
     // generator stays referentially transparent across invocations.

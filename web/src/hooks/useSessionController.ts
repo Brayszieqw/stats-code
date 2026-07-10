@@ -77,10 +77,21 @@ export function useSessionController(): SessionController {
   );
 
   const startNewSession = useCallback(async () => {
+    // Already on an empty shell — avoid churning session creates.
+    if (
+      sessionId &&
+      datasets.length === 0 &&
+      initialMessages.length === 0 &&
+      !isArchived
+    ) {
+      setError(null);
+      return;
+    }
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
+      // Backend reuses/purges empty shells; this is still a single POST.
       const session = await createSession();
       if (seq !== requestSeqRef.current) return;
       applySession(session);
@@ -90,7 +101,7 @@ export function useSessionController(): SessionController {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [applySession]);
+  }, [applySession, sessionId, datasets.length, initialMessages.length, isArchived]);
 
   const addDataset = useCallback((s: DatasetSummary) => {
     setDatasets((prev) => (prev.some((d) => d.dataset_id === s.dataset_id) ? prev : [...prev, s]));

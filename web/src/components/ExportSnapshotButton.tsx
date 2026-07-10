@@ -119,7 +119,7 @@ export function ExportSnapshotButton(
     void exportSnapshot({ run_id: runId, destination });
   }, [buttonDisabled, exportSnapshot, runId, destination]);
 
-  const buttonLabel = state.loading ? 'Exporting…' : 'Export Audit Snapshot';
+  const buttonLabel = state.loading ? '导出中…' : '导出审计快照';
 
   return (
     <div
@@ -144,7 +144,7 @@ export function ExportSnapshotButton(
           role="status"
           aria-live="polite"
         >
-          Snapshot saved to {state.result.snapshot_path}
+          快照已保存到 {state.result.snapshot_path}
         </div>
       )}
 

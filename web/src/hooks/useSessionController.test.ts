@@ -83,8 +83,26 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
     expect(result.current.initialMessages[0]!.content).toBe('历史问题');
   });
 
-  it('startNewSession creates a fresh empty session (R2.6)', async () => {
+  it('startNewSession is a no-op when already on an empty shell', async () => {
     createSessionMock.mockResolvedValueOnce(makeSession({ id: 'first' }));
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.sessionId).toBe('first'));
+    const callsBefore = createSessionMock.mock.calls.length;
+    await act(async () => {
+      await result.current.startNewSession();
+    });
+    // Avoid churning empty shells — stay on current empty session.
+    expect(createSessionMock.mock.calls.length).toBe(callsBefore);
+    expect(result.current.sessionId).toBe('first');
+  });
+
+  it('startNewSession creates a fresh session after one with content (R2.6)', async () => {
+    createSessionMock.mockResolvedValueOnce(
+      makeSession({
+        id: 'first',
+        messages: [{ User: { id: 'm1', created_at: '2026-01-01T00:00:00Z', content: { Text: '旧问题' } } }],
+      }),
+    );
     const { result } = renderHook(() => useSessionController());
     await waitFor(() => expect(result.current.sessionId).toBe('first'));
     createSessionMock.mockResolvedValueOnce(makeSession({ id: 'second' }));

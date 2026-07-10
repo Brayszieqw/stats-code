@@ -23,6 +23,7 @@ import type { LlmEvent, LlmProvider, LlmRequest } from './llm-provider.js';
 import type { SkillDescriptor, SkillRegistry } from './skill-registry.js';
 import { SkillRunner } from './skill-runner.js';
 import { SkillRunErrorException, type SkillResult } from './skill-runner-types.js';
+import { heuristicIntent } from './heuristic-intent.js';
 
 export interface OrchestratorDeps {
   sessionStore: SessionStore;
@@ -62,12 +63,14 @@ type Action =
   | { kind: 'error'; payload: { error_code: string; message: string } };
 
 /** Collect all text deltas from an LLM stream; stop at done/error. */
-async function collectStreamText(stream: AsyncIterable<LlmEvent>): Promise<{ text: string; errored: boolean }> {
+async function collectStreamText(
+  stream: AsyncIterable<LlmEvent>,
+): Promise<{ text: string; errored: boolean; errorReason?: string }> {
   let text = '';
   for await (const event of stream) {
     if (event.type === 'text_delta') text += event.text;
     else if (event.type === 'done') break;
-    else if (event.type === 'error') return { text, errored: true };
+    else if (event.type === 'error') return { text, errored: true, errorReason: event.reason };
   }
   return { text, errored: false };
 }
@@ -314,9 +317,15 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       maxTokens: 1024,
       temperature: 0.1,
     };
-    const { text, errored } = await collectStreamText(provider.chatStream(request));
+    const { text, errored, errorReason } = await collectStreamText(provider.chatStream(request));
     if (errored) {
-      return { error: { error_code: 'LlmUnavailable', message: 'AI 服务暂时不可用' } };
+      const detail = errorReason && errorReason.length > 0 ? `（${errorReason}）` : '';
+      return {
+        error: {
+          error_code: 'LlmUnavailable',
+          message: `AI 服务暂时不可用${detail}`,
+        },
+      };
     }
     return { intent: parseIntentResponse(text) };
   }
@@ -395,20 +404,61 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
   async function* handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent> {
     const provider = llmProviderFactory();
     if (!provider) {
+      // Still allow offline keyword routing when chat LLM is not configured.
+      const offline = heuristicIntent(input.text);
+      if (offline) {
+        const intent = await addSessionDatasetDefault(sessionId, offline);
+        const action = decideAction(intent, input.settings);
+        yield* emitAction(sessionId, action, input, null);
+        yield { type: 'done' };
+        return;
+      }
       yield { type: 'error', payload: { error_code: 'LlmUnavailable', message: 'LLM 未配置' } };
       yield { type: 'done' };
       return;
     }
 
     const recognized = await recognizeIntent(provider, input.text, sessionId);
+    let intentBase: IntentResult;
     if ('error' in recognized) {
-      yield { type: 'error', payload: recognized.error };
-      yield { type: 'done' };
-      return;
+      // Cloud LLM down (network/key): fall back to keyword intent so common
+      // analysis requests still open the missing-args / skill flow.
+      const fallback = heuristicIntent(input.text);
+      if (!fallback) {
+        yield {
+          type: 'error',
+          payload: {
+            ...recognized.error,
+            message:
+              `${recognized.error.message}。也可切换到「专业」模式用可视化配置直接运行统计引擎，` +
+              '或改用可连通的 API Base URL。',
+          },
+        };
+        yield { type: 'done' };
+        return;
+      }
+      intentBase = fallback;
+      yield {
+        type: 'text_delta',
+        text:
+          '（云端 AI 暂不可用，已按关键词识别分析意图；变量名请在下方补充，或改用专业模式配置器。）\n',
+      };
+    } else {
+      intentBase = recognized.intent;
     }
 
-    const intent = await addSessionDatasetDefault(sessionId, recognized.intent);
+    const intent = await addSessionDatasetDefault(sessionId, intentBase);
     const action = decideAction(intent, input.settings);
+    yield* emitAction(sessionId, action, input, provider);
+    yield { type: 'done' };
+  }
+
+  async function* emitAction(
+    sessionId: string,
+    action: Action,
+    input: UserMessageInput,
+    provider: LlmProvider | null,
+  ): AsyncIterable<AgentEvent> {
 
     switch (action.kind) {
       case 'ask_choice':
@@ -436,8 +486,15 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
         }
         // Exactly one skill_result, then at least one interpretation AFTER it.
         yield { type: 'skill_result', result };
-        const interpretation = await generateInterpretation(provider, action.skillId, result);
-        yield { type: 'interpretation', text: interpretation };
+        if (provider) {
+          const interpretation = await generateInterpretation(provider, action.skillId, result);
+          yield { type: 'interpretation', text: interpretation };
+        } else {
+          yield {
+            type: 'interpretation',
+            text: '统计结果已生成。云端 AI 未配置，跳过自动解读；请结合表格与图表自行判断。',
+          };
+        }
         // Decision-assistant follow-up (Requirement 8.4).
         if (input.settings.decision_assistant) {
           yield { type: 'choice_prompt', prompt: generateFollowUpPrompt(result) };
@@ -445,8 +502,6 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
         break;
       }
     }
-
-    yield { type: 'done' };
   }
 
   return { handleMessage };

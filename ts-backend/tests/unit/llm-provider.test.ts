@@ -108,6 +108,22 @@ describe('request shape and auth (Requirements 2.1, 2.4, 2.7)', () => {
     await collect(provider.chatStream({ messages: [] }));
     expect(calls[0].url).toBe('https://proxy.example.com/v1/chat/completions');
   });
+
+  it('normalizes deepseek base without /v1 to .../v1/chat/completions', async () => {
+    const calls: { url: string }[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push({ url });
+      return streamingResponse(['data: [DONE]\n\n']);
+    }) as unknown as typeof fetch;
+    const provider = createLlmProvider({
+      provider: 'deepseek',
+      apiKey: 'sk-x',
+      baseUrl: 'https://api.deepseek.com',
+      fetchImpl,
+    });
+    await collect(provider.chatStream({ messages: [{ role: 'user', content: 'q' }] }));
+    expect(calls[0].url).toBe('https://api.deepseek.com/v1/chat/completions');
+  });
 });
 
 describe('retry policy (Requirements 2.5, 2.6)', () => {

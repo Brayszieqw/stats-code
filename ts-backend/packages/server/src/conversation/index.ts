@@ -41,6 +41,14 @@ export {
   type OrchestratorDeps,
   type IntentResult,
 } from './orchestrator.js';
+export { heuristicIntent } from './heuristic-intent.js';
+export {
+  transcribeAudio,
+  SpeechTranscribeError,
+  type SpeechTranscript,
+  type TranscribeAudioOptions,
+} from './speech-transcribe.js';
+export { normalizeProviderBaseUrl } from './llm-provider.js';
 export {
   SkillRunErrorException,
   type SkillResult,

@@ -286,9 +286,36 @@ export function SimpleSidebar({
           })
         )}
       </div>
+
+      {/* Always-visible 辅助决策 — not buried only inside 自动化 drawer */}
+      {typeof decisionAssistant === 'boolean' && onDecisionAssistantChange ? (
+        <div
+          style={{
+            padding: '10px 12px 14px',
+            borderTop: '1px solid #e8e6df',
+            background: '#f7f6f3',
+          }}
+        >
+          <DecisionAssistantToggle
+            value={decisionAssistant}
+            onChange={onDecisionAssistantChange}
+            sessionId={sessionId}
+            disabled={isArchived}
+          />
+        </div>
+      ) : null}
       </div>
 
-      <Drawer title="搜索历史会话" placement="left" width={360} open={activePanel === 'search'} onClose={closePanel}>
+      {/* mask=false so the left nav stays clickable when switching panels */}
+      <Drawer
+        title="搜索历史会话"
+        placement="left"
+        width={360}
+        mask={false}
+        open={activePanel === 'search'}
+        onClose={closePanel}
+        styles={{ wrapper: { boxShadow: '4px 0 16px rgba(0,0,0,0.08)' } }}
+      >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Input.Search
             allowClear
@@ -356,7 +383,15 @@ export function SimpleSidebar({
         </Space>
       </Drawer>
 
-      <Drawer title="插件" placement="left" width={360} open={activePanel === 'plugins'} onClose={closePanel}>
+      <Drawer
+        title="插件"
+        placement="left"
+        width={360}
+        mask={false}
+        open={activePanel === 'plugins'}
+        onClose={closePanel}
+        styles={{ wrapper: { boxShadow: '4px 0 16px rgba(0,0,0,0.08)' } }}
+      >
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           <Button
             icon={<DatabaseOutlined />}
@@ -397,7 +432,15 @@ export function SimpleSidebar({
         </Space>
       </Drawer>
 
-      <Drawer title="自动化" placement="left" width={360} open={activePanel === 'automation'} onClose={closePanel}>
+      <Drawer
+        title="自动化"
+        placement="left"
+        width={360}
+        mask={false}
+        open={activePanel === 'automation'}
+        onClose={closePanel}
+        styles={{ wrapper: { boxShadow: '4px 0 16px rgba(0,0,0,0.08)' } }}
+      >
         <Space direction="vertical" size={14} style={{ width: '100%' }}>
           {typeof decisionAssistant === 'boolean' && onDecisionAssistantChange ? (
             <DecisionAssistantToggle
@@ -434,7 +477,15 @@ export function SimpleSidebar({
         </Space>
       </Drawer>
 
-      <Drawer title="分析模板" placement="left" width={380} open={activePanel === 'templates'} onClose={closePanel}>
+      <Drawer
+        title="分析模板"
+        placement="left"
+        width={380}
+        mask={false}
+        open={activePanel === 'templates'}
+        onClose={closePanel}
+        styles={{ wrapper: { boxShadow: '4px 0 16px rgba(0,0,0,0.08)' } }}
+      >
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           {ANALYSIS_TEMPLATES.map((template) => (
             <button

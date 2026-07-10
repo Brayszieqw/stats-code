@@ -139,6 +139,29 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
     async create(): Promise<Session> {
       ensureLoaded();
       const timestamp = now().toISOString();
+
+      // Reuse the newest empty Active shell and purge other empty shells so
+      // repeated「新对话」does not bloat sessions.json with "新对话 / 0" rows.
+      const empties = [...sessions.values()]
+        .filter(
+          (s) =>
+            s.status === 'Active' &&
+            s.messages.length === 0 &&
+            s.datasets.length === 0 &&
+            s.skill_runs.length === 0,
+        )
+        .sort((a, b) => b.last_active_at.localeCompare(a.last_active_at));
+
+      if (empties.length > 0) {
+        const keep = empties[0]!;
+        for (const extra of empties.slice(1)) {
+          sessions.delete(extra.id);
+        }
+        keep.last_active_at = timestamp;
+        save();
+        return cloneSession(keep);
+      }
+
       const session: Session = {
         id: randomUUID(),
         status: 'Active',

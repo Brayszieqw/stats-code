@@ -21,6 +21,7 @@ import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
 import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOAuth } from './llm.js';
 import { extractPreviewRows } from './conversation/dataset-store.js';
+import { SpeechTranscribeError, transcribeAudio } from './conversation/speech-transcribe.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
@@ -367,12 +368,70 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     return reply;
   });
 
-  // POST /api/sessions/:sid/audio (10 MiB limit)
+  // POST /api/sessions/:sid/audio (10 MiB limit) — Whisper-compatible STT.
   app.post<{ Params: { sid: string } }>(
     '/api/sessions/:sid/audio',
     { bodyLimit: AUDIO_BODY_LIMIT },
-    async (_req, reply) =>
-      reply.code(502).send({ error_code: 'LlmUnavailable', message: '语音转写服务尚未初始化' }),
+    async (req, reply) => {
+      try {
+        await state.sessionStore.get(req.params.sid);
+      } catch (err) {
+        if (err instanceof StoreError) {
+          const { status, body } = storeErrorResponse(err);
+          return reply.code(status).send(body);
+        }
+        throw err;
+      }
+
+      const cfg = state.llmConfigStore?.read() ?? null;
+      if (!cfg?.api_key) {
+        return reply.code(502).send({
+          error_code: 'LlmUnavailable',
+          message:
+            '语音转写需要已配置的 API Key。也可使用浏览器内置语音识别（Chrome/Edge 麦克风按钮旁会优先走本地识别）。',
+        });
+      }
+
+      // Fastify may give a Buffer, Uint8Array, or (rarely) a string for raw bodies.
+      const raw = req.body;
+      let bytes: Uint8Array;
+      if (raw instanceof Uint8Array) {
+        bytes = raw;
+      } else if (Buffer.isBuffer(raw)) {
+        bytes = new Uint8Array(raw);
+      } else if (typeof raw === 'string') {
+        bytes = new TextEncoder().encode(raw);
+      } else if (raw && typeof raw === 'object' && 'type' in (raw as object) && (raw as { type: string }).type === 'Buffer') {
+        bytes = new Uint8Array((raw as { data: number[] }).data);
+      } else {
+        return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: '请求体缺少音频数据' });
+      }
+
+      if (bytes.byteLength === 0) {
+        return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: '音频为空' });
+      }
+
+      const contentType = typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : undefined;
+      try {
+        const result = await transcribeAudio({
+          bytes,
+          contentType,
+          filename: 'recording.webm',
+          language: 'zh',
+          config: cfg,
+        });
+        return reply.send(result);
+      } catch (err) {
+        if (err instanceof SpeechTranscribeError) {
+          const status = err.code === 'SkillInvalidArgs' ? 422 : err.code === 'InternalError' ? 500 : 502;
+          return reply.code(status).send({ error_code: err.code, message: err.message });
+        }
+        return reply.code(502).send({
+          error_code: 'LlmUnavailable',
+          message: (err as Error).message || '语音转写失败',
+        });
+      }
+    },
   );
 
   // POST /api/sessions/:sid/datasets (70 MiB base64 limit) → 201

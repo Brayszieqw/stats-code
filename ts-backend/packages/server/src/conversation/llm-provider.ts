@@ -73,6 +73,28 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Normalize a provider base URL so `/chat/completions` and `/audio/transcriptions`
+ * resolve correctly. Saved configs often omit `/v1` (e.g. `https://api.deepseek.com`).
+ */
+export function normalizeProviderBaseUrl(
+  provider: 'deepseek' | 'openai',
+  baseUrl?: string | null,
+): string {
+  let base =
+    baseUrl && baseUrl.trim().length > 0 ? baseUrl.trim() : DEFAULT_BASE_URLS[provider];
+  base = base.replace(/\/+$/, '');
+  // Strip a trailing /chat/completions if a user pasted the full path.
+  base = base.replace(/\/chat\/completions$/i, '');
+  // Official hosts without the version segment.
+  if (/^https?:\/\/api\.deepseek\.com$/i.test(base)) {
+    base = `${base}/v1`;
+  } else if (/^https?:\/\/api\.openai\.com$/i.test(base)) {
+    base = `${base}/v1`;
+  }
+  return base;
+}
+
 /** Append `/chat/completions` to a base URL, idempotently. */
 function chatCompletionsEndpoint(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, '');
@@ -81,6 +103,18 @@ function chatCompletionsEndpoint(baseUrl: string): string {
 
 /** A non-retryable signal carrying the reason to surface as an `error` event. */
 class NonRetryableError extends Error {}
+
+/** Format fetch/network failures so SSE surfaces a useful reason (ECONNRESET, etc.). */
+function formatFetchError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (cause && typeof cause === 'object') {
+    const c = cause as { code?: string; message?: string };
+    if (c.code) return `fetch failed (${c.code})`;
+    if (c.message) return `fetch failed (${c.message})`;
+  }
+  return err.message || 'fetch failed';
+}
 
 /** Split an SSE buffer into complete frames, returning [frames, remainder]. */
 function splitSseFrames(buffer: string): { frames: string[]; rest: string } {
@@ -136,7 +170,7 @@ function parseFrame(frame: string): { done: true } | { text: string } | null {
 
 export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
   const provider = opts.provider;
-  const baseUrl = opts.baseUrl && opts.baseUrl.length > 0 ? opts.baseUrl : DEFAULT_BASE_URLS[provider];
+  const baseUrl = normalizeProviderBaseUrl(provider, opts.baseUrl);
   const defaultModel = opts.model && opts.model.length > 0 ? opts.model : DEFAULT_MODELS[provider];
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
@@ -155,20 +189,30 @@ export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
       ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     };
-    const res = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetchImpl(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(formatFetchError(err));
+    }
     if (res.ok) return res;
     // 4xx → non-retryable; 5xx → retryable.
+    const errBody = await res.text().catch(() => '');
+    const detail = errBody.trim().slice(0, 180);
+    const msg = detail
+      ? `LLM provider returned ${res.status}: ${detail}`
+      : `LLM provider returned ${res.status}`;
     if (res.status >= 400 && res.status < 500) {
-      throw new NonRetryableError(`LLM provider returned ${res.status}`);
+      throw new NonRetryableError(msg);
     }
-    throw new Error(`LLM provider returned ${res.status}`);
+    throw new Error(msg);
   }
 
   /** Send with retry, returning a successful Response or throwing the final error. */
@@ -197,7 +241,7 @@ export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
     try {
       res = await sendWithRetry(req);
     } catch (err) {
-      yield { type: 'error', reason: (err as Error).message };
+      yield { type: 'error', reason: formatFetchError(err) };
       return;
     }
 

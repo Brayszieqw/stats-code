@@ -315,7 +315,7 @@ describe('ExportSnapshotButton — loading flag', () => {
     await waitFor(() => {
       expect(button).toBeDisabled();
     });
-    expect(button.textContent).toMatch(/exporting/i);
+    expect(button.textContent).toMatch(/导出中/);
 
     await act(async () => {
       resolveFetch?.(

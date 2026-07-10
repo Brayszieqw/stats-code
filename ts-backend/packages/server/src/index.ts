@@ -68,10 +68,18 @@ export {
   createLlmProvider,
   DEFAULT_BASE_URLS,
   DEFAULT_MODELS,
+  normalizeProviderBaseUrl,
   type LlmEvent,
   type LlmMessage,
   type LlmRequest,
   type LlmProviderOptions,
+} from './conversation/index.js';
+export {
+  heuristicIntent,
+  transcribeAudio,
+  SpeechTranscribeError,
+  type SpeechTranscript,
+  type TranscribeAudioOptions,
 } from './conversation/index.js';
 export type { LlmProvider as LlmStreamProvider } from './conversation/index.js';
 export {

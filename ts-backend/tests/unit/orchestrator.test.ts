@@ -133,6 +133,17 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     expect(events.map((e) => e.type)).toEqual(['error', 'done']);
   });
 
+  it('LLM unavailable but keyword match → heuristic intent (no hard error)', async () => {
+    const { orchestrator } = buildHarness(erroringLlm());
+    const events = await collect(
+      orchestrator.handleMessage('s', { text: '帮我做线性回归', settings: settings() }),
+    );
+    // text_delta note + ask_choice (missing args) + done — never a bare hard fail.
+    expect(events.some((e) => e.type === 'text_delta')).toBe(true);
+    expect(events.some((e) => e.type === 'choice_prompt' || e.type === 'error')).toBe(true);
+    expect(events[events.length - 1]?.type).toBe('done');
+  });
+
   it('LLM not configured (factory null) → error then done', async () => {
     const registry = SkillRegistry.withDefaults();
     const orchestrator = createOrchestrator({
@@ -144,6 +155,22 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     });
     const events = await collect(orchestrator.handleMessage('s', { text: 'x', settings: settings() }));
     expect(events.map((e) => e.type)).toEqual(['error', 'done']);
+  });
+
+  it('LLM not configured but keyword match still routes', async () => {
+    const registry = SkillRegistry.withDefaults();
+    const orchestrator = createOrchestrator({
+      sessionStore: new MemSessionStore(),
+      datasetStore: mockDatasetStore(),
+      registry,
+      runner: new SkillRunner(registry),
+      llmProviderFactory: () => null,
+    });
+    const events = await collect(
+      orchestrator.handleMessage('s', { text: '帮我做线性回归', settings: settings() }),
+    );
+    expect(events.some((e) => e.type === 'choice_prompt' || e.type === 'text_delta')).toBe(true);
+    expect(events[events.length - 1]?.type).toBe('done');
   });
 });
 

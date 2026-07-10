@@ -20,6 +20,7 @@ import { serializeSseFrame } from './sse.js';
 import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
 import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOAuth } from './llm.js';
+import { extractPreviewRows } from './conversation/dataset-store.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
@@ -220,6 +221,18 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   app.get<{ Params: { sid: string } }>('/api/sessions/:sid', async (req, reply) => {
     try {
       const session = await state.sessionStore.get(req.params.sid);
+      // Enrich legacy summaries that lack preview_rows by reading raw bytes once.
+      if (state.datasetStore && Array.isArray(session.datasets)) {
+        for (const ds of session.datasets) {
+          if (ds.preview_rows && ds.preview_rows.length > 0) continue;
+          try {
+            const raw = await state.datasetStore.readRawById(ds.dataset_id);
+            ds.preview_rows = extractPreviewRows(raw, ds.file_name);
+          } catch {
+            /* leave without preview */
+          }
+        }
+      }
       return reply.send(session);
     } catch (err) {
       if (err instanceof StoreError) {

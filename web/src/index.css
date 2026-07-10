@@ -1,28 +1,100 @@
-/* 全局莫兰迪暖米色 & 学术科技感样式设计 */
+/* ═══════════════════════════════════════════════════════════════════════
+   Stats 智能统计分析 — 「学术期刊」视觉系统
+   设计语言：学术论文排版（editorial）。思源宋体标题 + 学术墨蓝正文 +
+   朱砂批注红点缀；暖纸底色 + 细腻纸纹，让三线表与统计图成为视觉主角。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import '@fontsource/noto-serif-sc/500.css';
+@import '@fontsource/noto-serif-sc/700.css';
 
 :root {
-  --primary-color: #38618c; /* 莫兰迪蓝 */
+  /* ── 墨色系（文字）───────────────────────────────── */
+  --ink-900: #1f2b38;   /* 主标题墨色 */
+  --ink-700: #2b3a4a;   /* 正文 */
+  --ink-500: #5a6e85;   /* 次要文字 */
+  --ink-300: #9aa7b4;   /* 弱化文字 */
+
+  /* ── 学术蓝（主色）───────────────────────────────── */
+  --primary-color: #38618c;
+  --primary-deep: #2c4e73;
   --primary-light: #5f87b3;
-  --bg-base: #f7f6f0;      /* 暖米色底色 */
-  --bg-gradient-start: #fdfdfb;
-  --bg-gradient-end: #f4f2ea;
-  --glass-bg: rgba(255, 255, 255, 0.7);
+  --primary-wash: rgba(56, 97, 140, 0.08);
+
+  /* ── 朱砂红（批注/强调，用于 p<0.05、推荐标记）────── */
+  --cinnabar: #c0392b;
+  --cinnabar-wash: rgba(192, 57, 43, 0.07);
+
+  /* ── 纸色系（背景）───────────────────────────────── */
+  --paper-bright: #fdfdfb;
+  --paper-base: #f7f5ef;
+  --paper-warm: #f2efe6;
+  --paper-line: #e3e1d8;
+
+  --bg-base: var(--paper-base);
+  --bg-gradient-start: var(--paper-bright);
+  --bg-gradient-end: var(--paper-warm);
+  --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-border: rgba(255, 255, 255, 0.6);
-  --text-main: #2b3a4a;
-  --text-secondary: #5a6e85;
+  --text-main: var(--ink-700);
+  --text-secondary: var(--ink-500);
+
+  /* ── 字体 ────────────────────────────────────────── */
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', 'Source Han Sans CN', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-sans);
   color: var(--text-main);
-  background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+  background:
+    radial-gradient(1200px 800px at 85% -10%, rgba(95, 135, 179, 0.08), transparent 60%),
+    radial-gradient(900px 600px at -10% 100%, rgba(192, 57, 43, 0.04), transparent 55%),
+    linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
   background-attachment: fixed;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* 磨砂玻璃卡片效果 */
+/* 细腻纸纹（SVG feTurbulence 噪点，almost 不可见但消除"塑料感"） */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.40 0 0 0 0 0.36 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── 学术衬线标题工具类 ─────────────────────────────── */
+.serif-display {
+  font-family: var(--font-serif) !important;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 品牌字标：宋体 + 朱砂句点 */
+.brand-wordmark {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  color: var(--ink-900);
+  letter-spacing: 0.02em;
+}
+.brand-wordmark .brand-dot {
+  color: var(--cinnabar);
+}
+
+/* ═══ 磨砂玻璃卡片 ═══════════════════════════════════ */
 .glass-panel {
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
@@ -30,7 +102,8 @@ body {
   border: 1px solid var(--glass-border);
   box-shadow: 0 8px 32px 0 rgba(142, 152, 170, 0.08);
   border-radius: 12px;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    border-color 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .glass-panel:hover {
@@ -38,35 +111,142 @@ body {
   border-color: rgba(255, 255, 255, 0.8);
 }
 
-/* 学术级三线表样式 */
+/* ═══ 学术三线表（期刊排版核心元素）═══════════════════ */
 .three-line-table {
   width: 100%;
   border-collapse: collapse;
   margin: 16px 0;
   font-size: 13px;
   text-align: left;
+  font-variant-numeric: tabular-nums; /* 数字等宽对齐 —— 期刊表格的灵魂 */
 }
 
 .three-line-table th {
-  border-top: 2px solid #2b3b4c;
-  border-bottom: 1px solid #2b3b4c;
-  padding: 8px 12px;
+  border-top: 2px solid var(--ink-900);
+  border-bottom: 1px solid var(--ink-900);
+  padding: 9px 12px;
   font-weight: 600;
-  color: #2b3b4c;
-  background: rgba(56, 97, 140, 0.03);
+  color: var(--ink-900);
+  background: transparent;
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
 }
 
 .three-line-table td {
   padding: 8px 12px;
-  border-bottom: 1px solid #e1e6eb;
+  border-bottom: 1px solid #eceae2;
   color: #435366;
 }
 
-.three-line-table tr:last-child td {
-  border-bottom: 2px solid #2b3b4c; /* 最底部的粗线 */
+.three-line-table tbody tr {
+  transition: background 0.15s ease;
 }
 
-/* 引擎计算预演呼吸灯 & 旋转粒子动效 */
+.three-line-table tbody tr:hover {
+  background: var(--primary-wash);
+}
+
+.three-line-table tr:last-child td {
+  border-bottom: 2px solid var(--ink-900); /* 底部粗线 */
+}
+
+/* 显著 p 值：朱砂标注 */
+.three-line-table .sig {
+  color: var(--cinnabar);
+  font-weight: 600;
+}
+
+/* ═══ 消息气泡（对话区）═══════════════════════════════ */
+@keyframes bubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.msg-bubble {
+  animation: bubbleIn 0.28s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+/* 流式输出光标 */
+@keyframes caretBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.stream-caret::after {
+  content: '▍';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--primary-light);
+  animation: caretBlink 0.9s step-end infinite;
+}
+
+/* ═══ 欢迎页 ═════════════════════════════════════════ */
+@keyframes heroRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-stagger > * {
+  animation: heroRise 0.55s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+.hero-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.hero-stagger > *:nth-child(2) { animation-delay: 0.14s; }
+.hero-stagger > *:nth-child(3) { animation-delay: 0.23s; }
+
+/* 输入框聚焦光环 */
+.hero-input-shell {
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+}
+.hero-input-shell:focus-within {
+  border-color: var(--primary-light) !important;
+  box-shadow: 0 6px 28px rgba(56, 97, 140, 0.14), 0 0 0 3px rgba(56, 97, 140, 0.08) !important;
+  transform: translateY(-1px);
+}
+
+/* ═══ 侧栏 ═══════════════════════════════════════════ */
+.side-nav-row {
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.side-nav-row:hover {
+  background: var(--primary-wash);
+}
+.side-nav-row:focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: -2px;
+}
+
+.history-item {
+  transition: background 0.16s ease;
+  position: relative;
+}
+.history-item:hover {
+  background: var(--primary-wash);
+}
+.history-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--primary-color);
+}
+
+/* ═══ 引擎动效（保留原有）══════════════════════════════ */
 @keyframes pulseGlow {
   0% {
     transform: scale(0.95);
@@ -89,29 +269,18 @@ body {
 }
 
 @keyframes spinSlow {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .engine-spin-slow {
   animation: spinSlow 20s infinite linear;
 }
 
-/* 微光流动进度条 */
 @keyframes progressSlick {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .slick-progress {
@@ -120,7 +289,7 @@ body {
   animation: progressSlick 3s infinite linear;
 }
 
-/* 滚动条隐藏与高颜值微调 */
+/* ═══ 滚动条 ═════════════════════════════════════════ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -137,4 +306,18 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(142, 152, 170, 0.4);
+}
+
+/* ═══ 无动效偏好 ══════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .msg-bubble,
+  .hero-stagger > * {
+    animation: none;
+  }
+  .engine-pulse,
+  .engine-spin-slow,
+  .slick-progress,
+  .stream-caret::after {
+    animation: none;
+  }
 }

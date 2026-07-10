@@ -125,6 +125,35 @@ try {
   });
   if (!ok) fail('/api/health did not return a 200 ok response');
   console.log('[smoke] /api/health → 200 ok');
+
+  // SPA shell must be the real frontend, not the 40-byte emergency fallback.
+  const spaOk = await new Promise((resolveReq) => {
+    const req = net.connect({ host: '127.0.0.1', port: boundPort }, () => {
+      req.write('GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n');
+    });
+    let buf = '';
+    req.on('data', (d) => {
+      buf += d.toString();
+    });
+    req.on('end', () => {
+      const bodyStart = buf.indexOf('\r\n\r\n');
+      const body = bodyStart >= 0 ? buf.slice(bodyStart + 4) : buf;
+      const looksReal =
+        body.length > 200 &&
+        body.includes('root') &&
+        !body.includes('<title>stats-code</title>');
+      resolveReq(looksReal);
+    });
+    req.on('error', () => resolveReq(false));
+    req.setTimeout(3000, () => {
+      req.destroy();
+      resolveReq(false);
+    });
+  });
+  if (!spaOk) {
+    fail('GET / did not serve the embedded SPA (got empty/fallback HTML) — check SEA assets / spa-assets.ts');
+  }
+  console.log('[smoke] GET / → SPA shell OK');
 } finally {
   child.kill();
 }

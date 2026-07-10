@@ -36,6 +36,10 @@ describe('createFsDatasetStore (Requirements 6.1, 6.2, 6.7, 6.8)', () => {
     expect(summary.columns[0].inferred_type).toBe('Numeric');
     expect(summary.columns[1].inferred_type).toBe('String');
     expect(summary.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect(summary.preview_rows).toEqual([
+      { age: 42, name: 'alice' },
+      { age: 37, name: 'bob' },
+    ]);
   });
 
   it('parses TSV using a tab delimiter', async () => {

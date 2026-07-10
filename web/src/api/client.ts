@@ -155,15 +155,18 @@ export async function patchSettings(
  *
  * 浏览器原生 `EventSource` 仅支持 GET，所以这里使用 fetch + ReadableStream
  * 读取 POST 响应的 SSE 流。返回原始 `Response` 由 `useSseChat` hook 解析。
+ * `signal` 用于打断式追问：abort 时取消底层请求与流（R8.3）。
  */
 export async function postMessageFetch(
   sid: string,
   text: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const res = await fetch(`/api/sessions/${sid}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
+    signal,
   });
   if (!res.ok) {
     let payload: ErrorPayload;
@@ -239,12 +242,14 @@ export async function getDataset(
 /**
  * POST /api/sessions/:sid/run — 运行指定 skill/algorithm（进程内执行）。
  * Requirement 12. 成功返回 SkillResult；失败抛出携带错误码的 ApiError。
+ * `signal` 供 RunControls 的「停止」真正取消底层请求（R12.7）。
  */
-export async function runSkill(sid: string, body: RunRequest): Promise<SkillResult> {
+export async function runSkill(sid: string, body: RunRequest, signal?: AbortSignal): Promise<SkillResult> {
   const res = await fetch(`/api/sessions/${sid}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
   return handleResponse<SkillResult>(res);
 }

@@ -1,4 +1,3 @@
 GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
 DATASET NAME data WINDOW=FRONT.
-LOGISTIC REGRESSION VARIABLES={{column.0.name}} /METHOD=ENTER {{column.1.name}}.
-
+LOGISTIC REGRESSION VARIABLES={{params.outcome}} /METHOD=ENTER {{params.predictors_space}}.

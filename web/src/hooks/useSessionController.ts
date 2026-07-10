@@ -53,32 +53,42 @@ export function useSessionController(): SessionController {
     setInitialMessages(mapSessionMessages(session.messages ?? []));
   }, []);
 
+  // 请求序号：快速连点切换会话时，只允许最后一次请求落地，
+  // 防止慢响应覆盖新会话状态。
+  const requestSeqRef = useRef(0);
+
   const loadSession = useCallback(
     async (sid: string) => {
+      const seq = ++requestSeqRef.current;
       setLoading(true);
       setError(null);
       try {
         const session = await getSession(sid);
+        if (seq !== requestSeqRef.current) return; // 已被更新的请求取代
         applySession(session);
       } catch (err) {
+        if (seq !== requestSeqRef.current) return;
         setError(err instanceof Error ? err.message : '加载会话失败');
       } finally {
-        setLoading(false);
+        if (seq === requestSeqRef.current) setLoading(false);
       }
     },
     [applySession],
   );
 
   const startNewSession = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const session = await createSession();
+      if (seq !== requestSeqRef.current) return;
       applySession(session);
     } catch (err) {
+      if (seq !== requestSeqRef.current) return;
       setError(err instanceof Error ? err.message : '创建会话失败');
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [applySession]);
 

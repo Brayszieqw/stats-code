@@ -17,6 +17,7 @@ import { ChoicePromptCard } from './ChoicePromptCard';
 import { ThreeLineTable } from './ThreeLineTable';
 import { StatsChartRenderer } from './StatsChartRenderer';
 import { RiskSignalTags } from './RiskSignalTags';
+import { ErrorBoundary } from './ErrorBoundary';
 import { shouldMountAnalysisResultView } from '../lib/analysisResultMount';
 import { AnalysisResultView } from './AnalysisResultView';
 import { useCoverageMatrix } from '../lib/coverageMatrixContext';
@@ -31,6 +32,15 @@ export interface MessageListProps {
   messages: ChatMessage[];
   onChoiceSubmit?: (answer: ChoiceAnswer) => void;
   disabled?: boolean;
+}
+
+function hasVisibleMessageContent(message: ChatMessage): boolean {
+  return (
+    message.content.trim().length > 0 ||
+    Boolean(message.choicePrompt) ||
+    Boolean(message.skillResult) ||
+    Boolean(message.interpretation)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -135,16 +145,19 @@ function SkillResultView({ result }: { result: SkillResult }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      {isStructuredTable ? (
-        <div style={{ margin: '8px 0 16px' }}>
-          <ThreeLineTable skillResult={result} />
-        </div>
-      ) : (
-        <GenericKVTable payload={payload} />
-      )}
+      <ErrorBoundary title="结果表格渲染失败" resetKey={analysis?.run_id ?? 'msg-table'}>
+        {isStructuredTable ? (
+          <div style={{ margin: '8px 0 16px' }}>
+            <ThreeLineTable skillResult={result} />
+          </div>
+        ) : (
+          <GenericKVTable payload={payload} />
+        )}
+      </ErrorBoundary>
 
-      {/* Render ECharts visualization below the table inline inside the chat bubble */}
-      <StatsChartRenderer skillResult={result} />
+      <ErrorBoundary title="图表渲染失败" resetKey={analysis?.run_id ?? 'msg-chart'}>
+        <StatsChartRenderer skillResult={result} />
+      </ErrorBoundary>
 
       <RiskSignalTags signals={risk_signals} />
 
@@ -191,18 +204,30 @@ function InterpretationView({ text }: { text: string }) {
 
 export function MessageList({ messages, onChoiceSubmit, disabled = false }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const visibleMessages = messages.filter(hasVisibleMessageContent);
 
+  // 仅当消息数量或最后一条内容变化时滚动，且用户明显上翻时不强制拉底。
+  const lastMsg = visibleMessages[visibleMessages.length - 1];
+  const scrollKey = `${visibleMessages.length}:${lastMsg ? lastMsg.content.length : 0}`;
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const sentinel = bottomRef.current;
+    if (!sentinel) return;
+    const container = sentinel.parentElement?.parentElement; // 外层 overflowY 容器
+    if (container && container.scrollHeight > container.clientHeight) {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      // 距底超过 240px 视为用户在读历史，不打断。
+      if (distanceFromBottom > 240) return;
+    }
+    sentinel.scrollIntoView({ behavior: 'smooth' });
+  }, [scrollKey]);
 
-  if (messages.length === 0) {
+  if (visibleMessages.length === 0) {
     return <EmptyState />;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 8 }}>
-      {messages.map((msg) => (
+      {visibleMessages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} onChoiceSubmit={onChoiceSubmit} disabled={disabled} />
       ))}
       <div ref={bottomRef} />
@@ -314,6 +339,7 @@ function MessageBubble({
 
   return (
     <div
+      className="msg-bubble"
       style={{
         display: 'flex',
         justifyContent: isUser ? 'flex-end' : 'flex-start',

@@ -3,7 +3,7 @@ import statsmodels.api as sm
 from statsmodels.regression.linear_model import OLS
 
 data = pd.read_csv("data.csv")
-y = data["{{column.0.name}}"]
-X = sm.add_constant(data[["{{column.1.name}}"]])
+y = data[{{params.outcome_quoted}}]
+X = sm.add_constant(data[[{{params.predictors_quoted}}]])
 model = OLS(y, X).fit()
 print(model.summary())

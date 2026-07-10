@@ -36,7 +36,7 @@ export function useCodeRun(): UseCodeRunReturn {
     abortRef.current = controller;
     setState({ status: 'running' });
     try {
-      const result = await runSkill(sessionId, body);
+      const result = await runSkill(sessionId, body, controller.signal);
       // Ignore the result if this run was superseded/aborted.
       if (controller.signal.aborted) return;
       setState({ status: 'success', result });

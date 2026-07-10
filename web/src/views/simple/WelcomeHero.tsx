@@ -74,13 +74,14 @@ export function WelcomeHero({
   const resolvedModelLabel = modelLabel?.trim() || 'DeepSeek';
 
   return (
-    <div style={{ width: '100%', maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ width: '100%', maxWidth: 720, margin: '0 auto' }} className="hero-stagger">
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <Title
           level={2}
-          style={{ fontWeight: 600, color: '#2b3a4a', marginBottom: 8, fontSize: 30 }}
+          className="serif-display"
+          style={{ color: '#1f2b38', marginBottom: 10, fontSize: 34, letterSpacing: '0.01em' }}
         >
-          开始你的统计分析
+          开始你的统计分析<span style={{ color: '#c0392b' }}>。</span>
         </Title>
         <Text type="secondary" style={{ fontSize: 14 }}>
           用自然语言描述研究问题，Stats 会引导你完成分析
@@ -88,6 +89,7 @@ export function WelcomeHero({
       </div>
 
       <div
+        className="hero-input-shell"
         style={{
           border: '1px solid #e3e1d8',
           borderRadius: 18,
@@ -113,11 +115,13 @@ export function WelcomeHero({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
             marginTop: 8,
           }}
         >
           {/* 左侧工具 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 190px', minWidth: 0, flexWrap: 'wrap' }}>
             <Button
               type="text"
               shape="circle"
@@ -125,7 +129,7 @@ export function WelcomeHero({
               aria-label="附加数据集"
               onClick={onOpenDatasetPicker}
               disabled={disabled || !onOpenDatasetPicker}
-              style={{ color: '#5a6e85' }}
+              style={{ color: '#5a6e85', maxWidth: 150 }}
             />
             <Button
               type="text"
@@ -139,6 +143,7 @@ export function WelcomeHero({
                 borderRadius: 16,
                 background: 'rgba(56,97,140,0.08)',
                 paddingInline: 12,
+                maxWidth: '100%',
               }}
             >
               {datasetLabel} <DownOutlined style={{ fontSize: 10 }} />
@@ -146,14 +151,14 @@ export function WelcomeHero({
           </div>
 
           {/* 右侧工具 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 1 auto', marginLeft: 'auto', maxWidth: '100%', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <Button
               type="text"
               size="small"
               aria-label="模型选择"
               onClick={onOpenSettings}
               disabled={!onOpenSettings}
-              style={{ color: '#5a6e85' }}
+              style={{ color: '#5a6e85', flexShrink: 0 }}
             >
               {resolvedModelLabel} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
@@ -181,6 +186,7 @@ export function WelcomeHero({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexShrink: 0,
               }}
             />
           </div>

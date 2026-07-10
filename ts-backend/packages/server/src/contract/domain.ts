@@ -43,6 +43,8 @@ export const datasetSummary = z.object({
   uploaded_at: dateTime,
   // serde(default): always serialized as string|null; absent allowed for legacy.
   sha256: z.string().nullable().optional(),
+  /** First N data rows for SPA preview (not required for legacy sessions). */
+  preview_rows: z.array(z.record(z.unknown())).optional(),
 });
 export type DatasetSummary = z.infer<typeof datasetSummary>;
 

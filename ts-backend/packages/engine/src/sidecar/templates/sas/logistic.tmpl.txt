@@ -1,5 +1,5 @@
 proc import datafile="data.csv" out=work.data dbms=csv replace; run;
 
 proc logistic data=work.data;
-   model {{column.0.name}} = {{column.1.name}};
+   model {{params.outcome}} = {{params.predictors_space}};
 run;

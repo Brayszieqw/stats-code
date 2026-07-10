@@ -1,5 +1,6 @@
 import { Typography } from 'antd';
 import type { SkillResult } from '../api/types';
+import { fmtNum, fmtP, normalizeCoefficients } from '../lib/coeffFields';
 
 const { Text } = Typography;
 
@@ -88,12 +89,11 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
                       </td>
                     );
                   })}
-                  <td style={{ textAlign: 'right', fontWeight: row.p_value < 0.05 ? 600 : 400 }}>
-                    {row.p_value !== undefined && row.p_value !== null
-                      ? row.p_value < 0.001
-                        ? '<0.001'
-                        : row.p_value.toFixed(3)
-                      : '-'}
+                  <td
+                    className={typeof row.p_value === 'number' && row.p_value < 0.05 ? 'sig' : undefined}
+                    style={{ textAlign: 'right' }}
+                  >
+                    {fmtP(typeof row.p_value === 'number' ? row.p_value : null)}
                   </td>
                 </tr>
               ))}
@@ -104,9 +104,13 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
     }
 
     // Sub-scenario 1.2: Regression Coefficients (Logistic/Cox/Linear)
+    // Backend may emit camelCase (estimate/stdError/pValue/ciLower) or snake_case.
     if (payload.coefficients && Array.isArray(payload.coefficients)) {
-      const isLogistic = 'odds_ratio' in (payload.coefficients[0] || {});
-      const isCox = 'hazard_ratio' in (payload.coefficients[0] || {});
+      const coeffs = normalizeCoefficients(payload.coefficients);
+      if (coeffs.length === 0) return null;
+
+      const isLogistic = coeffs.some((c) => c.oddsRatio !== null);
+      const isCox = !isLogistic && coeffs.some((c) => c.hazardRatio !== null);
 
       const effectColHeader = isLogistic ? 'Odds Ratio (OR)' : isCox ? 'Hazard Ratio (HR)' : 'Beta 系数';
       const ciHeader = '95% 置信区间 (CI)';
@@ -119,14 +123,15 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
                 <th>影响因素 (协变量)</th>
                 <th style={{ textAlign: 'right' }}>估计值 (Beta)</th>
                 <th style={{ textAlign: 'right' }}>标准误 (SE)</th>
-                { (isLogistic || isCox) && <th style={{ textAlign: 'right' }}>{effectColHeader}</th> }
+                {(isLogistic || isCox) && <th style={{ textAlign: 'right' }}>{effectColHeader}</th>}
                 <th style={{ textAlign: 'center' }}>{ciHeader}</th>
                 <th style={{ textAlign: 'right' }}>p 值</th>
               </tr>
             </thead>
             <tbody>
-              {payload.coefficients.map((coeff: any, idx: number) => {
-                const estValue = isLogistic ? coeff.odds_ratio : isCox ? coeff.hazard_ratio : null;
+              {coeffs.map((coeff, idx) => {
+                const estValue = isLogistic ? coeff.oddsRatio : isCox ? coeff.hazardRatio : null;
+                const p = coeff.pValue;
                 return (
                   <tr key={idx}>
                     <td>
@@ -137,16 +142,19 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
                         </span>
                       )}
                     </td>
-                    <td style={{ textAlign: 'right' }}>{coeff.beta.toFixed(3)}</td>
-                    <td style={{ textAlign: 'right' }}>{coeff.standard_error.toFixed(3)}</td>
-                    { estValue !== null && (
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{estValue.toFixed(3)}</td>
-                    ) }
+                    <td style={{ textAlign: 'right' }}>{fmtNum(coeff.beta)}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtNum(coeff.standardError)}</td>
+                    {estValue !== null && (
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtNum(estValue)}</td>
+                    )}
                     <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
-                      [{coeff.ci_lower.toFixed(3)}, {coeff.ci_upper.toFixed(3)}]
+                      [{fmtNum(coeff.ciLower)}, {fmtNum(coeff.ciUpper)}]
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: coeff.p_value < 0.05 ? 600 : 400 }}>
-                      {coeff.p_value < 0.001 ? '<0.001' : coeff.p_value.toFixed(3)}
+                    <td
+                      className={typeof p === 'number' && p < 0.05 ? 'sig' : undefined}
+                      style={{ textAlign: 'right' }}
+                    >
+                      {fmtP(p)}
                     </td>
                   </tr>
                 );

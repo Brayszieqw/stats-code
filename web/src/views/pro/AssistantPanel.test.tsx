@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AssistantPanel } from './AssistantPanel';
 import type { UseSseChatReturn, ChatMessage } from '../../hooks/useSseChat';
+import type { DatasetSummary } from '../../api/types';
 
 function makeChat(overrides: Partial<UseSseChatReturn> = {}): UseSseChatReturn {
   return {
@@ -25,7 +26,50 @@ function makeChat(overrides: Partial<UseSseChatReturn> = {}): UseSseChatReturn {
 // state shows the WelcomeHero composer instead).
 const history: ChatMessage[] = [{ id: 'a1', role: 'agent', content: '你好', timestamp: new Date() }];
 
+const dataset: DatasetSummary = {
+  dataset_id: 'ds-1',
+  file_name: 'cohort.csv',
+  size_bytes: 1024,
+  encoding: 'Utf8',
+  row_count: 12,
+  columns: [{ name: 'age', inferred_type: 'Numeric', missing_count: 0 }],
+  uploaded_at: '2026-01-01T00:00:00Z',
+  sha256: null,
+};
+
 describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
+  it('wires the empty-state dataset, model, and voice controls', () => {
+    const onOpenDatasetPicker = vi.fn();
+    const onOpenSettings = vi.fn();
+    const onOpenVoiceInput = vi.fn();
+    render(
+      <AssistantPanel
+        sessionId="s1"
+        chat={makeChat()}
+        isArchived={false}
+        onSend={() => {}}
+        onChoiceSubmit={() => {}}
+        onRetry={() => {}}
+        onVoiceTranscript={() => {}}
+        datasets={[dataset]}
+        selectedDatasetId="ds-1"
+        modelLabel="DeepSeek"
+        onOpenDatasetPicker={onOpenDatasetPicker}
+        onOpenSettings={onOpenSettings}
+        onOpenVoiceInput={onOpenVoiceInput}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('选择数据集'));
+    fireEvent.click(screen.getByLabelText('模型选择'));
+    fireEvent.click(screen.getByLabelText('语音输入'));
+
+    expect(onOpenDatasetPicker).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenVoiceInput).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/cohort\.csv/)).toBeInTheDocument();
+  });
+
   it('routes send through onSend (R8.2)', () => {
     const onSend = vi.fn();
     render(

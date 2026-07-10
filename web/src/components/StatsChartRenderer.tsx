@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { Card, Typography, Space, Tag } from 'antd';
 import { AreaChartOutlined } from '@ant-design/icons';
 import type { SkillResult } from '../api/types';
+import { fmtNum, fmtP, normalizeCoefficients } from '../lib/coeffFields';
 
 const { Text } = Typography;
 
@@ -108,22 +109,29 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
 
     // ─── Scenario 2: Regression Forest Plot (LogisticResult / CoxResult / LinearResult) ───
     if (payload.coefficients && Array.isArray(payload.coefficients)) {
-      const coefficients = payload.coefficients;
-      const isLogistic = 'odds_ratio' in (coefficients[0] || {});
-      const isCox = 'hazard_ratio' in (coefficients[0] || {});
+      const coefficients = normalizeCoefficients(payload.coefficients);
+      if (coefficients.length === 0) return null;
 
-      // Extract names, estimates, and 95% Confidence Intervals
+      const isLogistic = coefficients.some((c) => c.oddsRatio !== null);
+      const isCox = !isLogistic && coefficients.some((c) => c.hazardRatio !== null);
+
+      // Extract names, estimates, and 95% Confidence Intervals (skip incomplete rows)
       const categories: string[] = [];
       const pointEstimates: number[] = [];
       const errorBarData: any[] = [];
-
-      coefficients.forEach((coeff: any) => {
-        categories.push(coeff.term);
-        const est = isLogistic ? coeff.odds_ratio : isCox ? coeff.hazard_ratio : coeff.beta;
-        pointEstimates.push(est);
-        // [Index, low, high]
-        errorBarData.push([est, categories.length - 1, coeff.ci_lower, coeff.ci_upper]);
+      const plotCoeffs = coefficients.filter((coeff) => {
+        const est = isLogistic ? coeff.oddsRatio : isCox ? coeff.hazardRatio : coeff.beta;
+        return est !== null && coeff.ciLower !== null && coeff.ciUpper !== null;
       });
+
+      plotCoeffs.forEach((coeff) => {
+        categories.push(coeff.term);
+        const est = (isLogistic ? coeff.oddsRatio : isCox ? coeff.hazardRatio : coeff.beta) as number;
+        pointEstimates.push(est);
+        errorBarData.push([est, categories.length - 1, coeff.ciLower, coeff.ciUpper]);
+      });
+
+      if (categories.length === 0) return null;
 
       // Reverse lists to render top-down in forest plot
       categories.reverse();
@@ -148,12 +156,13 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
             const scatterParam = params.find((p: any) => p.seriesName === '点估计');
             if (!scatterParam) return '';
             const idx = scatterParam.dataIndex;
-            const coeff = coefficients[coefficients.length - 1 - idx];
-            const est = isLogistic ? coeff.odds_ratio : isCox ? coeff.hazard_ratio : coeff.beta;
+            const coeff = plotCoeffs[plotCoeffs.length - 1 - idx];
+            if (!coeff) return '';
+            const est = isLogistic ? coeff.oddsRatio : isCox ? coeff.hazardRatio : coeff.beta;
             return `<b>${coeff.term}</b><br/>
-                    效应值: ${est.toFixed(3)}<br/>
-                    95% 置信区间: [${coeff.ci_lower.toFixed(3)}, ${coeff.ci_upper.toFixed(3)}]<br/>
-                    p 值: ${coeff.p_value < 0.001 ? '<0.001' : coeff.p_value.toFixed(4)}`;
+                    效应值: ${fmtNum(est)}<br/>
+                    95% 置信区间: [${fmtNum(coeff.ciLower)}, ${fmtNum(coeff.ciUpper)}]<br/>
+                    p 值: ${fmtP(coeff.pValue, 4)}`;
           },
         },
         grid: {
@@ -197,10 +206,10 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
               const high = api.value(3);
               const halfWidth = 5;
 
-              const startCoords = api.coords([low, yIndex]);
-              const endCoords = api.coords([high, yIndex]);
+              const startCoords = api.coord([low, yIndex]);
+              const endCoords = api.coord([high, yIndex]);
 
-              const style = api.style({ stroke: '#38618c', fill: null, lineWidth: 1.8 });
+              const style = { stroke: '#38618c', lineWidth: 1.8 };
 
               return {
                 type: 'group',
@@ -327,10 +336,10 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
               const high = api.value(2);
               const halfWidth = 6;
 
-              const lowCoords = api.coords([xIdx, low]);
-              const highCoords = api.coords([xIdx, high]);
+              const lowCoords = api.coord([xIdx, low]);
+              const highCoords = api.coord([xIdx, high]);
 
-              const style = api.style({ stroke: '#e28743', lineWidth: 1.5 });
+              const style = { stroke: '#e28743', lineWidth: 1.5 };
 
               return {
                 type: 'group',

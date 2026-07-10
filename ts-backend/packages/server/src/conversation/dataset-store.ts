@@ -87,12 +87,53 @@ function splitDelimited(line: string, delimiter: string): string[] {
   return fields;
 }
 
+const PREVIEW_ROW_LIMIT = 10;
+
+/** Coerce a cell to number when it is a finite numeric string; otherwise keep string. */
+function coerceCell(field: string): string | number {
+  if (field.length === 0) return '';
+  const n = Number(field);
+  return Number.isFinite(n) && field.trim() !== '' ? n : field;
+}
+
+/**
+ * Extract the first `limit` data rows as plain objects keyed by header name.
+ * Safe for SPA preview; does not invent synthetic data.
+ */
+export function extractPreviewRows(
+  bytes: Uint8Array,
+  fileName: string,
+  limit = PREVIEW_ROW_LIMIT,
+): Record<string, string | number>[] {
+  const ext = (fileName.split('.').pop() ?? '').toLowerCase();
+  const delimiter = ext === 'tsv' ? '\t' : ',';
+  const text = new TextDecoder('utf-8').decode(bytes);
+  const lines = text.split(/\r\n|\n|\r/).filter((l, idx, arr) => {
+    if (l.length > 0) return true;
+    return idx !== arr.length - 1;
+  });
+  if (lines.length < 2) return [];
+  const headers = splitDelimited(lines[0]!, delimiter).map((h) => h.trim());
+  const rows: Record<string, string | number>[] = [];
+  for (let r = 1; r < lines.length && rows.length < limit; r += 1) {
+    const record = splitDelimited(lines[r]!, delimiter);
+    const obj: Record<string, string | number> = {};
+    for (let i = 0; i < headers.length; i += 1) {
+      const key = headers[i]!;
+      if (!key) continue;
+      obj[key] = coerceCell((record[i] ?? '').trim());
+    }
+    rows.push(obj);
+  }
+  return rows;
+}
+
 /** Parse CSV/TSV bytes into a DatasetSummary (without dataset_id / sha256). */
 function parseTextTable(
   bytes: Uint8Array,
   fileName: string,
   ext: string,
-): { row_count: number; columns: ColumnSummary[] } {
+): { row_count: number; columns: ColumnSummary[]; preview_rows: Record<string, string | number>[] } {
   const delimiter = ext === 'tsv' ? '\t' : ',';
   const text = new TextDecoder('utf-8').decode(bytes);
   // Split into non-empty physical lines (handle CRLF/LF).
@@ -112,10 +153,20 @@ function parseTextTable(
   const missingCounts = new Array<number>(columnCount).fill(0);
   const numericCounts = new Array<number>(columnCount).fill(0);
   let rowCount = 0;
+  const preview_rows: Record<string, string | number>[] = [];
 
   for (let r = 1; r < lines.length; r += 1) {
     const record = splitDelimited(lines[r]!, delimiter);
     rowCount += 1;
+    if (preview_rows.length < PREVIEW_ROW_LIMIT) {
+      const obj: Record<string, string | number> = {};
+      for (let idx = 0; idx < columnCount; idx += 1) {
+        const name = headers[idx]!;
+        if (!name) continue;
+        obj[name] = coerceCell((record[idx] ?? '').trim());
+      }
+      preview_rows.push(obj);
+    }
     for (let idx = 0; idx < columnCount; idx += 1) {
       const field = (record[idx] ?? '').trim();
       if (field.length === 0) {
@@ -134,7 +185,7 @@ function parseTextTable(
     return { name, inferred_type: inferredType, missing_count: missingCounts[idx]! };
   });
 
-  return { row_count: rowCount, columns };
+  return { row_count: rowCount, columns, preview_rows };
 }
 
 export function createFsDatasetStore(opts: FsDatasetStoreOptions = {}): DatasetStore {
@@ -176,6 +227,7 @@ export function createFsDatasetStore(opts: FsDatasetStoreOptions = {}): DatasetS
         columns: parsed.columns,
         uploaded_at: new Date().toISOString(),
         sha256: sha256HexLower(bytes),
+        preview_rows: parsed.preview_rows,
       };
       return Promise.resolve(summary);
     },

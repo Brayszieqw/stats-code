@@ -78,17 +78,45 @@ export function RunControls({ sessionId, analysis, copyText, disabled = false, l
         >
           运行所选
         </Button>
-        <Button icon={<BugOutlined />} disabled={!canRun} onClick={handleRun} block={btnBlock} aria-label="调试" style={{ textAlign: 'left' }}>
+        <Button
+          icon={<BugOutlined />}
+          disabled
+          block={btnBlock}
+          aria-label="调试"
+          title="调试功能开发中"
+          style={{ textAlign: 'left' }}
+        >
           调试
         </Button>
-        <Button icon={<ClearOutlined />} disabled={state.status === 'idle'} onClick={reset} block={btnBlock} aria-label="清空" style={{ textAlign: 'left' }}>
+        <Button
+          icon={<ClearOutlined />}
+          disabled={state.status === 'idle'}
+          onClick={reset}
+          block={btnBlock}
+          aria-label="清空"
+          title={state.status === 'idle' ? '暂无运行记录可清空' : '清空运行状态'}
+          style={{ textAlign: 'left' }}
+        >
           清空控制台
         </Button>
-        <Button icon={<StopOutlined />} disabled={!isRunning} onClick={stop} block={btnBlock} aria-label="停止" style={{ textAlign: 'left' }}>
+        <Button
+          icon={<StopOutlined />}
+          disabled={!isRunning}
+          onClick={stop}
+          block={btnBlock}
+          aria-label="停止"
+          title={!isRunning ? '当前没有正在运行的任务' : '停止运行'}
+          style={{ textAlign: 'left' }}
+        >
           停止
         </Button>
-        <CopyToClipboard text={copyText} label="复制代码" />
+        <CopyToClipboard text={copyText} label="复制代码" disabled={disabled || !copyText} />
       </Space>
+      {!analysis && (
+        <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.4 }}>
+          完成一次分析后可运行 / 复制等价代码
+        </Text>
+      )}
 
       {isRunning && (
         <Text type="secondary" style={{ fontSize: 12 }}>

@@ -26,80 +26,10 @@ const TYPE_COLORS: Record<string, string> = {
 
 const TYPE_LABELS: Record<string, string> = {
   Numeric: '数值型 (Numeric)',
-  Categorical: '分类 hover (Categorical)',
+  Categorical: '分类 (Categorical)',
   Date: '日期型 (Date)',
   String: '文本型 (String)',
 };
-
-/**
- * Generates smart, realistic mock preview rows based on column definitions.
- * This is used as a fallback if the raw file is not actively cached in memory,
- * ensuring the user always sees a professional, publication-grade dataset preview.
- */
-function generateMockPreview(columns: ColumnSummary[], rowCount: number): Record<string, any>[] {
-  const size = Math.min(10, rowCount);
-  const rows: Record<string, any>[] = [];
-
-  for (let i = 0; i < size; i++) {
-    const row: Record<string, any> = { key: i };
-    columns.forEach((col) => {
-      // Simulate random missing values according to the missing rate
-      const missingRate = rowCount > 0 ? col.missing_count / rowCount : 0;
-      if (Math.random() < missingRate && col.missing_count > 0) {
-        row[col.name] = null;
-        return;
-      }
-
-      switch (col.inferred_type) {
-        case 'Numeric':
-          // Generate realistic clinical or statistical variables
-          const nameLower = col.name.toLowerCase();
-          if (nameLower.includes('age')) {
-            row[col.name] = Math.floor(45 + Math.random() * 30); // 45-75
-          } else if (nameLower.includes('sex') || nameLower.includes('gender')) {
-            row[col.name] = Math.random() > 0.5 ? 1 : 0;
-          } else if (nameLower.includes('status') || nameLower.includes('event')) {
-            row[col.name] = Math.random() > 0.7 ? 1 : 0; // 0=censored, 1=event
-          } else if (nameLower.includes('time') || nameLower.includes('survival') || nameLower.includes('day')) {
-            row[col.name] = Math.floor(100 + Math.random() * 1200); // survival days
-          } else if (nameLower.includes('bmi')) {
-            row[col.name] = parseFloat((18.5 + Math.random() * 12).toFixed(1));
-          } else if (nameLower.includes('bp') || nameLower.includes('pressure')) {
-            row[col.name] = Math.floor(110 + Math.random() * 40);
-          } else {
-            row[col.name] = parseFloat((Math.random() * 100).toFixed(2));
-          }
-          break;
-        case 'Categorical':
-          const catName = col.name.toLowerCase();
-          if (catName.includes('group') || catName.includes('arm')) {
-            row[col.name] = Math.random() > 0.5 ? 'Treatment' : 'Control';
-          } else if (catName.includes('stage') || catName.includes('grade')) {
-            const stages = ['Stage I', 'Stage II', 'Stage III', 'Stage IV'];
-            row[col.name] = stages[Math.floor(Math.random() * stages.length)];
-          } else {
-            row[col.name] = `Cat_${Math.floor(Math.random() * 3) + 1}`;
-          }
-          break;
-        case 'Date':
-          const date = new Date();
-          date.setDate(date.getDate() - Math.floor(Math.random() * 365));
-          row[col.name] = date.toISOString().split('T')[0];
-          break;
-        case 'String':
-        default:
-          if (col.name.toLowerCase().includes('id')) {
-            row[col.name] = `SUBJ-${1000 + i}`;
-          } else {
-            row[col.name] = `Val_${i + 1}`;
-          }
-          break;
-      }
-    });
-    rows.push(row);
-  }
-  return rows;
-}
 
 export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
   if (!summary) {
@@ -218,9 +148,9 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
     if (previewRows && previewRows.length > 0) {
       return previewRows.slice(0, 10).map((row, idx) => ({ key: idx, ...row }));
     }
-    // Generate high-quality mock data if not provided (offline/session restore fallback)
-    return generateMockPreview(summary.columns, summary.row_count);
-  }, [summary.columns, summary.row_count, previewRows]);
+    return [];
+  }, [previewRows]);
+  const hasPreviewRows = previewDataSource.length > 0;
 
   return (
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
@@ -327,9 +257,13 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
                   <DatabaseOutlined style={{ marginRight: '6px', color: '#38618c' }} />
                   数据样本预览 (前 10 行)
                 </Title>
-                {(!previewRows || previewRows.length === 0) && (
+                {hasPreviewRows ? (
+                  <Tag color="green" style={{ margin: 0 }}>
+                    真实数据预览
+                  </Tag>
+                ) : (
                   <Tag color="orange" style={{ margin: 0 }}>
-                    智能预渲染模式
+                    未缓存原始行
                   </Tag>
                 )}
               </div>
@@ -337,18 +271,27 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
             styles={{ body: { padding: '12px' } }}
           >
             <Paragraph style={{ fontSize: '12px', color: '#687b90', marginBottom: '12px' }}>
-              学术规范预览：表格标题统一居上，使用精简的医学/统计学网格规范，缺失单元格标记为 N/A。
+              {hasPreviewRows
+                ? '学术规范预览：表格标题统一居上，使用精简的医学/统计学网格规范，缺失单元格标记为 N/A。'
+                : '当前会话没有缓存原始预览行；这里仅展示字段结构和缺失情况，不生成可能误导的模拟数据。'}
             </Paragraph>
-            <Table
-              dataSource={previewDataSource}
-              columns={previewDataColumns}
-              pagination={false}
-              size="small"
-              bordered
-              scroll={{ x: 'max-content' }}
-              style={{ background: 'transparent' }}
-              rowClassName={(_, idx) => (idx % 2 === 1 ? 'table-row-alternate' : '')}
-            />
+            {hasPreviewRows ? (
+              <Table
+                dataSource={previewDataSource}
+                columns={previewDataColumns}
+                pagination={false}
+                size="small"
+                bordered
+                scroll={{ x: 'max-content' }}
+                style={{ background: 'transparent' }}
+                rowClassName={(_, idx) => (idx % 2 === 1 ? 'table-row-alternate' : '')}
+              />
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={<Text type="secondary">暂无真实数据行预览</Text>}
+              />
+            )}
           </Card>
         </Col>
       </Row>

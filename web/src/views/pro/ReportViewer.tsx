@@ -16,6 +16,7 @@ import { StatsChartRenderer } from '../../components/StatsChartRenderer';
 import { RiskSignalTags } from '../../components/RiskSignalTags';
 import { ExportSnapshotButton } from '../../components/ExportSnapshotButton';
 import { DataExplorer } from '../../components/DataExplorer';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { useLatestAnalysis } from '../../hooks/useLatestAnalysis';
 import type { ChatMessage } from '../../hooks/useSseChat';
 import type { DatasetSummary } from '../../api/types';
@@ -33,7 +34,12 @@ export function ReportViewer({ messages, selectedDataset }: ReportViewerProps) {
   // 无结果分支：选中数据集 → DataExplorer，否则空态。
   if (!result) {
     if (selectedDataset) {
-      return <DataExplorer summary={selectedDataset} />;
+      return (
+        <DataExplorer
+          summary={selectedDataset}
+          previewRows={selectedDataset.preview_rows ?? null}
+        />
+      );
     }
     return (
       <Card className="glass-panel" style={{ textAlign: 'center', padding: '48px 16px' }}>
@@ -72,7 +78,9 @@ export function ReportViewer({ messages, selectedDataset }: ReportViewerProps) {
           </Paragraph>
         ) : null}
 
-        <ThreeLineTable skillResult={result} />
+        <ErrorBoundary title="结果表格渲染失败" resetKey={analysis?.run_id ?? 'table'}>
+          <ThreeLineTable skillResult={result} />
+        </ErrorBoundary>
 
         <RiskSignalTags signals={result.risk_signals} />
 
@@ -94,7 +102,9 @@ export function ReportViewer({ messages, selectedDataset }: ReportViewerProps) {
         ) : null}
       </Card>
 
-      <StatsChartRenderer skillResult={result} />
+      <ErrorBoundary title="图表渲染失败" resetKey={analysis?.run_id ?? 'chart'}>
+        <StatsChartRenderer skillResult={result} />
+      </ErrorBoundary>
     </Space>
   );
 }

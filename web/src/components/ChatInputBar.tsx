@@ -16,8 +16,14 @@
 
 import { useCallback, useState } from 'react';
 import { Button, Input, Typography, theme as antdTheme } from 'antd';
-import { SendOutlined, LoadingOutlined } from '@ant-design/icons';
+import {
+  SendOutlined,
+  LoadingOutlined,
+  DatabaseOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
 import { VoiceRecorder } from './VoiceRecorder';
+import type { DatasetSummary } from '../api/types';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -36,6 +42,12 @@ export interface ChatInputBarProps {
   footer?: React.ReactNode;
   minRows?: number;
   maxRows?: number;
+  /** Optional compact toolbar (kept in conversation mode, not only welcome). */
+  datasets?: DatasetSummary[];
+  selectedDatasetId?: string | null;
+  modelLabel?: string | null;
+  onOpenDatasetPicker?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function ChatInputBar({
@@ -50,6 +62,11 @@ export function ChatInputBar({
   footer,
   minRows = 1,
   maxRows = 6,
+  datasets = [],
+  selectedDatasetId = null,
+  modelLabel,
+  onOpenDatasetPicker,
+  onOpenSettings,
 }: ChatInputBarProps) {
   const { token } = antdTheme.useToken();
   const [inputValue, setInputValue] = useState('');
@@ -72,6 +89,14 @@ export function ChatInputBar({
     [handleSend],
   );
 
+  const selectedDataset = datasets.find((d) => d.dataset_id === selectedDatasetId) ?? null;
+  const datasetLabel = selectedDataset
+    ? selectedDataset.file_name
+    : datasets.length > 0
+      ? `${datasets.length} 个数据集`
+      : '选择数据集';
+  const showToolbar = Boolean(onOpenDatasetPicker || onOpenSettings);
+
   return (
     <div
       style={{
@@ -82,6 +107,41 @@ export function ChatInputBar({
         border: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
+      {showToolbar ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+            flexWrap: 'wrap',
+          }}
+        >
+          {onOpenDatasetPicker ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<DatabaseOutlined />}
+              aria-label="选择数据集"
+              onClick={onOpenDatasetPicker}
+              disabled={isArchived}
+            >
+              {datasetLabel}
+            </Button>
+          ) : null}
+          {onOpenSettings ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<SettingOutlined />}
+              aria-label="模型选择"
+              onClick={onOpenSettings}
+            >
+              {modelLabel?.trim() || '模型设置'}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
         <VoiceRecorder
           sessionId={sessionId}

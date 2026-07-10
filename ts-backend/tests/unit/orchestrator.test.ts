@@ -112,6 +112,10 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     );
     const events = await collect(orchestrator.handleMessage('s', { text: 'linear', settings: settings() }));
     expect(events.map((e) => e.type)).toEqual(['choice_prompt', 'done']);
+    // Missing scalar args must not become fake clickable option_ids (e.g. "predictors").
+    const prompt = events[0] as { type: 'choice_prompt'; prompt: { options: unknown[]; allow_custom_text: boolean } };
+    expect(prompt.prompt.options).toEqual([]);
+    expect(prompt.prompt.allow_custom_text).toBe(true);
   });
 
   it('multiple skills → choice_prompt then done', async () => {
@@ -144,6 +148,33 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
 });
 
 describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () => {
+  it('uses the latest session dataset when the LLM omits dataset_id', async () => {
+    const llm = mockLlm([
+      '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"]},"has_query_intent":true,"text_response":null}',
+      '线性回归结果解读。',
+    ]);
+    const { orchestrator, sessionStore } = buildHarness(llm);
+    const session = await sessionStore.create();
+    await sessionStore.appendDataset(session.id, fixtureSummary());
+
+    const events = await collect(
+      orchestrator.handleMessage(session.id, { text: '对 y 做线性回归', settings: settings() }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      'skill_call',
+      'skill_result',
+      'interpretation',
+      'done',
+    ]);
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        type: 'skill_call',
+        args: expect.objectContaining({ dataset_id: 'ds-1' }),
+      }),
+    );
+  });
+
   async function runSingleSkill(decisionAssistant: boolean): Promise<AgentEvent[]> {
     // Intent recognition returns a resolved single skill; the interpretation
     // call returns plain text. Both come from the same mock LLM.

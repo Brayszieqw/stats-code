@@ -13,7 +13,7 @@ import { ErrorBanner } from '../../components/ErrorBanner';
 import { ChatInputBar } from '../../components/ChatInputBar';
 import { WelcomeHero } from '../simple/WelcomeHero';
 import type { UseSseChatReturn } from '../../hooks/useSseChat';
-import type { ChoiceAnswer } from '../../api/types';
+import type { ChoiceAnswer, DatasetSummary } from '../../api/types';
 
 export interface AssistantPanelProps {
   sessionId: string;
@@ -23,6 +23,12 @@ export interface AssistantPanelProps {
   onChoiceSubmit: (a: ChoiceAnswer) => void;
   onRetry: () => void;
   onVoiceTranscript: (t: string) => void;
+  datasets?: DatasetSummary[];
+  selectedDatasetId?: string | null;
+  modelLabel?: string | null;
+  onOpenDatasetPicker?: () => void;
+  onOpenSettings?: () => void;
+  onOpenVoiceInput?: () => void;
 }
 
 export function AssistantPanel({
@@ -33,6 +39,12 @@ export function AssistantPanel({
   onChoiceSubmit,
   onRetry,
   onVoiceTranscript,
+  datasets = [],
+  selectedDatasetId = null,
+  modelLabel,
+  onOpenDatasetPicker,
+  onOpenSettings,
+  onOpenVoiceInput,
 }: AssistantPanelProps) {
   const { messages, error, isStreaming } = chat;
 
@@ -40,7 +52,16 @@ export function AssistantPanel({
   if (messages.length === 0) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', overflowY: 'auto', padding: '12px 0' }}>
-        <WelcomeHero onSend={onSend} disabled={isArchived} />
+        <WelcomeHero
+          onSend={onSend}
+          disabled={isArchived}
+          datasets={datasets}
+          selectedDatasetId={selectedDatasetId}
+          modelLabel={modelLabel}
+          onOpenDatasetPicker={onOpenDatasetPicker}
+          onOpenSettings={onOpenSettings}
+          onOpenVoiceInput={onOpenVoiceInput}
+        />
       </div>
     );
   }
@@ -62,6 +83,11 @@ export function AssistantPanel({
           placeholder="继续追问，Enter 发送，Shift+Enter 换行"
           inputAriaLabel="助手消息输入框"
           maxRows={5}
+          datasets={datasets}
+          selectedDatasetId={selectedDatasetId}
+          modelLabel={modelLabel}
+          onOpenDatasetPicker={onOpenDatasetPicker}
+          onOpenSettings={onOpenSettings}
         />
       </div>
     </div>

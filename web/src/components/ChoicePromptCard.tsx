@@ -129,24 +129,31 @@ export function ChoicePromptCard({ prompt, onSubmit, disabled = false }: ChoiceP
       {/* 自定义文本输入 */}
       {prompt.allow_custom_text && (
         <div style={{ marginTop: 12 }}>
-          <Input
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            placeholder="自定义回答"
-            disabled={isDisabled}
-            onPressEnter={prompt.multi_select ? handleMultiSubmit : handleCustomTextSubmit}
-            suffix={
-              !prompt.multi_select ? (
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<CheckOutlined />}
-                  disabled={isDisabled || !customText.trim()}
-                  onClick={handleCustomTextSubmit}
-                />
-              ) : undefined
-            }
-          />
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              placeholder={
+                prompt.options.length === 0
+                  ? '请填写所需参数后发送'
+                  : '自定义回答'
+              }
+              disabled={isDisabled}
+              onPressEnter={prompt.multi_select ? handleMultiSubmit : handleCustomTextSubmit}
+              aria-label="自定义回答"
+            />
+            {!prompt.multi_select ? (
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                disabled={isDisabled || !customText.trim()}
+                onClick={handleCustomTextSubmit}
+                aria-label="发送自定义回答"
+              >
+                发送
+              </Button>
+            ) : null}
+          </Space.Compact>
         </div>
       )}
 

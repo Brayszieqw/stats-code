@@ -45,6 +45,8 @@ export interface SimpleSidebarProps {
   onOpenProMode?: () => void;
   onUseTemplate?: (prompt: string) => void;
   onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  /** Delete all empty shells (0 messages & 0 datasets), keep active session. */
+  onPurgeEmptySessions?: () => void | Promise<void>;
 }
 
 type PanelKey = 'search' | 'plugins' | 'automation' | 'templates';
@@ -80,6 +82,7 @@ function NavRow({
       type="button"
       aria-label={label}
       onClick={onClick}
+      className="side-nav-row"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -95,8 +98,6 @@ function NavRow({
         fontWeight: accent ? 600 : 400,
         textAlign: 'left',
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56,97,140,0.07)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
       <span style={{ fontSize: 15, color: accent ? PRIMARY : '#6a7a8c' }}>{icon}</span>
       {label}
@@ -118,18 +119,29 @@ export function SimpleSidebar({
   onOpenProMode,
   onUseTemplate,
   onDeleteSession,
+  onPurgeEmptySessions,
 }: SimpleSidebarProps) {
   const { sessions, error } = sessionList;
   const [activePanel, setActivePanel] = useState<PanelKey | null>(null);
   const [query, setQuery] = useState('');
   const deletingSessionIdsRef = useRef(new Set<string>());
   const [deletingSessionIds, setDeletingSessionIds] = useState<Set<string>>(() => new Set());
+  const [purging, setPurging] = useState(false);
 
   const filteredSessions = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return sessions;
-    return sessions.filter((session) => session.title.toLowerCase().includes(needle));
-  }, [query, sessions]);
+    // Hide empty shells (0 messages & 0 datasets) unless they are the active session
+    // or the user is searching — cuts the "新对话 / 0" flood in the sidebar.
+    const base = sessions.filter(
+      (session) =>
+        session.id === activeSessionId ||
+        session.message_count > 0 ||
+        session.dataset_count > 0 ||
+        needle.length > 0,
+    );
+    if (!needle) return base;
+    return base.filter((session) => session.title.toLowerCase().includes(needle));
+  }, [query, sessions, activeSessionId]);
 
   const closePanel = () => setActivePanel(null);
 
@@ -158,10 +170,28 @@ export function SimpleSidebar({
     <>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* 品牌 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 14px 8px' }}>
-        <ThunderboltOutlined style={{ color: PRIMARY, fontSize: 18 }} />
-        <Text strong style={{ fontSize: 15, color: '#2b3a4a' }}>
-          Stats 智能分析
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 14px 10px' }}>
+        <span
+          aria-hidden
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: 7,
+            background: 'linear-gradient(135deg, #38618c, #2c4e73)',
+            color: '#fff',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--font-serif)',
+            fontWeight: 700,
+            fontSize: 14,
+            boxShadow: '0 2px 6px rgba(44, 78, 115, 0.28)',
+          }}
+        >
+          σ
+        </span>
+        <Text strong className="brand-wordmark" style={{ fontSize: 16 }}>
+          Stats 智能分析<span className="brand-dot">.</span>
         </Text>
       </div>
 
@@ -214,13 +244,14 @@ export function SimpleSidebar({
                   type="button"
                   aria-label={`历史会话: ${s.title}`}
                   onClick={() => onSelectSession(s.id)}
+                  className={`history-item${active ? ' active' : ''}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     flex: 1,
                     minWidth: 0,
-                    padding: '8px 8px 8px 10px',
+                    padding: '8px 8px 8px 12px',
                     border: 'none',
                     background: active ? 'rgba(56,97,140,0.12)' : 'transparent',
                     borderRadius: 8,
@@ -228,12 +259,6 @@ export function SimpleSidebar({
                     color: '#3a4654',
                     fontSize: 13,
                     textAlign: 'left',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!active) e.currentTarget.style.background = 'rgba(56,97,140,0.07)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) e.currentTarget.style.background = 'transparent';
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>
@@ -364,7 +389,7 @@ export function SimpleSidebar({
             disabled={!onOpenProMode}
             block
           >
-            打开专业分析工作台
+            {onOpenProMode ? '打开专业分析工作台' : '专业分析工作台（当前）'}
           </Button>
           <Tag color="blue" style={{ width: 'fit-content' }}>
             当前内置统计引擎、等效代码、报告导出和语音转写
@@ -387,8 +412,24 @@ export function SimpleSidebar({
           <Button icon={<ReloadOutlined />} onClick={() => void sessionList.refresh()} block>
             刷新会话列表
           </Button>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            disabled={!onPurgeEmptySessions || purging}
+            loading={purging}
+            block
+            onClick={() => {
+              if (!onPurgeEmptySessions || purging) return;
+              setPurging(true);
+              void Promise.resolve(onPurgeEmptySessions()).finally(() => setPurging(false));
+            }}
+            aria-label="清理空会话"
+          >
+            清理空会话
+          </Button>
           <Text type="secondary" style={{ fontSize: 12 }}>
             辅助决策开启后，Stats 会在回复中主动建议下一步分析、风险检查和结果解释。
+            「清理空会话」会删除无消息且无数据集的历史壳（保留当前会话）。
           </Text>
         </Space>
       </Drawer>

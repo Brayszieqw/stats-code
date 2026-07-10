@@ -84,24 +84,39 @@ function normalizeRenderParams(
   params: RenderParams,
   columns: readonly Column[],
 ): RenderParams {
-  if (algorithmId !== 'tableone') {
-    return params;
+  if (algorithmId === 'linear' || algorithmId === 'logistic') {
+    const outcome = params.outcome ?? columns[0]?.name ?? '';
+    const predictors =
+      parseNameList(params.predictors) ?? (columns[1] ? [columns[1].name] : []);
+
+    return {
+      ...params,
+      outcome,
+      outcome_quoted: quoteString(outcome),
+      predictors_space: predictors.join(' '),
+      predictors_r: predictors.join(' + '),
+      predictors_quoted: predictors.map(quoteString).join(', '),
+    };
   }
 
-  const group =
-    params.group ?? params.strata ?? params.by ?? columns[1]?.name ?? columns[0]?.name ?? '';
-  const continuous =
-    parseNameList(params.continuous) ??
-    parseNameList(params.vars) ??
-    (columns[0] ? [columns[0].name] : []);
+  if (algorithmId === 'tableone') {
+    const group =
+      params.group ?? params.strata ?? params.by ?? columns[1]?.name ?? columns[0]?.name ?? '';
+    const continuous =
+      parseNameList(params.continuous) ??
+      parseNameList(params.vars) ??
+      (columns[0] ? [columns[0].name] : []);
 
-  return {
-    ...params,
-    group,
-    group_quoted: quoteString(group),
-    continuous_space: continuous.join(' '),
-    continuous_quoted: continuous.map(quoteString).join(', '),
-  };
+    return {
+      ...params,
+      group,
+      group_quoted: quoteString(group),
+      continuous_space: continuous.join(' '),
+      continuous_quoted: continuous.map(quoteString).join(', '),
+    };
+  }
+
+  return params;
 }
 
 /**

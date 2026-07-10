@@ -9,7 +9,7 @@
  * Validates: Requirements 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 9.3, 9.4
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Layout, Alert, Button, Drawer, Empty, Space, Tag, Typography } from 'antd';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { WelcomeHero } from './simple/WelcomeHero';
@@ -43,6 +43,7 @@ export interface SimpleModeViewProps {
   modelLabel?: string | null;
   onOpenSettings?: () => void;
   onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  onPurgeEmptySessions?: () => void | Promise<void>;
 }
 
 export function SimpleModeView({
@@ -58,6 +59,7 @@ export function SimpleModeView({
   modelLabel,
   onOpenSettings,
   onDeleteSession,
+  onPurgeEmptySessions,
 }: SimpleModeViewProps) {
   const { messages, error, isStreaming } = chat;
   const { isArchived, sessionId, datasets, addDataset } = controller;
@@ -70,6 +72,13 @@ export function SimpleModeView({
     () => datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? null,
     [datasets, selectedDatasetId],
   );
+
+  // Single dataset → auto-select so the picker label is meaningful.
+  useEffect(() => {
+    if (datasets.length === 1) {
+      setSelectedDatasetId(datasets[0]!.dataset_id);
+    }
+  }, [datasets, sessionId]);
 
   const handleDatasetUploaded = (summary: DatasetSummary) => {
     addDataset(summary);
@@ -103,6 +112,7 @@ export function SimpleModeView({
           onOpenSettings={onOpenSettings}
           onOpenProMode={() => onModeChange('pro')}
           onUseTemplate={onSend}
+          onPurgeEmptySessions={onPurgeEmptySessions}
           onDeleteSession={onDeleteSession}
         />
       </Sider>
@@ -177,6 +187,11 @@ export function SimpleModeView({
                 onSend={onSend}
                 onVoiceTranscript={onVoiceTranscript}
                 footer="结果由 AI 生成，请结合专业判断"
+                datasets={datasets}
+                selectedDatasetId={selectedDatasetId}
+                modelLabel={modelLabel}
+                onOpenDatasetPicker={() => setDatasetDrawerOpen(true)}
+                onOpenSettings={onOpenSettings}
               />
             </div>
           </div>

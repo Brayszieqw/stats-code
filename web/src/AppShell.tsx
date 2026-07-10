@@ -30,7 +30,7 @@ import {
   isKnownModel,
   OnboardingCard,
 } from './components/OnboardingCard';
-import { postLlmConfig, deleteSession, ApiError } from './api/client';
+import { postLlmConfig, deleteSession, listSessions, ApiError } from './api/client';
 import type { ChoiceAnswer, LlmProvider } from './api/types';
 
 const { Paragraph } = Typography;
@@ -112,6 +112,23 @@ export function AppShell() {
     },
     [controller, sessionList],
   );
+
+  /** Remove empty history shells (0 messages & 0 datasets), keep current session. */
+  const handlePurgeEmptySessions = useCallback(async () => {
+    const all = await listSessions();
+    const currentId = controller.sessionId;
+    const victims = all.filter(
+      (s) => s.id !== currentId && s.message_count === 0 && s.dataset_count === 0,
+    );
+    for (const s of victims) {
+      try {
+        await deleteSession(s.id);
+      } catch {
+        /* best-effort */
+      }
+    }
+    await sessionList.refresh();
+  }, [controller.sessionId, sessionList]);
 
   // ─── LLM 配置（Onboarding + 设置抽屉）──────────────────────────────────
   const [llmSubmitting, setLlmSubmitting] = useState(false);
@@ -240,6 +257,7 @@ export function AppShell() {
           modelLabel={modelLabel}
           onOpenSettings={() => setSettingsOpen(true)}
           onDeleteSession={handleDeleteSession}
+          onPurgeEmptySessions={handlePurgeEmptySessions}
         />
       ) : (
         <ProModeView
@@ -255,6 +273,7 @@ export function AppShell() {
           model={modelLabel}
           onOpenSettings={() => setSettingsOpen(true)}
           onDeleteSession={handleDeleteSession}
+          onPurgeEmptySessions={handlePurgeEmptySessions}
         />
       )}
 

@@ -20,7 +20,6 @@ import type {
   UserMessageInput,
 } from '../state.js';
 import type { LlmEvent, LlmProvider, LlmRequest } from './llm-provider.js';
-import { skillToAlgorithm } from './skill-algorithm-map.js';
 import type { SkillDescriptor, SkillRegistry } from './skill-registry.js';
 import { SkillRunner } from './skill-runner.js';
 import { SkillRunErrorException, type SkillResult } from './skill-runner-types.js';
@@ -128,6 +127,34 @@ function findMissingArgs(desc: SkillDescriptor, resolved: Record<string, unknown
 export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
   const { sessionStore, datasetStore, registry, runner, llmProviderFactory } = deps;
 
+  async function addSessionDatasetDefault(
+    sessionId: string,
+    intent: IntentResult,
+  ): Promise<IntentResult> {
+    if (intent.skill_ids.length !== 1 || intent.resolved_args.dataset_id != null) {
+      return intent;
+    }
+    const desc = registry.get(intent.skill_ids[0]!);
+    if (!desc || !requiredArgs(desc).includes('dataset_id')) {
+      return intent;
+    }
+
+    try {
+      const session = await sessionStore.get(sessionId);
+      const latestDataset = session.datasets.at(-1);
+      if (!latestDataset) return intent;
+      return {
+        ...intent,
+        resolved_args: {
+          ...intent.resolved_args,
+          dataset_id: latestDataset.dataset_id,
+        },
+      };
+    } catch {
+      return intent;
+    }
+  }
+
   function buildSkillDescriptions(): string {
     return registry
       .list()
@@ -156,14 +183,19 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
 
   function buildMissingArgsPrompt(desc: SkillDescriptor, missing: string[]): ChoicePrompt {
     const properties = (desc.inputSchema.properties as Record<string, { description?: string }> | undefined) ?? {};
-    const options: ChoiceOption[] = missing.map((arg) => {
-      const description = properties[arg]?.description ?? null;
-      return { option_id: arg, text: description ?? arg, explanation: description };
+    // Do NOT turn raw parameter names into clickable options (e.g. option_id
+    // "dataset_id" with label "数据集 ID") — users click them and the system
+    // records a fake selection without a real value. Ask for free-form text only.
+    const labels = missing.map((arg) => {
+      const description = properties[arg]?.description;
+      return description && description.length > 0 ? description : arg;
     });
     return {
       prompt_id: randomUUID(),
-      question: `执行「${desc.displayName}」还需要以下信息：`,
-      options,
+      question:
+        `执行「${desc.displayName}」还需要以下信息：${labels.join('、')}。` +
+        '请在下方直接填写（例如：结局变量 bmi，预测变量 age）。',
+      options: [],
       multi_select: false,
       allow_custom_text: true,
       recommendation: null,
@@ -203,17 +235,80 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       `可用技能列表：\n${descriptions}\n\n` +
       '请以 JSON 格式返回：\n' +
       '{"skill_ids": [匹配的skill_id列表], "resolved_args": {已解析的参数}, ' +
-      '"has_query_intent": bool, "text_response": "如无匹配skill则返回文字回复"}\n'
+      '"has_query_intent": bool, "text_response": "如无匹配skill则返回文字回复"}\n' +
+      '规则：\n' +
+      '- 若会话上下文中已有 dataset_id / 结局变量 / 预测变量，请写入 resolved_args，不要重复追问。\n' +
+      '- 用户补充的参数（如“结局变量 bmi，预测变量 age”）应合并进 resolved_args。\n' +
+      '- 没有匹配技能时 skill_ids 为空数组并给出 text_response。\n'
     );
+  }
+
+  /** Compact recent dialogue for multi-turn intent (last few turns only). */
+  function formatSessionContext(
+    messages: import('../state.js').Message[],
+    datasets: { dataset_id: string; file_name: string; columns: { name: string }[] }[],
+  ): string {
+    const parts: string[] = [];
+    if (datasets.length > 0) {
+      parts.push(
+        '已上传数据集：' +
+          datasets
+            .map(
+              (d) =>
+                `${d.file_name} (dataset_id=${d.dataset_id}; 列=${d.columns.map((c) => c.name).join(',')})`,
+            )
+            .join(' | '),
+      );
+    } else {
+      parts.push('已上传数据集：无');
+    }
+    const recent = messages.slice(-8);
+    if (recent.length > 0) {
+      parts.push('最近对话：');
+      for (const msg of recent) {
+        if ('User' in msg) {
+          const c = msg.User.content;
+          let text = '';
+          if ('Text' in c) text = c.Text;
+          else if ('AudioTranscript' in c) text = c.AudioTranscript.text;
+          else if ('ChoiceAnswer' in c) {
+            const a = c.ChoiceAnswer;
+            text = [a.options.join(','), a.custom_text ?? ''].filter(Boolean).join(' | ');
+          }
+          if (text.trim()) parts.push(`用户: ${text.trim().slice(0, 240)}`);
+        } else if ('Agent' in msg) {
+          const bits: string[] = [];
+          for (const b of msg.Agent.blocks) {
+            if ('Text' in b) bits.push(b.Text);
+            else if ('ChoicePrompt' in b) bits.push(`[提问] ${b.ChoicePrompt.question}`);
+            else if ('SkillResult' in b) bits.push('[已返回统计结果]');
+            else if ('Interpretation' in b) bits.push(b.Interpretation.slice(0, 160));
+          }
+          const joined = bits.join(' ').trim();
+          if (joined) parts.push(`助手: ${joined.slice(0, 280)}`);
+        }
+      }
+    }
+    return parts.join('\n');
   }
 
   async function recognizeIntent(
     provider: LlmProvider,
     userText: string,
+    sessionId: string,
   ): Promise<{ intent: IntentResult } | { error: { error_code: string; message: string } }> {
+    let contextBlock = '';
+    try {
+      const session = await sessionStore.get(sessionId);
+      contextBlock = formatSessionContext(session.messages ?? [], session.datasets ?? []);
+    } catch {
+      contextBlock = '';
+    }
+    const system =
+      intentSystemPrompt() + (contextBlock ? `\n\n—— 会话上下文 ——\n${contextBlock}\n—— 结束 ——\n` : '');
     const request: LlmRequest = {
       messages: [
-        { role: 'system', content: intentSystemPrompt() },
+        { role: 'system', content: system },
         { role: 'user', content: userText },
       ],
       maxTokens: 1024,
@@ -305,14 +400,15 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       return;
     }
 
-    const recognized = await recognizeIntent(provider, input.text);
+    const recognized = await recognizeIntent(provider, input.text, sessionId);
     if ('error' in recognized) {
       yield { type: 'error', payload: recognized.error };
       yield { type: 'done' };
       return;
     }
 
-    const action = decideAction(recognized.intent, input.settings);
+    const intent = await addSessionDatasetDefault(sessionId, recognized.intent);
+    const action = decideAction(intent, input.settings);
 
     switch (action.kind) {
       case 'ask_choice':

@@ -36,7 +36,7 @@
  * Validates: Requirements 1.1, 1.2, 1.3, 1.5, 1.6, 1.8, 6.3, 6.4
  */
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 import {
   coverageOf,
@@ -115,6 +115,8 @@ export interface EquivalentCodeSidecarProps {
   params?: Record<string, string>;
   /** Stats Code release version that emitted the snippet. */
   releaseVersion: string;
+  /** Notify parent when the active-tab snippet text changes (for external copy). */
+  onSnippetTextChange?: (text: string | undefined) => void;
 }
 
 /**
@@ -139,6 +141,7 @@ export function EquivalentCodeSidecar({
   columns,
   params,
   releaseVersion,
+  onSnippetTextChange,
 }: EquivalentCodeSidecarProps): ReactElement {
   // R is the default active tab on first render (Requirement 1.2 / 6.3).
   const [activeTab, setActiveTab] = useState<ReferenceSoftware>('R');
@@ -179,6 +182,10 @@ export function EquivalentCodeSidecar({
   // body has not landed. The explicit `disabled={cellState === 'none'}`
   // satisfies Requirement 1.8 for the `none` cell.
   const snippetText = sidecar.snippet?.text;
+
+  useEffect(() => {
+    onSnippetTextChange?.(snippetText);
+  }, [snippetText, onSnippetTextChange]);
 
   return (
     <section

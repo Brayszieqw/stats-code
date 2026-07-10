@@ -9,6 +9,7 @@
  * Validates: Requirements 7.1, 7.2, 7.3, 7.5
  */
 
+import { useCallback, useState } from 'react';
 import { Empty, Typography } from 'antd';
 import { EquivalentCodeSidecar } from '../../components/EquivalentCodeSidecar';
 import { RunControls } from './RunControls';
@@ -49,6 +50,11 @@ function toParams(analysis: AnalysisResultMeta): Record<string, string> | undefi
 export function CodePanel({ sessionId, analysis, disabled = false }: CodePanelProps) {
   const { matrix } = useCoverageMatrix();
   const releaseVersion = matrix?.release_version ?? '';
+  const [snippetText, setSnippetText] = useState<string | undefined>(undefined);
+
+  const handleSnippetTextChange = useCallback((text: string | undefined) => {
+    setSnippetText(text);
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -66,6 +72,7 @@ export function CodePanel({ sessionId, analysis, disabled = false }: CodePanelPr
               columns={toSidecarColumns(analysis)}
               params={toParams(analysis)}
               releaseVersion={releaseVersion}
+              onSnippetTextChange={handleSnippetTextChange}
             />
           ) : (
             <Empty
@@ -78,7 +85,13 @@ export function CodePanel({ sessionId, analysis, disabled = false }: CodePanelPr
 
         {/* 右侧运行控制竖条 */}
         <div style={{ width: 130, flexShrink: 0, borderLeft: '1px solid #e3e1d8', paddingLeft: 10 }}>
-          <RunControls sessionId={sessionId} analysis={analysis} disabled={disabled} layout="vertical" />
+          <RunControls
+            sessionId={sessionId}
+            analysis={analysis}
+            copyText={snippetText}
+            disabled={disabled}
+            layout="vertical"
+          />
         </div>
       </div>
     </div>

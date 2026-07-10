@@ -127,6 +127,8 @@ export interface DatasetSummary {
   columns: ColumnSummary[];
   uploaded_at: string;
   sha256?: string | null;
+  /** First N real rows for SPA preview (optional on legacy sessions). */
+  preview_rows?: Record<string, string | number>[] | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -9,9 +9,9 @@
  * Validates: Requirements 4.1, 4.2, 4.3, 4.4
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { Grid, Layout, Button, Typography, Tag, Alert } from 'antd';
-import { UploadOutlined, FileTextOutlined, CloseOutlined } from '@ant-design/icons';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Grid, Layout, Button, Typography, Tag, Alert, Drawer } from 'antd';
+import { UploadOutlined, FileTextOutlined, CloseOutlined, MenuOutlined } from '@ant-design/icons';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { ModeToggle } from '../components/ModeToggle';
 import { ReportViewer } from './pro/ReportViewer';
@@ -19,9 +19,9 @@ import { CodePanel } from './pro/CodePanel';
 import { AssistantPanel } from './pro/AssistantPanel';
 import { DatasetUploader } from '../components/DatasetUploader';
 import { AnalysisConfigurator } from '../components/AnalysisConfigurator';
+import { VoiceRecorder } from '../components/VoiceRecorder';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
 import { runSkill, ApiError } from '../api/client';
-import { Drawer } from 'antd';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
@@ -50,6 +50,7 @@ export interface ProModeViewProps {
   model?: string | null;
   onOpenSettings?: () => void;
   onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  onPurgeEmptySessions?: () => void | Promise<void>;
 }
 
 export function ProModeView({
@@ -62,8 +63,10 @@ export function ProModeView({
   onChoiceSubmit,
   onRetry,
   onVoiceTranscript,
+  model,
   onOpenSettings,
   onDeleteSession,
+  onPurgeEmptySessions,
 }: ProModeViewProps) {
   const screens = useBreakpoint();
   const { sessionId, datasets, isArchived, addDataset } = controller;
@@ -71,6 +74,7 @@ export function ProModeView({
   const [selectedDataset, setSelectedDataset] = useState<DatasetSummary | null>(null);
   const [lastProfiledDataset, setLastProfiledDataset] = useState<DatasetSummary | null>(null);
   const [uploaderOpen, setUploaderOpen] = useState(false);
+  const [voiceDrawerOpen, setVoiceDrawerOpen] = useState(false);
   const [directRunResult, setDirectRunResult] = useState<SkillResult | null>(null);
   const [directRunPrompt, setDirectRunPrompt] = useState('');
   const [directRunError, setDirectRunError] = useState<string | null>(null);
@@ -78,21 +82,47 @@ export function ProModeView({
   // 上下可拖拽比例：报告区占中部高度的比例（0.2–0.85）。
   const [reportFlex, setReportFlex] = useState(0.56);
   const centerRef = useState<{ el: HTMLDivElement | null }>(() => ({ el: null }))[0];
+  // 记录进行中的拖拽清理函数，组件卸载时兜底移除监听。
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanupRef.current?.(), []);
+
+  // 会话切换时重置本地派生状态，避免上个会话的数据集选择/直跑结果串台。
+  useEffect(() => {
+    setSelectedDataset(null);
+    setLastProfiledDataset(null);
+    setDirectRunResult(null);
+    setDirectRunPrompt('');
+    setDirectRunError(null);
+  }, [sessionId]);
+
+  // 仅 1 个数据集时自动选中，避免用户必须再点 Tag 才出现分析配置器。
+  useEffect(() => {
+    if (datasets.length === 1) {
+      const only = datasets[0]!;
+      setSelectedDataset((prev) => (prev?.dataset_id === only.dataset_id ? prev : only));
+      setLastProfiledDataset((prev) => (prev?.dataset_id === only.dataset_id ? prev : only));
+    }
+  }, [datasets, sessionId]);
 
   const startVDrag = (e: React.MouseEvent) => {
     e.preventDefault();
     const container = centerRef.el;
     if (!container) return;
-    const rect = container.getBoundingClientRect();
     const onMove = (ev: MouseEvent) => {
+      // 每次移动时重新测量，容器随窗口/分栏变化时比例仍正确。
+      const rect = container.getBoundingClientRect();
       const ratio = (ev.clientY - rect.top) / rect.height;
       const clamped = Math.min(0.85, Math.max(0.2, ratio));
       setReportFlex(clamped);
     };
     const onUp = () => {
+      dragCleanupRef.current?.();
+    };
+    dragCleanupRef.current = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.style.userSelect = '';
+      dragCleanupRef.current = null;
     };
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMove);
@@ -153,6 +183,7 @@ export function ProModeView({
   const sidebarWidth = screens.xxl ? 260 : screens.xl ? 230 : 210;
   const codeWidth = screens.xxl ? 440 : screens.xl ? 380 : 320;
   const contentMaxWidth = screens.xxl ? 1080 : 920;
+  const isCompact = screens.lg === false;
 
   return (
     <Layout style={{ height: '100vh' }}>
@@ -166,8 +197,31 @@ export function ProModeView({
           trigger={null}
           breakpoint="lg"
           onBreakpoint={(broken) => setSidebarCollapsed(broken)}
-          style={{ background: '#f7f6f3', borderRight: BORDER, overflowY: 'auto' }}
+          style={{
+            background: '#f7f6f3',
+            borderRight: BORDER,
+            overflowY: 'auto',
+            ...(isCompact && !sidebarCollapsed
+              ? {
+                  position: 'fixed',
+                  inset: '0 auto 0 0',
+                  height: '100vh',
+                  zIndex: 30,
+                  boxShadow: '8px 0 24px rgba(31, 43, 56, 0.16)',
+                }
+              : {}),
+          }}
         >
+          {isCompact && !sidebarCollapsed ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              aria-label="收起侧边栏"
+              onClick={() => setSidebarCollapsed(true)}
+              style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
+            />
+          ) : null}
           <SimpleSidebar
             sessionList={sessionList}
           activeSessionId={sessionId}
@@ -183,14 +237,26 @@ export function ProModeView({
           onDecisionAssistantChange={controller.setDecisionAssistant}
           onOpenDatasetUpload={() => setUploaderOpen(true)}
           onOpenSettings={onOpenSettings}
+          // 已在专业模式：不传 onOpenProMode → 按钮灰显并显示「当前」
           onUseTemplate={onSend}
           onDeleteSession={onDeleteSession}
+          onPurgeEmptySessions={onPurgeEmptySessions}
         />
         </Sider>
 
         {/* 中部：文档标签 + 数据集条 + 报告 + 助手 */}
         <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', height: 36, background: '#f0eee8', borderBottom: BORDER }}>
+            {isCompact && sidebarCollapsed ? (
+              <Button
+                type="text"
+                size="small"
+                icon={<MenuOutlined />}
+                aria-label="打开侧边栏"
+                onClick={() => setSidebarCollapsed(false)}
+                style={{ marginLeft: 8, marginRight: 4 }}
+              />
+            ) : null}
             <div
               style={{
                 display: 'flex',
@@ -207,7 +273,6 @@ export function ProModeView({
             >
               <FileTextOutlined style={{ color: PRIMARY, fontSize: 13 }} />
               {docTitle}
-              <CloseOutlined style={{ fontSize: 10, color: '#9aa7b4' }} />
             </div>
             <div style={{ flex: 1 }} />
             <div style={{ paddingRight: 12 }}>
@@ -286,6 +351,20 @@ export function ProModeView({
                   <Alert type="error" showIcon message="运行失败" description={directRunError} style={{ marginBottom: 12 }} />
                 ) : null}
                 <ReportViewer messages={reportMessages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
+                {isCompact ? (
+                  <div
+                    style={{
+                      marginTop: 16,
+                      minHeight: 260,
+                      border: BORDER,
+                      borderRadius: 8,
+                      padding: 12,
+                      background: PANEL_BG,
+                    }}
+                  >
+                    <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -321,6 +400,12 @@ export function ProModeView({
                   onChoiceSubmit={onChoiceSubmit}
                   onRetry={onRetry}
                   onVoiceTranscript={onVoiceTranscript}
+                  datasets={datasets}
+                  selectedDatasetId={selectedDataset?.dataset_id ?? null}
+                  modelLabel={model}
+                  onOpenDatasetPicker={() => setUploaderOpen(true)}
+                  onOpenSettings={onOpenSettings}
+                  onOpenVoiceInput={() => setVoiceDrawerOpen(true)}
                 />
               </div>
             </div>
@@ -328,9 +413,11 @@ export function ProModeView({
         </Content>
 
         {/* 右侧代码面板 */}
-        <Sider width={codeWidth} theme="light" style={{ background: PANEL_BG, borderLeft: BORDER, overflowY: 'auto', padding: 12 }}>
-          <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
-        </Sider>
+        {!isCompact ? (
+          <Sider width={codeWidth} theme="light" style={{ background: PANEL_BG, borderLeft: BORDER, overflowY: 'auto', padding: 12 }}>
+            <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
+          </Sider>
+        ) : null}
       </Layout>
 
       {/* 上传数据集抽屉 */}
@@ -344,6 +431,22 @@ export function ProModeView({
             void sessionList.refresh();
           }}
         />
+      </Drawer>
+
+      <Drawer title="语音输入" placement="right" width={360} open={voiceDrawerOpen} onClose={() => setVoiceDrawerOpen(false)}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Text type="secondary">
+            录音完成后会把转写文本发送到当前会话；低置信度结果会先让你确认。
+          </Text>
+          <VoiceRecorder
+            sessionId={sessionId}
+            disabled={isArchived}
+            onTranscript={(text) => {
+              onVoiceTranscript(text);
+              setVoiceDrawerOpen(false);
+            }}
+          />
+        </div>
       </Drawer>
     </Layout>
   );

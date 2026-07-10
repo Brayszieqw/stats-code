@@ -87,6 +87,32 @@ describe('Property 1: sidecar determinism', () => {
   });
 });
 
+describe('analysis parameter column selection', () => {
+  it('renders regression code with the requested outcome and predictors', () => {
+    const datasetColumns: sidecar.Column[] = [
+      { name: 'participant_id', dtype: 'string' },
+      { name: 'disease', dtype: 'numeric' },
+      { name: 'bmi', dtype: 'numeric' },
+      { name: 'age', dtype: 'numeric' },
+    ];
+    const params = { outcome: 'bmi', predictors: '["age", "disease"]' };
+
+    const rSnippet = generateSnippet('linear', 'R', params, datasetColumns, SHA);
+    const pythonSnippet = generateSnippet('linear', 'Python', params, datasetColumns, SHA);
+
+    expect(rSnippet.kind).toBe('snippet');
+    expect(pythonSnippet.kind).toBe('snippet');
+    if (rSnippet.kind === 'snippet') {
+      expect(rSnippet.text).toContain('fit <- stats::lm(bmi ~ age + disease, data = data)');
+      expect(rSnippet.text).not.toContain('fit <- stats::lm(participant_id ~ disease, data = data)');
+    }
+    if (pythonSnippet.kind === 'snippet') {
+      expect(pythonSnippet.text).toContain('y = data["bmi"]');
+      expect(pythonSnippet.text).toContain('data[["age", "disease"]]');
+    }
+  });
+});
+
 describe('Property 3: host/clock independence (redaction applied)', () => {
   it('redacts api keys passed in and out-of-cwd paths', () => {
     // Use a template that echoes a param; tableone R template references columns.

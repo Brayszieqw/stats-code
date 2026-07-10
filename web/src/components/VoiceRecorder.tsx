@@ -8,7 +8,7 @@
  * Validates: Requirements 2.1, 2.2, 2.4
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button, Input, Space, Typography, Alert } from 'antd';
 import {
   AudioOutlined,
@@ -54,6 +54,7 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
+  const unmountedRef = useRef(false);
 
   // -------------------------------------------------------------------------
   // Helpers
@@ -88,6 +89,33 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  // 卸载清理：录音中关闭抽屉/切换视图时必须停表、停 recorder、释放麦克风，
+  // 否则浏览器的录音指示灯会一直亮着（MediaStream 泄漏）。
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      if (timerRef.current !== null) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.onstop = null; // 丢弃卸载后的上传回调
+        try {
+          recorder.stop();
+        } catch {
+          // recorder 可能已被浏览器回收，忽略
+        }
+      }
+      mediaRecorderRef.current = null;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
+
   // -------------------------------------------------------------------------
   // Start recording
   // -------------------------------------------------------------------------
@@ -96,6 +124,11 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 权限弹窗期间组件可能已被卸载（关闭抽屉），此时立刻释放，避免麦克风常亮。
+      if (unmountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm')
@@ -145,6 +178,7 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
 
     recorder.onstop = async () => {
       releaseStream();
+      if (unmountedRef.current) return;
       setState('uploading');
 
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
@@ -152,6 +186,7 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
 
       try {
         const result = await postAudio(sessionId, blob, durationSecs);
+        if (unmountedRef.current) return;
 
         if (result.confidence >= 0.6) {
           // High confidence — auto-send
@@ -164,6 +199,7 @@ export function VoiceRecorder({ sessionId, onTranscript, disabled }: VoiceRecord
           setState('confirming');
         }
       } catch (err: unknown) {
+        if (unmountedRef.current) return;
         const message =
           err instanceof ApiError
             ? err.payload.message

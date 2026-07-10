@@ -130,6 +130,9 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
       // Start SSE stream
       const controller = new AbortController();
       abortRef.current = controller;
+      // 该请求是否仍是"当前请求"。打断式追问会 abort 旧请求，
+      // 旧请求的 then/catch 回调不得再触碰共享状态（R8.3 竞态防护）。
+      const isCurrent = () => abortRef.current === controller;
 
       // Set up 3-second network error timer (R14.4)
       errorTimerRef.current = setTimeout(() => {
@@ -147,8 +150,9 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
         });
       }, 3000);
 
-      postMessageFetch(sessionId, text)
+      postMessageFetch(sessionId, text, controller.signal)
         .then((response) => {
+          if (!isCurrent()) return;
           clearErrorTimer();
           setStatus('streaming');
 
@@ -162,8 +166,14 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
 
           const processStream = (): Promise<void> => {
             return reader.read().then(({ done, value }) => {
+              if (!isCurrent()) {
+                // 已被新请求取代：释放 reader，不再更新任何状态。
+                void reader.cancel().catch(() => {});
+                return;
+              }
               if (done) {
-                // Process any remaining buffer
+                // Flush decoder & process any remaining buffer
+                buffer += decoder.decode();
                 if (buffer.trim()) {
                   const lines = buffer.split('\n');
                   const frame = parseSseLines(lines);
@@ -171,7 +181,7 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
                     dispatchEvent(frame, agentMsgId);
                   }
                 }
-                setStatus('idle');
+                setStatus((current) => (current === 'error' ? current : 'idle'));
                 abortRef.current = null;
                 return;
               }
@@ -199,6 +209,8 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
           return processStream();
         })
         .catch((err) => {
+          // 被打断的旧请求：静默退出，不得清理新请求的定时器/状态。
+          if (!isCurrent()) return;
           clearErrorTimer();
           abortRef.current = null;
 

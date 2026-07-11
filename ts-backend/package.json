@@ -2,7 +2,7 @@
   "name": "stats-code-ts-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript rewrite of the Stats Code backend (Rust → TS, contract-preserving).",
+  "description": "Stats Code TypeScript backend (Node.js 22): api + server + engine, SEA single-exe.",
   "engines": {
     "node": ">=22"
   },

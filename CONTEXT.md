@@ -3,7 +3,7 @@
 > 共享词汇表。当代码里出现这些词，按这里的定义理解；当用户口头使用这些词，按这里的定义对齐。
 >
 > 后端为 **TypeScript（Node.js 22，`ts-backend/`）**。原 Rust workspace 已于
-> 2026-06 退役并从仓库移除，完整终态保留在 git tag `rust-final`。
+> 2026-06 退役并从仓库移除；Rust 时代分支/标签/工具链已清理，不再保留档案 tag。
 
 ## 产品命令
 
@@ -126,7 +126,7 @@ Spawn_Policy 哨兵（主动阻断对 R/SAS/Python/SPSS 等外部统计运行时
 
 ## 历史用法（已废弃）
 
-- **整个 Rust workspace（4 crates，~65k LOC）** → 已退役删除，tag `rust-final` 留档
+- **整个 Rust workspace（4 crates，~65k LOC）** → 已退役删除；相关 git 分支/标签已清理
 - Python `validation/` 平价套件 → 由 `ts-backend/tests/parity` 取代
 - `cargo run -p stats-code -F dev-vite` dev 模式 → 由 `启动Stats前端.bat` 取代
 - `%APPDATA%\stats-code\config.toml` → TS 后端读 `llm-config.json`，toml 为遗留文件
@@ -138,4 +138,4 @@ Spawn_Policy 哨兵（主动阻断对 R/SAS/Python/SPSS 等外部统计运行时
 - TS 重写：`.kiro/specs/typescript-backend-rewrite/`
 - 会话编排：`.kiro/specs/ts-backend-conversation/`
 - 双模式前端：`.kiro/specs/dual-mode-frontend/`
-- 单命令启动器（历史，Rust 时代）：`.kiro/specs/single-command-launcher/`
+- 单命令启动器（历史规格）：`.kiro/specs/single-command-launcher/`

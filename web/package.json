@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:a8": "node scripts/a8-network-verify.mjs",
     "audit": "npm audit --omit=dev"
   },
   "dependencies": {

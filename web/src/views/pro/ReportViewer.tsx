@@ -45,6 +45,7 @@ export function ReportViewer({ messages, selectedDataset, activeView }: ReportVi
         <DataExplorer
           summary={selectedDataset}
           previewRows={selectedDataset.preview_rows ?? null}
+          compact
         />
       );
     }

@@ -65,7 +65,9 @@ describe('ReportViewer (Requirements 6.1, 6.2, 6.4)', () => {
   });
 
   it('shows the data explorer when there is no result but a dataset is selected', () => {
-    render(<ReportViewer messages={[]} selectedDataset={dataset} />);
+    const { container } = render(<ReportViewer messages={[]} selectedDataset={dataset} />);
+    expect(container.querySelectorAll('.data-explorer-details > .ant-col-lg-24')).toHaveLength(2);
+    expect(container.querySelectorAll('.data-explorer-details .ant-table-scroll-horizontal')).toHaveLength(1);
     expect(screen.getByText('未缓存原始行')).toBeInTheDocument();
     expect(screen.queryByText('智能预渲染模式')).not.toBeInTheDocument();
     expect(screen.getByText(/数据集已装载/)).toBeInTheDocument();

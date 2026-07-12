@@ -15,6 +15,8 @@ export interface DataExplorerProps {
   summary: DatasetSummary | null;
   /** Optional real preview rows parsed from the uploaded file */
   previewRows?: Record<string, any>[] | null;
+  /** Stack dense sections when rendered inside the narrow analysis inspector. */
+  compact?: boolean;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -31,7 +33,7 @@ const TYPE_LABELS: Record<string, string> = {
   String: '文本型 (String)',
 };
 
-export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
+export function DataExplorer({ summary, previewRows, compact = false }: DataExplorerProps) {
   if (!summary) {
     return (
       <Card className="glass-panel" style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -153,7 +155,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
   const hasPreviewRows = previewDataSource.length > 0;
 
   return (
-    <Space direction="vertical" size={20} style={{ width: '100%' }}>
+    <Space className="data-explorer" direction="vertical" size={20} style={{ width: '100%' }}>
       {/* File summary details alert */}
       <Alert
         className="glass-panel"
@@ -179,7 +181,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
 
       {/* Grid of basic health metrics */}
       <Row gutter={[16, 16]}>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={compact ? 12 : 6}>
           <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">样本数量 (行数)</Text>}
@@ -189,7 +191,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={compact ? 12 : 6}>
           <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">变量个数 (列数)</Text>}
@@ -199,7 +201,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={compact ? 12 : 6}>
           <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">缺失值总量</Text>}
@@ -209,7 +211,7 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={compact ? 12 : 6}>
           <Card className="glass-panel" size="small" styles={{ body: { padding: '16px' } }}>
             <Statistic
               title={<Text type="secondary">数据完整率</Text>}
@@ -223,9 +225,9 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
       </Row>
 
       {/* Grid containing Columns Meta and Data Preview */}
-      <Row gutter={[20, 20]}>
+      <Row className="data-explorer-details" gutter={[20, 20]}>
         {/* Left column - variables definitions */}
-        <Col xs={24} lg={11}>
+        <Col xs={24} lg={compact ? 24 : 11}>
           <Card
             className="glass-panel"
             title={
@@ -242,13 +244,14 @@ export function DataExplorer({ summary, previewRows }: DataExplorerProps) {
               pagination={summary.columns.length > 8 ? { pageSize: 8, showSizeChanger: false, size: 'small' } : false}
               size="small"
               bordered={false}
+              scroll={compact ? { x: 'max-content' } : undefined}
               style={{ background: 'transparent' }}
             />
           </Card>
         </Col>
 
         {/* Right column - Excel-like spreadsheet preview */}
-        <Col xs={24} lg={13}>
+        <Col xs={24} lg={compact ? 24 : 13}>
           <Card
             className="glass-panel"
             title={

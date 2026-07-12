@@ -6,7 +6,7 @@
 // stays pure-routing by accepting an injectable SpaAssetSource.
 //
 // Fallback contract (Requirement 1.8 / 10.3):
-//   - attempt static-asset resolution only for known asset prefixes / files;
+//   - attempt exact static-asset resolution against the embedded manifest;
 //   - any other non-contract route returns index.html so the SPA router (React
 //     Router) can handle deep links and refreshes;
 //   - /api/* misses return a JSON 404 (never index.html).
@@ -38,11 +38,6 @@ export const ROOT_ASSET_FILES: readonly string[] = [
   '/manifest.webmanifest',
 ];
 
-function looksLikeAsset(routePath: string): boolean {
-  if (ROOT_ASSET_FILES.includes(routePath)) return true;
-  return ASSET_PREFIXES.some((p) => routePath.startsWith(p));
-}
-
 /**
  * Install the SPA catch-all fallback on `app`. Unmatched non-/api routes serve
  * an embedded asset (when the path looks like one and resolves) or fall back to
@@ -62,14 +57,15 @@ export function installSpaFallback(app: FastifyInstance, source: SpaAssetSource)
 
     const routePath = req.url.split('?')[0]!;
 
-    if (looksLikeAsset(routePath)) {
-      const asset = source.get(routePath);
-      if (asset) {
-        return reply
-          .code(200)
-          .header('content-type', asset.contentType)
-          .send(Buffer.from(asset.bytes));
-      }
+    // The asset source is a read-only exact manifest lookup, so trying every
+    // route is both safe and necessary for Vite public assets at the root
+    // (for example /demo_cohort.csv). Unknown paths still reach the SPA shell.
+    const asset = source.get(routePath);
+    if (asset) {
+      return reply
+        .code(200)
+        .header('content-type', asset.contentType)
+        .send(Buffer.from(asset.bytes));
     }
 
     // SPA fallback: index.html for any other route (deep links, refreshes).

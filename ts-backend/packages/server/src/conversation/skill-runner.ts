@@ -131,6 +131,22 @@ function designMatrix(headers: string[], rows: string[][], predictors: string[])
   return rows.map((_, i) => [1, ...cols.map((c) => c[i]!)]);
 }
 
+/** Attach human-readable term names: intercept first, then predictors in order. */
+function withCoefficientTerms<T extends object>(
+  coefficients: readonly T[],
+  predictors: readonly string[],
+): Array<T & { term: string }> {
+  const terms = ['(Intercept)', ...predictors];
+  return coefficients.map((coeff, index) => {
+    const existing = (coeff as { term?: unknown }).term;
+    const term =
+      typeof existing === 'string' && existing.length > 0
+        ? existing
+        : (terms[index] ?? `β${index}`);
+    return { ...coeff, term };
+  });
+}
+
 function tableOneColumns(args: Record<string, unknown>, ctx: SkillContext): { continuous: string[]; categorical: string[] } {
   const continuous = asOptionalStringArray(args.continuous, 'continuous');
   const categorical = asOptionalStringArray(args.categorical, 'categorical');
@@ -318,7 +334,7 @@ export class SkillRunner {
         const x = designMatrix(headers, rows, predictors);
         const res = stats.linear.ols(x, y);
         return {
-          coefficients: res.coefficients,
+          coefficients: withCoefficientTerms(res.coefficients, predictors),
           r_squared: res.rSquared,
           adj_r_squared: res.adjRSquared,
           f_statistic: res.fStatistic,
@@ -334,7 +350,7 @@ export class SkillRunner {
         const x = designMatrix(headers, rows, predictors);
         const res = stats.logistic.logisticRegression(x, y);
         return {
-          coefficients: res.coefficients,
+          coefficients: withCoefficientTerms(res.coefficients, predictors),
           odds_ratios: res.coefficients.map((c) => c.oddsRatio),
           p_values: res.coefficients.map((c) => c.pValue),
           log_likelihood: res.logLikelihood,
@@ -355,8 +371,12 @@ export class SkillRunner {
           weight: 1,
         }));
         const res = stats.cox.coxRegression(observations);
+        // Cox design has no intercept column — terms are predictors only.
         return {
-          coefficients: res.coefficients,
+          coefficients: res.coefficients.map((coeff, index) => ({
+            ...coeff,
+            term: predictors[index] ?? `β${index}`,
+          })),
           hazard_ratios: res.coefficients.map((c) => c.hazardRatio),
           p_values: res.coefficients.map((c) => c.pValue),
           log_partial_likelihood: res.logPartialLikelihood,

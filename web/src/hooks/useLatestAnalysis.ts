@@ -13,6 +13,8 @@ import type { ChatMessage } from './useSseChat';
 export interface LatestAnalysis {
   /** The most recent agent message carrying a skillResult, else null. */
   result: SkillResult | null;
+  /** The message that owns `result`; keeps conclusion and interpretation aligned. */
+  resultMessage: ChatMessage | null;
   /** The most recent agent message of any kind, else null. */
   agentMessage: ChatMessage | null;
 }
@@ -20,6 +22,7 @@ export interface LatestAnalysis {
 export function useLatestAnalysis(messages: ChatMessage[]): LatestAnalysis {
   return useMemo(() => {
     let result: SkillResult | null = null;
+    let resultMessage: ChatMessage | null = null;
     let agentMessage: ChatMessage | null = null;
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -30,10 +33,11 @@ export function useLatestAnalysis(messages: ChatMessage[]): LatestAnalysis {
       }
       if (result === null && msg.skillResult) {
         result = msg.skillResult;
+        resultMessage = msg;
       }
       if (agentMessage !== null && result !== null) break;
     }
 
-    return { result, agentMessage };
+    return { result, resultMessage, agentMessage };
   }, [messages]);
 }

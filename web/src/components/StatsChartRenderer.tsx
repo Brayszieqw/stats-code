@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { Card, Typography, Space, Tag } from 'antd';
 import { AreaChartOutlined } from '@ant-design/icons';
 import type { SkillResult } from '../api/types';
-import { fmtNum, fmtP, normalizeCoefficients } from '../lib/coeffFields';
+import { fmtNum, fmtP, normalizeCoefficients, termHintsFromAnalysis } from '../lib/coeffFields';
 
 const { Text } = Typography;
 
@@ -23,7 +23,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
       const groups = payload.groups && payload.groups.length > 0 ? payload.groups : ['Overall'];
 
       const series: any[] = [];
-      const colors = ['#38618c', '#5f87b3', '#d97706', '#059669', '#7c3aed'];
+      const colors = ['#244f73', '#c33b2d', '#9a6417', '#27715d', '#6d5b82'];
 
       groups.forEach((group: string, gIdx: number) => {
         const groupSteps = steps.filter((s: any) => s.group === group);
@@ -41,8 +41,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
           type: 'line',
           step: 'end',
           data: data,
-          symbol: 'circle',
-          symbolSize: 4,
+          symbol: 'none',
           lineStyle: {
             width: 2,
             color: colors[gIdx % colors.length],
@@ -61,8 +60,14 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
         title: {
           text: 'Kaplan-Meier 生存曲线',
           subtext: pValueText,
-          left: 'center',
-          textStyle: { color: '#2b3a4a', fontSize: 14, fontWeight: 'bold' },
+          left: 10,
+          textStyle: {
+            color: '#172c42',
+            fontSize: 16,
+            fontWeight: 'bold',
+            fontFamily: 'Noto Serif SC, serif',
+          },
+          subtextStyle: { color: '#687889', fontSize: 11 },
         },
         tooltip: {
           trigger: 'axis',
@@ -87,7 +92,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
         },
         xAxis: {
           type: 'value',
-          name: '时间 (随随访时间/天)',
+          name: '随访时间（天）',
           nameLocation: 'middle',
           nameGap: 25,
           splitLine: { show: false },
@@ -109,7 +114,11 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
 
     // ─── Scenario 2: Regression Forest Plot (LogisticResult / CoxResult / LinearResult) ───
     if (payload.coefficients && Array.isArray(payload.coefficients)) {
-      const coefficients = normalizeCoefficients(payload.coefficients);
+      const termHints = termHintsFromAnalysis(
+        skillResult.analysis?.algorithm_id,
+        skillResult.analysis?.params as Record<string, unknown> | undefined,
+      );
+      const coefficients = normalizeCoefficients(payload.coefficients, termHints);
       if (coefficients.length === 0) return null;
 
       const isLogistic = coefficients.some((c) => c.oddsRatio !== null);
@@ -443,11 +452,11 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
 
   return (
     <Card
-      className="glass-panel"
+      className="glass-panel stats-chart-card"
       title={
         <Space size={6}>
-          <AreaChartOutlined style={{ color: '#38618c' }} />
-          <Text strong>学术级交互图表 (ECharts)</Text>
+          <AreaChartOutlined style={{ color: '#244f73' }} />
+          <Text className="chart-title" strong>统计图表</Text>
           <Tag color="success" style={{ margin: 0 }}>
             可交互
           </Tag>
@@ -458,7 +467,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
     >
       <ReactECharts
         option={chartOption}
-        style={{ height: '350px', width: '100%' }}
+        style={{ height: '390px', width: '100%' }}
         opts={{ renderer: 'canvas' }}
       />
     </Card>

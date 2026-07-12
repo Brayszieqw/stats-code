@@ -1,0 +1,60 @@
+{
+  "name": "stats-code-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stats Code desktop shell (Electron) — in-app WebView, no system browser.",
+  "main": "main.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "node smoke.mjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "local.stats-code.desktop",
+    "productName": "Stats Code",
+    "copyright": "Stats Code",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "main.mjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../ts-backend/build/stats-code.exe",
+        "to": "backend/stats-code.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "StatsCode-Desktop-${version}-windows-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "StatsCode-Desktop-${version}-windows-${arch}.exe"
+    },
+    "asar": true
+  }
+}

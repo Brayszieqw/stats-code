@@ -5,20 +5,53 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
-const { useCoverageMatrixSpy } = vi.hoisted(() => ({ useCoverageMatrixSpy: vi.fn() }));
+const { useCoverageMatrixSpy, runSkillSpy } = vi.hoisted(() => ({
+  useCoverageMatrixSpy: vi.fn(),
+  runSkillSpy: vi.fn(),
+}));
 vi.mock('../lib/coverageMatrixContext', () => ({
   useCoverageMatrix: useCoverageMatrixSpy,
 }));
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
+  runSkill: runSkillSpy,
+}));
+vi.mock('../components/AnalysisConfigurator', () => ({
+  AnalysisConfigurator: ({
+    summary,
+    onSubmit,
+    disabled,
+  }: {
+    summary: DatasetSummary;
+    onSubmit: (request: { skill_id: string; dataset_id: string; args: Record<string, unknown> }, prompt: string) => Promise<void>;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      aria-label={`提交分析:${summary.dataset_id}`}
+      disabled={disabled}
+      onClick={() => {
+        void onSubmit(
+          { skill_id: 'model_linear', dataset_id: summary.dataset_id, args: {} },
+          `分析 ${summary.file_name}`,
+        );
+      }}
+    >
+      开始统计计算
+    </button>
+  ),
+}));
 
-import { ProModeView } from './ProModeView';
+import { ProModeView, mergeWorkspaceMessages } from './ProModeView';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn, ChatMessage } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
-import type { DatasetSummary } from '../api/types';
+import type { DatasetSummary, SkillResult } from '../api/types';
 
 beforeEach(() => {
+  runSkillSpy.mockReset();
   useCoverageMatrixSpy.mockReturnValue({
     matrix: { schema_version: 1, release_version: '1.0.0', algorithms: [] },
     loading: false,
@@ -69,13 +102,18 @@ const dataset: DatasetSummary = {
   sha256: null,
 };
 
-function renderView(options: { controller?: Partial<SessionController>; onOpenSettings?: () => void } = {}) {
+function renderView(options: {
+  controller?: Partial<SessionController>;
+  onOpenSettings?: () => void;
+  messages?: ChatMessage[];
+  llmConfigured?: boolean;
+} = {}) {
   return {
     onOpenSettings: options.onOpenSettings,
     ...render(
     <ProModeView
       controller={makeController(options.controller)}
-      chat={makeChat()}
+      chat={makeChat(options.messages)}
       sessionList={makeList()}
       mode="pro"
       onModeChange={vi.fn()}
@@ -84,6 +122,7 @@ function renderView(options: { controller?: Partial<SessionController>; onOpenSe
       onRetry={vi.fn()}
       onVoiceTranscript={vi.fn()}
       model="deepseek-chat"
+      llmConfigured={options.llmConfigured ?? true}
       onOpenSettings={options.onOpenSettings}
     />,
     ),
@@ -91,21 +130,64 @@ function renderView(options: { controller?: Partial<SessionController>; onOpenSe
 }
 
 describe('ProModeView (Requirements 4.1, 4.3)', () => {
-  it('renders the multiple panels (sidebar, ReportViewer, CodePanel, AssistantPanel)', () => {
-    renderView();
-    // Document tab title.
-    expect(screen.getByText('分析报告')).toBeInTheDocument();
-    // ModeToggle relocated to the document tab strip.
-    expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
-    // CodePanel section heading (preserved on small screens, R4.3).
-    expect(screen.getByText('等价代码')).toBeInTheDocument();
-    // AssistantPanel empty state shows the welcome composer.
-    expect(screen.getAllByLabelText('消息输入框').length).toBeGreaterThan(0);
-    // ReportViewer empty state (no result, no selected dataset).
-    expect(screen.getByText(/暂无分析结果/)).toBeInTheDocument();
-    // Draggable vertical splitter between report and assistant.
-    expect(screen.getByLabelText('调整报告与助手区域比例')).toBeInTheDocument();
+  it('orders direct-run artifacts by time so newer chat results stay current', () => {
+    const oldDirect: ChatMessage = {
+      id: 'direct-old',
+      role: 'agent',
+      content: '',
+      timestamp: new Date('2026-01-01T00:00:01Z'),
+      skillResult: {
+        schema_version: '1.0',
+        payload: {},
+        risk_signals: [],
+        analysis: {
+          algorithm_id: 'model_linear',
+          dataset_id: 'ds-1',
+          dataset_sha256: 'a'.repeat(64),
+          columns: [],
+          params: {},
+          run_id: 'direct-old',
+          run_status: 'completed',
+        },
+      },
+    };
+    const newerChat: ChatMessage = {
+      ...oldDirect,
+      id: 'chat-new',
+      timestamp: new Date('2026-01-01T00:00:02Z'),
+      skillResult: {
+        ...oldDirect.skillResult!,
+        analysis: { ...oldDirect.skillResult!.analysis!, run_id: 'chat-new' },
+      },
+    };
+
+    expect(mergeWorkspaceMessages([newerChat], [oldDirect], 'direct-old').map((message) => message.id))
+      .toEqual(['direct-old', 'chat-new']);
   });
+
+  it(
+    'keeps conversation primary and opens a unified analysis workspace on demand',
+    async () => {
+      renderView();
+      expect(await screen.findByText('专业统计分析')).toBeInTheDocument();
+      expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
+      expect(screen.getByLabelText('研究对话')).toBeInTheDocument();
+      expect(screen.queryByLabelText('分析检查器')).not.toBeInTheDocument();
+
+      fireEvent.click(await screen.findByLabelText('打开分析检查器'));
+      const workspaces = await screen.findAllByLabelText('分析检查器');
+      const workspace = workspaces.find((element) => element.tagName === 'ASIDE');
+      expect(workspace).toBeDefined();
+      if (!workspace) return;
+      expect(within(workspace).getByLabelText('工作区视图')).toBeInTheDocument();
+      expect(within(workspace).getByText(/暂无分析结果/)).toBeInTheDocument();
+      // AssistantPanel empty state shows the welcome composer.
+      expect(screen.getAllByLabelText('消息输入框').length).toBeGreaterThan(0);
+      expect(screen.queryByLabelText('调整报告与助手区域比例')).not.toBeInTheDocument();
+    },
+    15_000,
+  );
+
 
   it('wires the professional welcome controls to real actions', () => {
     const onOpenSettings = vi.fn();
@@ -122,9 +204,181 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     expect(screen.getByText(/录音完成后/)).toBeInTheDocument();
   });
 
-  it('keeps CodePanel available inline instead of reserving a right sider at compact widths', () => {
-    // matchMedia is mocked to matches:false → screens.lg is falsy → explorer collapses.
+  it('keeps direct statistics available when LLM interpretation is not configured', async () => {
+    renderView({ controller: { datasets: [dataset] }, llmConfigured: false });
+
+    expect(screen.getByText('AI 解读未配置 · 统计引擎可用')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    expect(await screen.findByLabelText('提交分析:ds-1')).not.toBeDisabled();
+  });
+
+  it('opens reproducible code inside the unified workspace', async () => {
     renderView();
-    expect(screen.getByText('等价代码')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
+      (element) => element.tagName === 'ASIDE',
+    );
+    expect(workspace).toBeDefined();
+    if (!workspace) return;
+    fireEvent.click(within(workspace).getByText('代码', { exact: true }));
+    expect(within(workspace).getByLabelText('可复现代码')).toBeInTheDocument();
+  });
+
+  it('lets the workspace close without removing the conversation', async () => {
+    renderView();
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    expect((await screen.findAllByLabelText('分析检查器')).some((element) => element.tagName === 'ASIDE')).toBe(true);
+    fireEvent.click(screen.getByLabelText('收起分析检查器'));
+    expect(screen.getByLabelText('打开分析检查器')).toBeInTheDocument();
+    expect(screen.getByLabelText('研究对话')).toBeInTheDocument();
+  });
+
+  it('keeps a result bound to the dataset that produced it', async () => {
+    const otherDataset: DatasetSummary = {
+      ...dataset,
+      dataset_id: 'ds-2',
+      file_name: 'other.csv',
+      row_count: 12,
+    };
+    const result: SkillResult = {
+      schema_version: '1.0',
+      payload: { coefficients: [{ term: 'age', beta: 0.2, ci_lower: 0.1, ci_upper: 0.3, p_value: 0.01 }] },
+      risk_signals: [],
+      analysis: {
+        algorithm_id: 'model_linear',
+        dataset_id: 'ds-1',
+        dataset_sha256: null,
+        columns: dataset.columns,
+        params: {},
+        run_id: 'run-1',
+        run_status: 'completed',
+      },
+    };
+    const message: ChatMessage = {
+      id: 'a1',
+      role: 'agent',
+      content: '分析完成',
+      skillResult: result,
+      timestamp: new Date(),
+    };
+    renderView({ controller: { datasets: [dataset, otherDataset] }, messages: [message] });
+
+    fireEvent.click(screen.getByLabelText('数据集: other.csv'));
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
+      (element) => element.tagName === 'ASIDE',
+    );
+    expect(workspace).toBeDefined();
+    if (!workspace) return;
+    fireEvent.click(within(workspace).getByText('代码', { exact: true }));
+    const code = within(workspace).getByLabelText('可复现代码');
+    expect(within(code).getByText('cohort.csv')).toBeInTheDocument();
+    expect(within(code).queryByText('other.csv')).not.toBeInTheDocument();
+  });
+
+  it('keeps analysis settings available after the selected dataset already has a result', async () => {
+    const result: SkillResult = {
+      schema_version: '1.0',
+      payload: { coefficients: [] },
+      risk_signals: [],
+      analysis: {
+        algorithm_id: 'model_linear',
+        dataset_id: 'ds-1',
+        dataset_sha256: 'a'.repeat(64),
+        columns: dataset.columns,
+        params: {},
+        run_id: 'run-configured',
+        run_status: 'completed',
+      },
+    };
+    renderView({
+      controller: { datasets: [dataset] },
+      messages: [{
+        id: 'configured-result',
+        role: 'agent',
+        content: '分析完成',
+        skillResult: result,
+        timestamp: new Date(),
+      }],
+    });
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
+      (element) => element.tagName === 'ASIDE',
+    );
+    expect(workspace).toBeDefined();
+    if (!workspace) return;
+
+    // Explicit reconfigure control (preferred over collapse header hit-target).
+    const reconfigure = within(workspace).getByLabelText('调整变量或再次分析');
+    expect(reconfigure).toBeInTheDocument();
+    fireEvent.click(reconfigure);
+    expect(within(workspace).getByText('开始统计计算')).toBeInTheDocument();
+  });
+
+  it('requires explicit confirmation before calling the backend', async () => {
+    runSkillSpy.mockResolvedValue({ schema_version: '1.0', payload: {}, risk_signals: [] });
+    renderView({ controller: { datasets: [dataset] } });
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: '执行前确认' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
+    expect(runSkillSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts and ignores a confirmed run that completes after switching sessions', async () => {
+    let resolveRun!: (result: SkillResult) => void;
+    runSkillSpy.mockImplementation(() => new Promise<SkillResult>((resolve) => { resolveRun = resolve; }));
+    const view = renderView({ controller: { datasets: [dataset] } });
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
+    expect(runSkillSpy).toHaveBeenCalledTimes(1);
+    const signal = runSkillSpy.mock.calls[0]?.[2] as AbortSignal;
+
+    view.rerender(
+      <ProModeView
+        controller={makeController({ sessionId: 's2', datasets: [] })}
+        chat={makeChat()}
+        sessionList={makeList()}
+        mode="pro"
+        onModeChange={vi.fn()}
+        onSend={vi.fn()}
+        onChoiceSubmit={vi.fn()}
+        onRetry={vi.fn()}
+        onVoiceTranscript={vi.fn()}
+        model="deepseek-chat"
+      />,
+    );
+    await screen.findByLabelText('打开分析检查器');
+    expect(signal.aborted).toBe(true);
+
+    resolveRun({
+      schema_version: '1.0',
+      payload: {},
+      risk_signals: [],
+      analysis: {
+        algorithm_id: 'model_linear',
+        dataset_id: 'ds-1',
+        dataset_sha256: 'a'.repeat(64),
+        columns: [],
+        params: {},
+        run_id: 'run-stale',
+        run_status: 'completed',
+      },
+    });
+
+    await Promise.resolve();
+    expect(screen.queryByText(/run-stale/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('打开分析检查器')).toBeInTheDocument();
   });
 });

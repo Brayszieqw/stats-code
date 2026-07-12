@@ -9,8 +9,16 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, Table, Typography, Space, theme as antdTheme } from 'antd';
-import { RobotOutlined, UserOutlined, BulbOutlined } from '@ant-design/icons';
+import { Button, Card, Table, Tag, Typography, Space, theme as antdTheme } from 'antd';
+import {
+  AreaChartOutlined,
+  BulbOutlined,
+  CheckCircleOutlined,
+  CodeOutlined,
+  FileTextOutlined,
+  RobotOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import type { ChatMessage } from '../hooks/useSseChat';
 import type { SkillResult, ChoiceAnswer } from '../api/types';
 import { ChoicePromptCard } from './ChoicePromptCard';
@@ -21,6 +29,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { shouldMountAnalysisResultView } from '../lib/analysisResultMount';
 import { AnalysisResultView } from './AnalysisResultView';
 import { useCoverageMatrix } from '../lib/coverageMatrixContext';
+import { ANALYSIS_TRUST_STATEMENT } from '../lib/analysisPreflight';
 
 const { Text, Paragraph } = Typography;
 
@@ -32,6 +41,9 @@ export interface MessageListProps {
   messages: ChatMessage[];
   onChoiceSubmit?: (answer: ChoiceAnswer) => void;
   disabled?: boolean;
+  /** Pro workspace keeps full tables/charts in the artifact pane. */
+  resultPresentation?: 'inline' | 'reference';
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }
 
 function hasVisibleMessageContent(message: ChatMessage): boolean {
@@ -127,7 +139,12 @@ function SkillResultView({ result }: { result: SkillResult }) {
     payload &&
     typeof payload === 'object' &&
     (('rows' in payload && 'group_levels' in payload) ||
-     ('coefficients' in payload && Array.isArray(payload.coefficients)));
+     ('coefficients' in payload && Array.isArray(payload.coefficients)) ||
+     // Engine tableone: groups[] with continuous/categorical summaries
+     (Array.isArray((payload as { groups?: unknown }).groups) &&
+       (payload as { groups: Array<Record<string, unknown>> }).groups.some(
+         (g) => Array.isArray(g?.continuous) || Array.isArray(g?.categorical),
+       )));
 
   const shouldMount = shouldMountAnalysisResultView(analysis);
 
@@ -178,6 +195,68 @@ function SkillResultView({ result }: { result: SkillResult }) {
   );
 }
 
+function AnalysisResultReference({
+  result,
+  onOpenResult,
+}: {
+  result: SkillResult;
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
+}) {
+  const analysis = result.analysis;
+  const algorithmLabel = analysis?.algorithm_id
+    ? analysis.algorithm_id.replace(/^model_/, '').replace(/_/g, ' ')
+    : '统计分析';
+
+  return (
+    <section className="analysis-result-reference" data-testid="analysis-result-reference">
+      <div className="analysis-result-reference__heading">
+        <span className="analysis-result-reference__icon" aria-hidden>
+          <CheckCircleOutlined />
+        </span>
+        <div>
+          <Text strong>分析工件已更新</Text>
+          <Text type="secondary">
+            {algorithmLabel}
+            {analysis?.run_id ? ` · ${analysis.run_id.slice(0, 8)}` : ''}
+          </Text>
+        </div>
+        <Tag color={analysis?.run_status === 'completed' ? 'success' : 'processing'}>
+          {analysis?.run_status === 'completed' ? '已完成' : '已生成'}
+        </Tag>
+      </div>
+      <Text className="analysis-result-reference__summary" type="secondary">
+        {ANALYSIS_TRUST_STATEMENT}
+      </Text>
+      <div className="analysis-result-reference__actions">
+        <Button
+          size="small"
+          icon={<FileTextOutlined />}
+          aria-label="查看报告"
+          onClick={() => onOpenResult?.('report')}
+        >
+          查看报告
+        </Button>
+        <Button
+          size="small"
+          icon={<AreaChartOutlined />}
+          aria-label="查看图表"
+          onClick={() => onOpenResult?.('chart')}
+        >
+          查看图表
+        </Button>
+        <Button
+          size="small"
+          icon={<CodeOutlined />}
+          aria-label="查看代码"
+          onClick={() => onOpenResult?.('code')}
+        >
+          查看代码
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function InterpretationView({ text }: { text: string }) {
   const { token } = antdTheme.useToken();
   return (
@@ -202,13 +281,27 @@ function InterpretationView({ text }: { text: string }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function MessageList({ messages, onChoiceSubmit, disabled = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  onChoiceSubmit,
+  disabled = false,
+  resultPresentation = 'inline',
+  onOpenResult,
+}: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const visibleMessages = messages.filter(hasVisibleMessageContent);
 
-  // 仅当消息数量或最后一条内容变化时滚动，且用户明显上翻时不强制拉底。
+  // 文本、结果、解读和选择题任一部分更新时都应触发近底自动滚动；
+  // 用户明显上翻时仍不强制打断阅读。
   const lastMsg = visibleMessages[visibleMessages.length - 1];
-  const scrollKey = `${visibleMessages.length}:${lastMsg ? lastMsg.content.length : 0}`;
+  const scrollKey = [
+    visibleMessages.length,
+    lastMsg?.id ?? '',
+    lastMsg?.content.length ?? 0,
+    lastMsg?.skillResult?.analysis?.run_id ?? '',
+    lastMsg?.interpretation?.length ?? 0,
+    lastMsg?.choicePrompt?.prompt_id ?? '',
+  ].join(':');
   useEffect(() => {
     const sentinel = bottomRef.current;
     if (!sentinel) return;
@@ -228,7 +321,14 @@ export function MessageList({ messages, onChoiceSubmit, disabled = false }: Mess
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 8 }}>
       {visibleMessages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} onChoiceSubmit={onChoiceSubmit} disabled={disabled} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onChoiceSubmit={onChoiceSubmit}
+          disabled={disabled}
+          resultPresentation={resultPresentation}
+          onOpenResult={onOpenResult}
+        />
       ))}
       <div ref={bottomRef} />
     </div>
@@ -299,10 +399,14 @@ function MessageBubble({
   message,
   onChoiceSubmit,
   disabled = false,
+  resultPresentation,
+  onOpenResult,
 }: {
   message: ChatMessage;
   onChoiceSubmit?: (answer: ChoiceAnswer) => void;
   disabled?: boolean;
+  resultPresentation: 'inline' | 'reference';
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }) {
   const { token } = antdTheme.useToken();
   const isUser = message.role === 'user';
@@ -339,7 +443,7 @@ function MessageBubble({
 
   return (
     <div
-      className="msg-bubble"
+      className={`msg-bubble msg-bubble--${isUser ? 'user' : 'agent'}`}
       style={{
         display: 'flex',
         justifyContent: isUser ? 'flex-end' : 'flex-start',
@@ -348,12 +452,12 @@ function MessageBubble({
       }}
     >
       {!isUser && (
-        <div style={{ ...avatarStyle, background: token.colorPrimary }}>
+        <div className="msg-avatar msg-avatar--agent" style={{ ...avatarStyle, background: token.colorPrimary }}>
           <RobotOutlined />
         </div>
       )}
 
-      <div style={isUser ? userBubbleStyle : agentBubbleStyle}>
+      <div className="msg-bubble__content" style={isUser ? userBubbleStyle : agentBubbleStyle}>
         {message.content && (
           <Paragraph
             style={{
@@ -367,7 +471,13 @@ function MessageBubble({
           </Paragraph>
         )}
 
-        {message.skillResult && <SkillResultView result={message.skillResult} />}
+        {message.skillResult && (
+          resultPresentation === 'reference' ? (
+            <AnalysisResultReference result={message.skillResult} onOpenResult={onOpenResult} />
+          ) : (
+            <SkillResultView result={message.skillResult} />
+          )
+        )}
         {message.interpretation && <InterpretationView text={message.interpretation} />}
         {message.choicePrompt && (
           <ChoicePromptCard
@@ -379,7 +489,7 @@ function MessageBubble({
       </div>
 
       {isUser && (
-        <div style={{ ...avatarStyle, background: token.colorSuccess }}>
+        <div className="msg-avatar msg-avatar--user" style={{ ...avatarStyle, background: token.colorSuccess }}>
           <UserOutlined />
         </div>
       )}

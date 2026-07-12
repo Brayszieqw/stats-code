@@ -73,8 +73,12 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       dataset_id: 'ds-1',
     }, ctx);
     expect(result.schema_version).toBe('1.0');
-    const payload = result.payload as { r_squared: number };
+    const payload = result.payload as {
+      r_squared: number;
+      coefficients: Array<{ term?: string; index?: number }>;
+    };
     expect(payload.r_squared).toBeGreaterThan(0.9);
+    expect(payload.coefficients.map((c) => c.term)).toEqual(['(Intercept)', 'x']);
     expect(result.analysis).not.toBeNull();
     expect(result.analysis?.algorithm_id).toBe('linear');
     expect(result.analysis?.dataset_id).toBe('ds-1');

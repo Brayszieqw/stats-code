@@ -44,6 +44,8 @@ export interface OnboardingCardProps {
    * parent can flip `submitting` back to false once the round-trip is done.
    */
   onSubmit: (provider: LlmProvider, apiKey: string, baseUrl: string, model: string) => Promise<void>;
+  /** Continue with the deterministic local engine and configure LLM later. */
+  onSkip?: () => void;
   /** True while the parent is mid-flight on `POST /api/llm-config`. */
   submitting?: boolean;
   /** Error text rendered in red inside the card after a failed probe. */
@@ -95,6 +97,7 @@ export function isKnownModel(provider: LlmProvider, model: string): boolean {
 
 export function OnboardingCard({
   onSubmit,
+  onSkip,
   submitting = false,
   errorMessage = null,
 }: OnboardingCardProps) {
@@ -162,7 +165,7 @@ export function OnboardingCard({
               配置 LLM 服务
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 13 }}>
-              首次使用需要填写大模型服务商与 API Key，保存前会发起一次连通性测试。
+              LLM 只用于自然语言引导与解释；本机统计引擎无需 LLM，也能直接运行确定性分析。
             </Paragraph>
           </div>
 
@@ -253,6 +256,11 @@ export function OnboardingCard({
           >
             测试并保存
           </Button>
+          {onSkip ? (
+            <Button type="text" block onClick={onSkip} disabled={submitting}>
+              暂不配置，进入专业模式
+            </Button>
+          ) : null}
         </Space>
       </form>
     </div>

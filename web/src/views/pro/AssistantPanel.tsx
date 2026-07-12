@@ -12,7 +12,7 @@ import { MessageList } from '../../components/MessageList';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { ChatInputBar } from '../../components/ChatInputBar';
 import { WelcomeHero } from '../simple/WelcomeHero';
-import type { UseSseChatReturn } from '../../hooks/useSseChat';
+import type { ChatMessage, UseSseChatReturn } from '../../hooks/useSseChat';
 import type { ChoiceAnswer, DatasetSummary } from '../../api/types';
 
 export interface AssistantPanelProps {
@@ -29,6 +29,9 @@ export interface AssistantPanelProps {
   onOpenDatasetPicker?: () => void;
   onOpenSettings?: () => void;
   onOpenVoiceInput?: () => void;
+  /** Optional merged message stream (for configured runs not yet reloaded). */
+  messages?: ChatMessage[];
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }
 
 export function AssistantPanel({
@@ -45,35 +48,46 @@ export function AssistantPanel({
   onOpenDatasetPicker,
   onOpenSettings,
   onOpenVoiceInput,
+  messages: messageOverride,
+  onOpenResult,
 }: AssistantPanelProps) {
-  const { messages, error, isStreaming } = chat;
+  const { error, isStreaming } = chat;
+  const messages = messageOverride ?? chat.messages;
 
   // 空态：与简易模式一致的居中欢迎组合输入框。
   if (messages.length === 0) {
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', overflowY: 'auto', padding: '12px 0' }}>
-        <WelcomeHero
-          onSend={onSend}
-          disabled={isArchived}
-          datasets={datasets}
-          selectedDatasetId={selectedDatasetId}
-          modelLabel={modelLabel}
-          onOpenDatasetPicker={onOpenDatasetPicker}
-          onOpenSettings={onOpenSettings}
-          onOpenVoiceInput={onOpenVoiceInput}
-        />
+      <div className="assistant-panel__empty" aria-label="欢迎区">
+        <div className="stats-welcome__inner">
+          <WelcomeHero
+            onSend={onSend}
+            disabled={isArchived}
+            datasets={datasets}
+            selectedDatasetId={selectedDatasetId}
+            modelLabel={modelLabel}
+            onOpenDatasetPicker={onOpenDatasetPicker}
+            onOpenSettings={onOpenSettings}
+            onOpenVoiceInput={onOpenVoiceInput}
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 8, minHeight: 0 }}>
-        <MessageList messages={messages} onChoiceSubmit={onChoiceSubmit} disabled={isArchived} />
+    <div className="assistant-panel" aria-label="助手面板">
+      <div className="assistant-panel__messages" aria-label="消息列表">
+        <MessageList
+          messages={messages}
+          onChoiceSubmit={onChoiceSubmit}
+          disabled={isArchived}
+          resultPresentation="reference"
+          onOpenResult={onOpenResult}
+        />
         <ErrorBanner error={error} onRetry={onRetry} />
       </div>
 
-      <div style={{ marginTop: 8 }}>
+      <div className="assistant-panel__composer">
         <ChatInputBar
           sessionId={sessionId}
           isStreaming={isStreaming}

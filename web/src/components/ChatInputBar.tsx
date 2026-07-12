@@ -99,6 +99,7 @@ export function ChatInputBar({
 
   return (
     <div
+      className="chat-input-shell"
       style={{
         padding: 12,
         background: token.colorBgContainer,
@@ -109,6 +110,7 @@ export function ChatInputBar({
     >
       {showToolbar ? (
         <div
+          className="chat-input-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',

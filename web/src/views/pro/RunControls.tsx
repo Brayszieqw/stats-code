@@ -19,7 +19,7 @@ import {
 } from '@ant-design/icons';
 import { CopyToClipboard } from '../../components/CopyToClipboard';
 import { useCodeRun } from '../../hooks/useCodeRun';
-import type { AnalysisResultMeta, RunRequest } from '../../api/types';
+import type { AnalysisResultMeta, RunRequest, SkillResult } from '../../api/types';
 
 const { Text } = Typography;
 
@@ -33,6 +33,8 @@ export interface RunControlsProps {
   disabled?: boolean;
   /** 'horizontal' (default) or 'vertical' button arrangement. */
   layout?: 'horizontal' | 'vertical';
+  /** Lift a successful inspector rerun back into the workspace. */
+  onRunComplete?: (result: SkillResult) => void;
 }
 
 function buildRunRequest(analysis: AnalysisResultMeta): RunRequest {
@@ -50,7 +52,14 @@ function buildRunRequest(analysis: AnalysisResultMeta): RunRequest {
 
 const GREEN = '#2f9e44';
 
-export function RunControls({ sessionId, analysis, copyText, disabled = false, layout = 'horizontal' }: RunControlsProps) {
+export function RunControls({
+  sessionId,
+  analysis,
+  copyText,
+  disabled = false,
+  layout = 'horizontal',
+  onRunComplete,
+}: RunControlsProps) {
   const { state, run, reset, stop } = useCodeRun();
 
   const isRunning = state.status === 'running';
@@ -58,8 +67,12 @@ export function RunControls({ sessionId, analysis, copyText, disabled = false, l
 
   const handleRun = useCallback(() => {
     if (!analysis) return;
-    void run(sessionId, buildRunRequest(analysis));
-  }, [analysis, run, sessionId]);
+    void run(sessionId, buildRunRequest(analysis)).then((result) => {
+      // Keep the completion hand-off alive even when the workspace tab closes
+      // and this control unmounts while the backend request is in flight.
+      if (result) onRunComplete?.(result);
+    });
+  }, [analysis, onRunComplete, run, sessionId]);
 
   const vertical = layout === 'vertical';
   const btnBlock = vertical;
@@ -110,7 +123,7 @@ export function RunControls({ sessionId, analysis, copyText, disabled = false, l
         >
           停止
         </Button>
-        <CopyToClipboard text={copyText} label="复制代码" disabled={disabled || !copyText} />
+        <CopyToClipboard text={copyText} label="复制代码" disabled={disabled || !analysis || !copyText} />
       </Space>
       {!analysis && (
         <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.4 }}>

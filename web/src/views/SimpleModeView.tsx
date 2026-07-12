@@ -88,10 +88,11 @@ export function SimpleModeView({
   };
 
   return (
-    <Layout style={{ height: '100vh' }}>
+    <Layout className="stats-shell stats-shell--simple">
       <Sider
+        className="stats-sidebar"
         width={SIDER_WIDTH}
-        style={{ background: '#f7f6f3', borderRight: '1px solid #ececec' }}
+        style={{ background: '#f7f3ea', borderRight: '1px solid #cbc3b3' }}
         breakpoint="md"
         collapsedWidth={0}
       >
@@ -117,9 +118,9 @@ export function SimpleModeView({
         />
       </Sider>
 
-      <Content style={{ position: 'relative', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+      <Content className="stats-canvas">
         {/* 右上角模式切换 */}
-        <div style={{ position: 'absolute', top: 14, right: 18, zIndex: 5 }}>
+        <div className="stats-mode-toggle">
           <ModeToggle mode={mode} onChange={onModeChange} />
         </div>
 
@@ -129,57 +130,33 @@ export function SimpleModeView({
             description="该会话处于只读状态。您无法再发送消息或进行选择。"
             type="warning"
             showIcon
-            style={{ margin: '52px auto 0', maxWidth: 760, width: '100%' }}
+            style={{ margin: '52px auto 0', maxWidth: 760, width: '100%', flex: '0 0 auto' }}
           />
         )}
 
         {isWelcome ? (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              padding: '24px',
-            }}
-          >
-            <WelcomeHero
-              onSend={onSend}
-              disabled={isArchived}
-              datasets={datasets}
-              selectedDatasetId={selectedDatasetId}
-              modelLabel={modelLabel}
-              onOpenDatasetPicker={() => setDatasetDrawerOpen(true)}
-              onOpenSettings={onOpenSettings}
-              onOpenVoiceInput={() => setVoiceDrawerOpen(true)}
-            />
+          <div className="stats-welcome" aria-label="欢迎区">
+            <div className="stats-welcome__inner">
+              <WelcomeHero
+                onSend={onSend}
+                disabled={isArchived}
+                datasets={datasets}
+                selectedDatasetId={selectedDatasetId}
+                modelLabel={modelLabel}
+                onOpenDatasetPicker={() => setDatasetDrawerOpen(true)}
+                onOpenSettings={onOpenSettings}
+                onOpenVoiceInput={() => setVoiceDrawerOpen(true)}
+              />
+            </div>
           </div>
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              padding: '56px 16px 16px',
-            }}
-          >
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                paddingRight: 8,
-                maxWidth: 820,
-                width: '100%',
-                margin: '0 auto',
-              }}
-            >
+          <div className="stats-conversation" aria-label="对话区">
+            <div className="stats-conversation__stream" aria-label="消息列表">
               <MessageList messages={messages} onChoiceSubmit={onChoiceSubmit} disabled={isArchived} />
               <ErrorBanner error={error} onRetry={onRetry} />
             </div>
 
-            <div style={{ maxWidth: 820, width: '100%', margin: '12px auto 0' }}>
+            <div className="stats-conversation__composer">
               <ChatInputBar
                 sessionId={sessionId}
                 isStreaming={isStreaming}

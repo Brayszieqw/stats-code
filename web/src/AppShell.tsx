@@ -41,6 +41,7 @@ export function AppShell() {
   const chat = useSseChat(controller.sessionId);
   const llm = useLlmStatus();
   const sessionList = useSessionList();
+  const [llmOnboardingDismissed, setLlmOnboardingDismissed] = useState(false);
   const deletingSessionIds = useRef(new Set<string>());
 
   const { setMessages } = chat;
@@ -219,7 +220,7 @@ export function AppShell() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100dvh' }}>
         <Spin indicator={<LoadingOutlined style={{ fontSize: 36 }} spin />} />
       </div>
     );
@@ -271,6 +272,7 @@ export function AppShell() {
           onRetry={handleRetry}
           onVoiceTranscript={handleVoiceTranscript}
           model={modelLabel}
+          llmConfigured={llm.configured}
           onOpenSettings={() => setSettingsOpen(true)}
           onDeleteSession={handleDeleteSession}
           onPurgeEmptySessions={handlePurgeEmptySessions}
@@ -278,8 +280,16 @@ export function AppShell() {
       )}
 
       {/* LLM 未配置遮罩 */}
-      {!llm.configured && (
-        <OnboardingCard onSubmit={handleLlmSubmit} submitting={llmSubmitting} errorMessage={llmError} />
+      {!llm.configured && !llmOnboardingDismissed && (
+        <OnboardingCard
+          onSubmit={handleLlmSubmit}
+          onSkip={() => {
+            setMode('pro');
+            setLlmOnboardingDismissed(true);
+          }}
+          submitting={llmSubmitting}
+          errorMessage={llmError}
+        />
       )}
 
       {/* API 设置抽屉 */}

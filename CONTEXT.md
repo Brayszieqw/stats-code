@@ -10,13 +10,15 @@
 ### `stats-code`（命令）
 全局可执行的二进制（`stats-code.exe`，Node SEA 单文件，放在 PATH 里）。
 
-**对用户暴露的唯一行为**：在任意目录敲 `stats-code`（不带子命令）会：
-1. 启动后端 HTTP 服务（监听 `127.0.0.1:8080`，被占用则向后扫描）
-2. 伺服内嵌的前端静态资源（SEA assets，来自 `web/dist`）
-3. 自动打开浏览器到实际地址
-4. 前台运行，按 Ctrl+C 停止全部
+**对用户暴露的行为**：
 
-唯一的命令行旗标：`--version`、`--help`、`--no-browser`。**没有公开子命令。**
+| 入口 | 行为 |
+|------|------|
+| **`desktop/` / `scripts/start-desktop.ps1`（推荐 GUI）** | Electron **应用内窗口**加载本机 SPA；后端以 `--no-browser` 启动，**不依赖系统浏览器** |
+| `stats-code`（不带子命令） | 启动后端 + 内嵌 SPA，并打开**系统默认浏览器**（兼容旧路径） |
+| `stats-code --no-browser` | 仅后端（供桌面壳或其他宿主连接） |
+
+`stats-code` 公共旗标：`--version`、`--help`、`--no-browser`。**没有公开子命令。**
 
 ### 内部算法子命令
 `tableone`、`survival`、`ttest`、`power` 等算法入口——
@@ -51,15 +53,16 @@
 ## 运行模式
 
 ### prod 模式（给最终用户）
-- `scripts/release.ps1` 产出单文件 exe
-- 单进程：同端口同时伺服 API（`/api/*`）和内嵌静态资源（`/*`）
-- 浏览器访问 `http://localhost:8080/`
+- `scripts/release.ps1` 产出单文件 `stats-code.exe`（后端 + 内嵌 SPA）
+- **桌面壳**：`desktop/` Electron 打包后产出 `Stats Code` 应用 / portable；
+  启动时拉起 `stats-code.exe --no-browser`，在**应用内 WebView** 打开 UI
+- 仍兼容：单独跑 `stats-code.exe` 用系统浏览器打开 `http://127.0.0.1:8080/`
 
 ### dev 模式（开发用，仅限自己）
-- 入口：仓库根 `启动Stats前端.bat`
-- 流程：先在 `ts-backend/` 跑 `npm run build`（保证 dist 与源码一致），再起
-  `node dev-server.mjs`（API `:8080`）和 Vite dev server（`:5173`）
-- 浏览器访问 `http://localhost:5173/`，vite 把 `/api/*` 代理到 `:8080`
+- **桌面 GUI**：`scripts/start-desktop.ps1` 或 `cd desktop && npm start`
+- **浏览器热更新**：仓库根 `启动Stats前端.bat`
+  - `ts-backend/` `npm run build` → `node dev-server.mjs`（API `:8080`）+ Vite `:5173`
+  - 浏览器访问 `http://localhost:5173/`，`/api/*` 代理到 `:8080`
 - ⚠ `dev-server.mjs` 跑的是 `packages/api/dist/` **编译产物**——改完源码必须
   重新 build 才生效（bat 已内置该步骤）
 - 必须本地装 Node.js ≥ 22 与 npm 依赖
@@ -67,13 +70,14 @@
 ## 启动行为
 
 **端口选择**：从 `8080` 开始扫描，第一个能成功 `bind` 的端口即为本次实际端口。
-启动日志打印实际端口，浏览器自动打开的 URL 也跟随实际端口。
+启动日志打印实际端口；桌面壳通过轮询 `/api/health` 发现实际地址。
 
-**浏览器**：起来后自动用系统默认浏览器打开实际地址（`--no-browser` 跳过）。
+**UI 容器**：
+- 桌面壳：应用内窗口（不调用系统浏览器）
+- 裸 `stats-code.exe`：默认打开系统浏览器（`--no-browser` 跳过）
 
-**单实例**：检测已有实例运行 → 直接打开浏览器到那个实例的 URL，不再起新进程。
-实现：lock 文件记录当前实例的 PID + URL；启动时若 PID 仍活、端口可访问，
-则打开既有 URL 后退出。进程退出时清理 lock 文件。
+**单实例（Electron）**：桌面壳使用 Electron `requestSingleInstanceLock`；
+二次启动聚焦已有窗口。后端 lock 文件实现见 `engine/launcher/lock`（逐步接线）。
 
 ## LLM 配置
 

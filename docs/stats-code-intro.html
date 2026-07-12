@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stats Code · 本地可信的 AI 统计分析工作台</title>
+  <meta name="description" content="Stats Code：本机单文件启动的 AI 统计分析工作台。对话做分析，专业工作台看结果，附带 R/SAS/Python/SPSS 等价代码、数值平价与审计快照。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f6f1e8;
+      --paper-2: #efe6d8;
+      --ink: #1b2a3a;
+      --ink-soft: #3d4f63;
+      --muted: #6b7a8a;
+      --line: rgba(27, 42, 58, 0.12);
+      --blue: #38618c;
+      --blue-deep: #24486b;
+      --cinnabar: #c45c3e;
+      --cinnabar-soft: rgba(196, 92, 62, 0.12);
+      --card: rgba(255, 252, 247, 0.92);
+      --shadow: 0 18px 50px rgba(27, 42, 58, 0.08);
+      --radius: 18px;
+      --max: 1120px;
+      /* 产品插图：展示宽 1280 CSS 像素，源图 2880×1800@2x 保证 Retina 清晰 */
+      --hero-shot-max: 1280px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(56, 97, 140, 0.12), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(196, 92, 62, 0.08), transparent 50%),
+        linear-gradient(180deg, #f9f5ee 0%, var(--paper) 40%, #f3ebe0 100%);
+      line-height: 1.7;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { color: var(--cinnabar); }
+
+    .wrap { width: min(var(--max), calc(100% - 2.5rem)); margin: 0 auto; }
+
+    /* Nav */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(12px);
+      background: rgba(246, 241, 232, 0.82);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: "Noto Serif SC", serif;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .mark {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 10px;
+      background: linear-gradient(145deg, var(--blue) 0%, var(--blue-deep) 100%);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      box-shadow: 0 8px 18px rgba(36, 72, 107, 0.25);
+    }
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 1rem;
+      font-size: 0.92rem;
+      color: var(--ink-soft);
+    }
+    .nav-links a { color: inherit; }
+    .nav-links a:hover { color: var(--blue); }
+
+    /* Hero: 上下堆叠；文案居中窄栏，插图独立加宽到 1280，避免被正文 max-width 卡住 */
+    .hero {
+      padding: 3.4rem 0 2.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2.2rem;
+      align-items: stretch;
+      /* 插图需要更宽：hero 容器用 shot max，而不是正文 1120 */
+      width: min(var(--hero-shot-max), calc(100% - 2.5rem));
+      margin: 0 auto;
+    }
+    .hero-copy {
+      max-width: 46rem;
+      margin: 0 auto;
+      text-align: center;
+      width: 100%;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.28rem 0.75rem;
+      border-radius: 999px;
+      background: var(--cinnabar-soft);
+      color: var(--cinnabar);
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--cinnabar);
+    }
+    h1 {
+      font-family: "Noto Serif SC", serif;
+      font-weight: 700;
+      font-size: clamp(2rem, 4.2vw, 3.05rem);
+      line-height: 1.28;
+      margin: 1rem 0 1rem;
+      letter-spacing: 0.01em;
+    }
+    .lead {
+      font-size: 1.08rem;
+      color: var(--ink-soft);
+      max-width: 40rem;
+      margin: 0 auto 1.6rem;
+    }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 1.4rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0.78rem 1.2rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: linear-gradient(145deg, var(--blue) 0%, var(--blue-deep) 100%);
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(36, 72, 107, 0.22);
+    }
+    .btn-primary:hover { color: #fff; }
+    .btn-ghost {
+      background: rgba(255, 252, 247, 0.75);
+      border-color: var(--line);
+      color: var(--ink);
+    }
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.6rem 1.1rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .meta-row strong { color: var(--ink-soft); font-weight: 600; }
+
+    .hero-visual {
+      position: relative;
+      width: min(var(--hero-shot-max), 100%);
+      margin: 0 auto;
+    }
+    .shot-frame {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.7) inset,
+        0 22px 56px rgba(27, 42, 58, 0.12);
+      overflow: hidden;
+      /* 锁定 16:10，避免布局抖动；源图 2880×1800 */
+      aspect-ratio: 16 / 10;
+    }
+    .shot {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      object-position: top center;
+      /* 禁止浏览器把高清图糊成低质量缩放 */
+      image-rendering: auto;
+      -webkit-user-drag: none;
+    }
+    .shot-caption {
+      margin: 0.85rem 0 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    /* Sections */
+    section { padding: 3.2rem 0; }
+    .section-title {
+      font-family: "Noto Serif SC", serif;
+      font-size: clamp(1.55rem, 2.6vw, 2rem);
+      margin: 0 0 0.5rem;
+    }
+    .section-sub {
+      color: var(--muted);
+      margin: 0 0 1.8rem;
+      max-width: 40rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.3rem;
+      box-shadow: 0 8px 24px rgba(27, 42, 58, 0.04);
+    }
+    .card h3 {
+      font-family: "Noto Serif SC", serif;
+      font-size: 1.15rem;
+      margin: 0 0 0.55rem;
+    }
+    .card p {
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: 0.95rem;
+    }
+    .card .num {
+      display: inline-block;
+      font-family: "Noto Serif SC", serif;
+      color: var(--cinnabar);
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.04em;
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.9rem;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 999px;
+      padding: 0.28rem 0.7rem;
+      font-size: 0.82rem;
+      color: var(--ink-soft);
+    }
+
+    .band {
+      background: linear-gradient(180deg, rgba(56, 97, 140, 0.06), rgba(246, 241, 232, 0));
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.9rem;
+      counter-reset: step;
+    }
+    .step {
+      position: relative;
+      padding: 1.15rem 1.1rem 1.15rem 1.15rem;
+    }
+    .step::before {
+      counter-increment: step;
+      content: counter(step, decimal-leading-zero);
+      display: block;
+      font-family: "Noto Serif SC", serif;
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin-bottom: 0.45rem;
+    }
+
+    .arch {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.8rem;
+    }
+    .arch-item {
+      text-align: center;
+      padding: 1.3rem 1rem;
+    }
+    .arch-item .layer {
+      font-family: "Noto Serif SC", serif;
+      font-size: 1.05rem;
+      margin-bottom: 0.35rem;
+    }
+    .arch-item .path {
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 0.78rem;
+      color: var(--blue);
+      margin-bottom: 0.5rem;
+    }
+    .arrow-row {
+      display: none;
+    }
+
+    .trust {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1.2rem;
+      align-items: stretch;
+    }
+    .quote {
+      border-left: 3px solid var(--cinnabar);
+      padding: 0.2rem 0 0.2rem 1rem;
+      color: var(--ink-soft);
+      font-family: "Noto Serif SC", serif;
+      font-size: 1.12rem;
+      line-height: 1.65;
+      margin: 0 0 1rem;
+    }
+    .checklist {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .checklist li {
+      display: flex;
+      gap: 0.65rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink-soft);
+      font-size: 0.95rem;
+    }
+    .checklist li:last-child { border-bottom: 0; }
+    .check {
+      flex: 0 0 auto;
+      width: 1.2rem;
+      height: 1.2rem;
+      border-radius: 50%;
+      background: rgba(56, 97, 140, 0.12);
+      color: var(--blue);
+      display: grid;
+      place-items: center;
+      font-size: 0.75rem;
+      margin-top: 0.15rem;
+    }
+
+    table.matrix {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    table.matrix th,
+    table.matrix td {
+      text-align: left;
+      padding: 0.7rem 0.65rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    table.matrix th {
+      color: var(--muted);
+      font-weight: 500;
+      width: 28%;
+    }
+    table.matrix td { color: var(--ink-soft); }
+    code, .mono {
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 0.88em;
+      background: rgba(56, 97, 140, 0.08);
+      padding: 0.08em 0.35em;
+      border-radius: 5px;
+    }
+
+    .cta-final {
+      text-align: center;
+      padding: 3.4rem 1.2rem;
+      border-radius: 24px;
+      background:
+        linear-gradient(145deg, rgba(56, 97, 140, 0.1), rgba(196, 92, 62, 0.08)),
+        var(--card);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .cta-final h2 {
+      font-family: "Noto Serif SC", serif;
+      font-size: clamp(1.5rem, 2.5vw, 2rem);
+      margin: 0 0 0.6rem;
+    }
+    .cta-final p {
+      margin: 0 auto 1.3rem;
+      max-width: 32rem;
+      color: var(--ink-soft);
+    }
+
+    footer {
+      padding: 2.2rem 0 2.8rem;
+      color: var(--muted);
+      font-size: 0.86rem;
+      border-top: 1px solid var(--line);
+      margin-top: 1rem;
+    }
+    footer .foot-inner {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0.8rem;
+    }
+
+    @media (max-width: 900px) {
+      .trust, .grid-3, .grid-2, .steps, .arch {
+        grid-template-columns: 1fr;
+      }
+      .hero { padding: 2.2rem 0 1.6rem; gap: 1.5rem; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="Stats Code">
+        <span class="mark">SC</span>
+        <span>Stats Code</span>
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a href="#why">为什么</a>
+        <a href="#modes">双模式</a>
+        <a href="#trust">信任凭证</a>
+        <a href="#stack">架构</a>
+        <a href="#start">如何启动</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="hero">
+      <!-- 正上方：标题文案 -->
+      <div class="hero-copy">
+        <span class="eyebrow">本地 · 可信 · AI 统计分析</span>
+        <h1>用自然语言做统计分析，<br />结果可复核、可复现、可交付</h1>
+        <p class="lead">
+          Stats Code 是跑在你自己电脑上的 AI 统计分析工作台：
+          一键启动本地服务，上传临床/研究数据，用对话或专业面板完成分析，
+          并自动附上 R / SAS / Python / SPSS 等价代码与审计快照。
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="http://127.0.0.1:5173/" target="_blank" rel="noopener">打开本地 Demo</a>
+          <a class="btn btn-ghost" href="#start">查看启动方式</a>
+        </div>
+        <div class="meta-row">
+          <span><strong>单文件</strong> stats-code.exe</span>
+          <span><strong>本机</strong> 127.0.0.1</span>
+          <span><strong>无需</strong> R / SAS / Python 运行时</span>
+        </div>
+      </div>
+
+      <!-- 正下方：全宽 16:10 产品截图；2880×1800@2x + 1440×900@1x 自适应 -->
+      <div class="hero-visual">
+        <div class="shot-frame">
+          <!-- 始终使用 2880×1800@2x 源图，CSS 缩到 1280 宽 → Retina 仍 ≥2 像素密度 -->
+          <img
+            class="shot"
+            src="assets/hero-product.png"
+            width="2880"
+            height="1800"
+            alt="Stats Code 专业模式：分析报告结果、统计图表与 R/SAS/Python/SPSS 等价代码侧栏"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </div>
+        <p class="shot-caption">专业模式 · 报告中心 · 等价代码 · demo_cohort.csv</p>
+      </div>
+    </div>
+
+    <section id="why">
+      <div class="wrap">
+        <h2 class="section-title">它解决什么问题？</h2>
+        <p class="section-sub">
+          不是把数据丢给公有云黑箱，也不是强迫你先写一堆脚本。
+          Stats Code 把「对话式意图」和「可审计的统计算法」接在同一条链路上。
+        </p>
+        <div class="grid-3">
+          <article class="card">
+            <span class="num">01</span>
+            <h3>数据不出本机</h3>
+            <p>服务默认绑定 <code>127.0.0.1</code>，会话与配置落在本机用户目录。适合临床与研究数据的隐私边界。</p>
+          </article>
+          <article class="card">
+            <span class="num">02</span>
+            <h3>会聊天，也能动手</h3>
+            <p>简易模式像科研助理；专业模式提供数据集、报告、运行控制与代码侧栏，适合真正产出结果的人。</p>
+          </article>
+          <article class="card">
+            <span class="num">03</span>
+            <h3>结果能对得上</h3>
+            <p>进程内统计算法，不偷偷 spawn 外部统计软件；配合数值平价测试与等价代码，方便复核与交接。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="modes">
+      <div class="wrap">
+        <h2 class="section-title">双模式界面</h2>
+        <p class="section-sub">一套后端契约，两种使用姿势——从「先聊清楚问题」到「把报告做完」。</p>
+        <div class="grid-2">
+          <article class="card">
+            <h3>简易模式 · 对话优先</h3>
+            <p>上传 CSV/TSV，用自然语言描述分析意图。系统编排技能（基线表、回归、生存等），逐步澄清参数并给出结果与解释。</p>
+            <div class="pill-list">
+              <span class="pill">Onboarding 配置 LLM</span>
+              <span class="pill">一键 demo 队列数据</span>
+              <span class="pill">选择卡片澄清意图</span>
+            </div>
+          </article>
+          <article class="card">
+            <h3>专业模式 · 研究工作台</h3>
+            <p>左侧会话与助理，中间报告与图表，右侧数据概览与等价代码。报告优先的版式，贴近真实统计分析交付物。</p>
+            <div class="pill-list">
+              <span class="pill">分析配置器</span>
+              <span class="pill">三线表 / 图表</span>
+              <span class="pill">Run / Copy / 导出</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="skills">
+      <div class="wrap">
+        <h2 class="section-title">内置分析能力</h2>
+        <p class="section-sub">面向临床与观察性研究常见产出，算法以进程内纯函数方式运行。</p>
+        <div class="grid-3">
+          <article class="card">
+            <h3>描述与比较</h3>
+            <div class="pill-list">
+              <span class="pill">基线特征表 Table One</span>
+              <span class="pill">T 检验</span>
+              <span class="pill">数据探索</span>
+            </div>
+          </article>
+          <article class="card">
+            <h3>回归模型</h3>
+            <div class="pill-list">
+              <span class="pill">线性回归</span>
+              <span class="pill">Logistic 回归</span>
+              <span class="pill">Cox 回归</span>
+            </div>
+          </article>
+          <article class="card">
+            <h3>生存与功效</h3>
+            <div class="pill-list">
+              <span class="pill">Kaplan–Meier</span>
+              <span class="pill">功效 / 样本量</span>
+              <span class="pill">风险信号标注</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="trust">
+      <div class="wrap trust">
+        <div>
+          <h2 class="section-title">信任凭证三件套</h2>
+          <p class="quote">“能跑出 p 值不够，还要能说清：怎么算的、对不对得上、能不能复现。”</p>
+          <ul class="checklist">
+            <li><span class="check">✓</span><span><strong>等价代码侧栏</strong>：每次分析附 R / SAS / Python / SPSS 四语言对照代码，模板构建期嵌入。</span></li>
+            <li><span class="check">✓</span><span><strong>数值平价</strong>：对照教材与软件基线的 parity 测试，回归结果可核对已知值。</span></li>
+            <li><span class="check">✓</span><span><strong>审计快照</strong>：导出确定性 zip（manifest / workflow / provenance / narrative），支持完整性复现门控。</span></li>
+            <li><span class="check">✓</span><span><strong>Spawn 哨兵</strong>：主动阻断对外部统计运行时的 spawn，算法在引擎内完成。</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>给谁用？</h3>
+          <p style="margin-bottom:0.9rem;">
+            需要快速出分析、又必须对结果负责的人——临床研究者、统计师、方法学同学，
+            以及要把「AI 助手」真正接到统计工作流里的团队。
+          </p>
+          <table class="matrix">
+            <tr><th>形态</th><td>本机 localhost 应用（类似 Jupyter Lab / Streamlit 本地态）</td></tr>
+            <tr><th>分发</th><td>单文件 <code>stats-code.exe</code>（Node SEA，约 90MB）</td></tr>
+            <tr><th>依赖</th><td>用户机无需安装 Node / R / Python / SAS</td></tr>
+            <tr><th>LLM</th><td>自带 API Key（如 DeepSeek）；Key 存本机用户目录</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <div class="wrap">
+        <h2 class="section-title">技术结构（一句话读懂）</h2>
+        <p class="section-sub">清晰三层：前端只对话与展示，server 管会话与契约，engine 专心算。</p>
+        <div class="arch">
+          <article class="card arch-item">
+            <div class="layer">Frontend</div>
+            <div class="path">web/</div>
+            <p>React 19 · Vite · Ant Design<br />双模式 UI / SSE 对话 / 上传</p>
+          </article>
+          <article class="card arch-item">
+            <div class="layer">Server</div>
+            <div class="path">ts-backend/packages/server</div>
+            <p>HTTP 契约 · 会话编排 · LLM 接线<br />13 条路由 · zod 单一事实来源</p>
+          </article>
+          <article class="card arch-item">
+            <div class="layer">Engine</div>
+            <div class="path">ts-backend/packages/engine</div>
+            <p>统计算法 · 数学核 · Sidecar<br />Snapshot / Parity / Spawn Policy</p>
+          </article>
+        </div>
+        <p style="margin:1.2rem 0 0;color:var(--muted);font-size:0.9rem;">
+          依赖方向强制为 <code>api → server → engine</code>。组合入口在 <code>packages/api</code>，负责 launcher 与 SEA 二进制。
+        </p>
+      </div>
+    </section>
+
+    <section class="band" id="start">
+      <div class="wrap">
+        <h2 class="section-title">如何启动</h2>
+        <p class="section-sub">两种路径：最终用户用 exe；开发者用仓库 dev launcher。</p>
+        <div class="steps">
+          <article class="card step">
+            <h3 style="margin:0 0 0.4rem;font-size:1rem;">安装 / 打开仓库</h3>
+            <p style="margin:0;color:var(--ink-soft);font-size:0.92rem;">运行 <code>install.ps1</code> 安装 exe，或 clone 本仓库进入开发模式。</p>
+          </article>
+          <article class="card step">
+            <h3 style="margin:0 0 0.4rem;font-size:1rem;">启动</h3>
+            <p style="margin:0;color:var(--ink-soft);font-size:0.92rem;">用户：终端输入 <code>stats-code</code>。<br />开发：双击 <code>启动Stats前端.bat</code>。</p>
+          </article>
+          <article class="card step">
+            <h3 style="margin:0 0 0.4rem;font-size:1rem;">配置 LLM</h3>
+            <p style="margin:0;color:var(--ink-soft);font-size:0.92rem;">首次打开填入 Provider 与 API Key，点「测试并保存」后即可聊天。</p>
+          </article>
+          <article class="card step">
+            <h3 style="margin:0 0 0.4rem;font-size:1rem;">加载数据并分析</h3>
+            <p style="margin:0;color:var(--ink-soft);font-size:0.92rem;">上传 CSV，或一键加载 <code>demo_cohort.csv</code>，然后对话或专业面板跑分析。</p>
+          </article>
+        </div>
+
+        <div class="grid-2" style="margin-top:1rem;">
+          <article class="card">
+            <h3>开发模式地址</h3>
+            <p>前端 Vite：<a href="http://127.0.0.1:5173/" target="_blank" rel="noopener"><code>http://127.0.0.1:5173/</code></a><br />
+            后端 API：<a href="http://127.0.0.1:8080/api/health" target="_blank" rel="noopener"><code>http://127.0.0.1:8080/</code></a><br />
+            Vite 将 <code>/api/*</code> 代理到后端。</p>
+          </article>
+          <article class="card">
+            <h3>生产模式地址</h3>
+            <p>单进程同时伺服 API 与内嵌前端，通常为<br />
+            <code>http://127.0.0.1:8080/</code>（端口占用时自动后移）。<br />
+            关闭窗口或 Ctrl+C 即停止全部。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="cta-final">
+          <h2>把统计分析交回可审查的工具链</h2>
+          <p>Stats Code 不是「让模型随便编一个 p 值」，而是：意图理解 + 本地算法 + 等价代码 + 平价与快照。适合作为你研究项目里那块靠谱的分析桌面。</p>
+          <div class="cta-row" style="justify-content:center;">
+            <a class="btn btn-primary" href="http://127.0.0.1:5173/" target="_blank" rel="noopener">打开本地 Demo</a>
+            <a class="btn btn-ghost" href="../CONTEXT.md">阅读领域语言 CONTEXT.md</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot-inner">
+      <div>Stats Code · 本地可信的 AI 统计分析工作台</div>
+      <div>介绍页路径：<code>docs/stats-code-intro.html</code> · 内容依据仓库 CONTEXT 与现网能力整理</div>
+    </div>
+  </footer>
+</body>
+</html>

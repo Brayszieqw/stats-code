@@ -29,5 +29,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test-setup.ts',
+    // Ant Design Modal/Drawer + jsdom is slow under full-suite parallelism;
+    // 5s default caused flaky timeouts that pass in isolation.
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });
+

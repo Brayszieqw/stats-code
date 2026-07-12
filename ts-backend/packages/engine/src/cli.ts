@@ -59,9 +59,14 @@ Usage:
   stats-code [options]
 
 Options:
-  --no-browser    Start the server without opening the default browser.
+  --no-browser    Start the server without opening the default browser
+                  (used by the desktop shell / headless hosts).
   --version       Print the version and exit.
   --help          Print this help and exit.
+
+Desktop UI (in-app window, no system browser):
+  From the repo:  powershell -File scripts/start-desktop.ps1
+  Or:             cd desktop && npm start
 `;
 
 /**

@@ -36,6 +36,7 @@ describe('useLatestAnalysis (Requirements 6.1, 7.1)', () => {
     const msgs = [agent('a1', result('first')), user('u1'), agent('a2', result('second')), agent('a3')];
     const { result: r } = renderHook(() => useLatestAnalysis(msgs));
     expect((r.current.result?.payload as { tag: string }).tag).toBe('second');
+    expect(r.current.resultMessage?.id).toBe('a2');
     expect(r.current.agentMessage?.id).toBe('a3');
   });
 

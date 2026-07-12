@@ -10,15 +10,20 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Grid, Layout, Button, Typography, Tag, Alert, Drawer } from 'antd';
-import { UploadOutlined, FileTextOutlined, CloseOutlined, MenuOutlined } from '@ant-design/icons';
+import { Button, Drawer, Grid, Layout, Tag, Typography } from 'antd';
+import {
+  AreaChartOutlined,
+  CloseOutlined,
+  DatabaseOutlined,
+  MenuOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { ModeToggle } from '../components/ModeToggle';
-import { ReportViewer } from './pro/ReportViewer';
-import { CodePanel } from './pro/CodePanel';
 import { AssistantPanel } from './pro/AssistantPanel';
+import { AnalysisWorkspace, type WorkspaceView } from './pro/AnalysisWorkspace';
 import { DatasetUploader } from '../components/DatasetUploader';
-import { AnalysisConfigurator } from '../components/AnalysisConfigurator';
+import { AnalysisPreflightModal } from '../components/AnalysisPreflightModal';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
 import { runSkill, ApiError } from '../api/client';
@@ -33,9 +38,26 @@ const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
 const { Text } = Typography;
 
-const PANEL_BG = '#fbfaf7';
-const BORDER = '1px solid #e3e1d8';
-const PRIMARY = '#38618c';
+const PANEL_BG = '#f7f7f5';
+const BORDER = '1px solid #e3e3df';
+
+export function mergeWorkspaceMessages(
+  chatMessages: ChatMessage[],
+  directMessages: ChatMessage[],
+  directRunId?: string,
+): ChatMessage[] {
+  if (directMessages.length === 0) return chatMessages;
+  if (directRunId && chatMessages.some((message) => message.skillResult?.analysis?.run_id === directRunId)) {
+    return chatMessages;
+  }
+  return [...chatMessages, ...directMessages]
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const byTime = left.message.timestamp.getTime() - right.message.timestamp.getTime();
+      return byTime === 0 ? left.index - right.index : byTime;
+    })
+    .map(({ message }) => message);
+}
 
 export interface ProModeViewProps {
   controller: SessionController;
@@ -48,6 +70,7 @@ export interface ProModeViewProps {
   onRetry: () => void;
   onVoiceTranscript: (t: string) => void;
   model?: string | null;
+  llmConfigured?: boolean;
   onOpenSettings?: () => void;
   onDeleteSession?: (sessionId: string) => void | Promise<void>;
   onPurgeEmptySessions?: () => void | Promise<void>;
@@ -64,6 +87,7 @@ export function ProModeView({
   onRetry,
   onVoiceTranscript,
   model,
+  llmConfigured = true,
   onOpenSettings,
   onDeleteSession,
   onPurgeEmptySessions,
@@ -77,22 +101,34 @@ export function ProModeView({
   const [voiceDrawerOpen, setVoiceDrawerOpen] = useState(false);
   const [directRunResult, setDirectRunResult] = useState<SkillResult | null>(null);
   const [directRunPrompt, setDirectRunPrompt] = useState('');
+  const [directRunStartedAt, setDirectRunStartedAt] = useState<Date | null>(null);
+  const [directRunCompletedAt, setDirectRunCompletedAt] = useState<Date | null>(null);
   const [directRunError, setDirectRunError] = useState<string | null>(null);
   const [directRunRunning, setDirectRunRunning] = useState(false);
-  // 上下可拖拽比例：报告区占中部高度的比例（0.2–0.85）。
-  const [reportFlex, setReportFlex] = useState(0.56);
-  const centerRef = useState<{ el: HTMLDivElement | null }>(() => ({ el: null }))[0];
-  // 记录进行中的拖拽清理函数，组件卸载时兜底移除监听。
-  const dragCleanupRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => dragCleanupRef.current?.(), []);
+  const [pendingRun, setPendingRun] = useState<{ request: RunRequest; promptText: string } | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('report');
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const activeSessionIdRef = useRef(sessionId);
+  const directRunRequestRef = useRef(0);
+  const directRunAbortRef = useRef<AbortController | null>(null);
+  activeSessionIdRef.current = sessionId;
 
   // 会话切换时重置本地派生状态，避免上个会话的数据集选择/直跑结果串台。
   useEffect(() => {
+    directRunAbortRef.current?.abort();
+    directRunAbortRef.current = null;
+    directRunRequestRef.current += 1;
     setSelectedDataset(null);
     setLastProfiledDataset(null);
     setDirectRunResult(null);
     setDirectRunPrompt('');
+    setDirectRunStartedAt(null);
+    setDirectRunCompletedAt(null);
     setDirectRunError(null);
+    setDirectRunRunning(false);
+    setPendingRun(null);
+    setWorkspaceView('report');
+    setWorkspaceOpen(false);
   }, [sessionId]);
 
   // 仅 1 个数据集时自动选中，避免用户必须再点 Tag 才出现分析配置器。
@@ -104,92 +140,171 @@ export function ProModeView({
     }
   }, [datasets, sessionId]);
 
-  const startVDrag = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const container = centerRef.el;
-    if (!container) return;
-    const onMove = (ev: MouseEvent) => {
-      // 每次移动时重新测量，容器随窗口/分栏变化时比例仍正确。
-      const rect = container.getBoundingClientRect();
-      const ratio = (ev.clientY - rect.top) / rect.height;
-      const clamped = Math.min(0.85, Math.max(0.2, ratio));
-      setReportFlex(clamped);
-    };
-    const onUp = () => {
-      dragCleanupRef.current?.();
-    };
-    dragCleanupRef.current = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      document.body.style.userSelect = '';
-      dragCleanupRef.current = null;
-    };
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
-
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
-    setSidebarCollapsed(!screens.lg);
+    if (typeof screens.lg === 'boolean') setSidebarCollapsed(!screens.lg);
   }, [screens.lg]);
 
-  const directRunMessage = useMemo<ChatMessage | null>(() => {
-    if (!directRunResult) return null;
-    return {
-      id: `direct-run-${directRunResult.analysis?.run_id ?? Date.now()}`,
+  const directRunMessages = useMemo<ChatMessage[]>(() => {
+    if (!directRunResult) return [];
+    const runId = directRunResult.analysis?.run_id ?? 'local';
+    const resultTimestamp = directRunCompletedAt ?? new Date(0);
+    const resultMessage: ChatMessage = {
+      id: `direct-run-result-${runId}`,
       role: 'agent',
-      content: directRunPrompt,
+      content: '',
       skillResult: directRunResult,
-      timestamp: new Date(),
+      timestamp: resultTimestamp,
     };
-  }, [directRunPrompt, directRunResult]);
+    if (!directRunPrompt.trim()) return [resultMessage];
+    return [
+      {
+        id: `direct-run-question-${runId}`,
+        role: 'user',
+        content: directRunPrompt,
+        timestamp: directRunStartedAt ?? resultTimestamp,
+      },
+      resultMessage,
+    ];
+  }, [directRunCompletedAt, directRunPrompt, directRunResult, directRunStartedAt]);
 
-  const reportMessages = useMemo(
-    () => (directRunMessage ? [...chat.messages, directRunMessage] : chat.messages),
-    [chat.messages, directRunMessage],
-  );
+  const workspaceMessages = useMemo(() => {
+    return mergeWorkspaceMessages(
+      chat.messages,
+      directRunMessages,
+      directRunResult?.analysis?.run_id,
+    );
+  }, [chat.messages, directRunMessages, directRunResult?.analysis?.run_id]);
 
-  const { result } = useLatestAnalysis(reportMessages);
+  const { result } = useLatestAnalysis(workspaceMessages);
   const analysis = result?.analysis ?? null;
+  const analysisDataset = useMemo(
+    () => (analysis ? datasets.find((dataset) => dataset.dataset_id === analysis.dataset_id) ?? null : null),
+    [analysis, datasets],
+  );
+  const latestUserPrompt = useMemo(() => {
+    for (let i = workspaceMessages.length - 1; i >= 0; i--) {
+      const msg = workspaceMessages[i];
+      if (msg?.role === 'user' && msg.content.trim()) return msg.content.trim();
+    }
+    return '尚未提出研究问题';
+  }, [workspaceMessages]);
 
   const handleSelect = (ds: DatasetSummary | null) => {
     setSelectedDataset(ds);
     if (ds) setLastProfiledDataset(ds);
     setDirectRunResult(null);
     setDirectRunPrompt('');
+    setDirectRunStartedAt(null);
+    setDirectRunCompletedAt(null);
     setDirectRunError(null);
+    setWorkspaceView('data');
+    setWorkspaceOpen(true);
+  };
+
+  const executeConfiguredRun = async (request: RunRequest, promptText: string) => {
+    if (isArchived) return;
+    const runSessionId = sessionId;
+    const requestId = ++directRunRequestRef.current;
+    directRunAbortRef.current?.abort();
+    const abortController = new AbortController();
+    directRunAbortRef.current = abortController;
+    setDirectRunRunning(true);
+    setDirectRunError(null);
+    setDirectRunResult(null);
+    setDirectRunCompletedAt(null);
+    setDirectRunPrompt(promptText);
+    setDirectRunStartedAt(new Date());
+    try {
+      const skillResult = await runSkill(runSessionId, request, abortController.signal);
+      if (activeSessionIdRef.current !== runSessionId || directRunRequestRef.current !== requestId) return;
+      setDirectRunResult(skillResult);
+      setDirectRunCompletedAt(new Date());
+      setWorkspaceView('report');
+      setWorkspaceOpen(true);
+      await sessionList.refresh();
+    } catch (err) {
+      if (abortController.signal.aborted) return;
+      if (activeSessionIdRef.current !== runSessionId || directRunRequestRef.current !== requestId) return;
+      setDirectRunError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '运行失败');
+    } finally {
+      if (activeSessionIdRef.current === runSessionId && directRunRequestRef.current === requestId) {
+        setDirectRunRunning(false);
+      }
+      if (directRunAbortRef.current === abortController) directRunAbortRef.current = null;
+    }
   };
 
   const handleConfiguredRun = async (request: RunRequest, promptText: string) => {
     if (isArchived) return;
-    setDirectRunRunning(true);
-    setDirectRunError(null);
-    setDirectRunPrompt(promptText);
-    try {
-      const skillResult = await runSkill(sessionId, request);
-      setDirectRunResult(skillResult);
-      await sessionList.refresh();
-    } catch (err) {
-      setDirectRunError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '运行失败');
-    } finally {
-      setDirectRunRunning(false);
-    }
+    setPendingRun({ request, promptText });
   };
 
-  const docTitle = (selectedDataset ?? lastProfiledDataset)?.file_name ?? '分析报告';
+  const handleInspectorRunComplete = (skillResult: SkillResult, runSessionId: string) => {
+    if (activeSessionIdRef.current !== runSessionId) return;
+    setDirectRunPrompt('');
+    setDirectRunStartedAt(null);
+    setDirectRunResult(skillResult);
+    setDirectRunCompletedAt(new Date());
+    setDirectRunError(null);
+    setWorkspaceView('report');
+    setWorkspaceOpen(true);
+    void sessionList.refresh();
+  };
 
-  // 响应式尺寸：随视口宽度自适应，越窄越紧凑，让页面更简洁。
-  const sidebarWidth = screens.xxl ? 260 : screens.xl ? 230 : 210;
-  const codeWidth = screens.xxl ? 440 : screens.xl ? 380 : 320;
-  const contentMaxWidth = screens.xxl ? 1080 : 920;
-  const isCompact = screens.lg === false;
+  const handleOpenResult = (view: 'report' | 'chart' | 'code') => {
+    setWorkspaceView(view);
+    setWorkspaceOpen(true);
+  };
+
+  const activeDataset = selectedDataset ?? lastProfiledDataset;
+  const artifactDataset = workspaceView === 'data' ? activeDataset : analysisDataset;
+  const docTitle = analysisDataset?.file_name ?? activeDataset?.file_name ?? '分析报告';
+  const isWorking = directRunRunning || chat.isStreaming;
+  const statusLabel = isWorking ? '分析执行中' : analysis ? '结果已生成' : activeDataset ? '数据已就绪' : '等待研究问题';
+
+  const sidebarWidth = screens.xxl ? 270 : 248;
+  const workspaceWidth = screens.xxl ? 520 : 480;
+  const [wideWorkspace, setWideWorkspace] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+    return window.matchMedia('(min-width: 1360px)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia('(min-width: 1360px)');
+    const sync = () => setWideWorkspace(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
+  const isNarrow = !wideWorkspace;
+  const isSidebarOverlay = screens.lg === false;
+
+  const workspace = (
+    <AnalysisWorkspace
+      view={workspaceView}
+      onViewChange={setWorkspaceView}
+      onClose={() => setWorkspaceOpen(false)}
+      title={latestUserPrompt}
+      messages={workspaceMessages}
+      selectedDataset={selectedDataset}
+      artifactDataset={artifactDataset}
+      analysisDataset={analysisDataset}
+      analysis={analysis}
+      sessionId={sessionId}
+      isArchived={isArchived}
+      isRunning={directRunRunning}
+      runError={directRunError}
+      onConfiguredRun={handleConfiguredRun}
+      onInspectorRunComplete={handleInspectorRunComplete}
+    />
+  );
 
   return (
-    <Layout style={{ height: '100vh' }}>
-      <Layout style={{ background: PANEL_BG }}>
-        {/* 左侧：与简易模式一致的 Stats 智能分析导航 */}
+    <Layout className="stats-shell stats-shell--pro">
+      <Layout className="pro-shell" style={{ background: PANEL_BG }}>
         <Sider
+          className="stats-sidebar"
           width={sidebarWidth}
           collapsible
           collapsed={sidebarCollapsed}
@@ -198,21 +313,22 @@ export function ProModeView({
           breakpoint="lg"
           onBreakpoint={(broken) => setSidebarCollapsed(broken)}
           style={{
-            background: '#f7f6f3',
+            background: '#f3f3f1',
             borderRight: BORDER,
-            overflowY: 'auto',
-            ...(isCompact && !sidebarCollapsed
+            overflow: 'hidden',
+            height: '100%',
+            ...(isSidebarOverlay && !sidebarCollapsed
               ? {
                   position: 'fixed',
                   inset: '0 auto 0 0',
-                  height: '100vh',
+                  height: '100dvh',
                   zIndex: 30,
                   boxShadow: '8px 0 24px rgba(31, 43, 56, 0.16)',
                 }
               : {}),
           }}
         >
-          {isCompact && !sidebarCollapsed ? (
+          {isSidebarOverlay && !sidebarCollapsed ? (
             <Button
               type="text"
               size="small"
@@ -224,177 +340,107 @@ export function ProModeView({
           ) : null}
           <SimpleSidebar
             sessionList={sessionList}
-          activeSessionId={sessionId}
-          onNewSession={() => {
+            activeSessionId={sessionId}
+            onNewSession={() => {
               void controller.startNewSession().then(() => sessionList.refresh());
             }}
-          onSelectSession={(sid) => {
-            void controller.loadSession(sid);
-          }}
-          sessionId={sessionId}
-          isArchived={isArchived}
-          decisionAssistant={controller.decisionAssistant}
-          onDecisionAssistantChange={controller.setDecisionAssistant}
-          onOpenDatasetUpload={() => setUploaderOpen(true)}
-          onOpenSettings={onOpenSettings}
-          // 已在专业模式：不传 onOpenProMode → 按钮灰显并显示「当前」
-          onUseTemplate={onSend}
-          onDeleteSession={onDeleteSession}
-          onPurgeEmptySessions={onPurgeEmptySessions}
-        />
+            onSelectSession={(sid) => {
+              void controller.loadSession(sid);
+            }}
+            sessionId={sessionId}
+            isArchived={isArchived}
+            decisionAssistant={controller.decisionAssistant}
+            onDecisionAssistantChange={controller.setDecisionAssistant}
+            onOpenDatasetUpload={() => setUploaderOpen(true)}
+            onOpenSettings={onOpenSettings}
+            onUseTemplate={onSend}
+            onDeleteSession={onDeleteSession}
+            onPurgeEmptySessions={onPurgeEmptySessions}
+          />
         </Sider>
 
-        {/* 中部：文档标签 + 数据集条 + 报告 + 助手 */}
-        <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', height: 36, background: '#f0eee8', borderBottom: BORDER }}>
-            {isCompact && sidebarCollapsed ? (
+        <Layout className="pro-main-shell">
+          <header className="pro-thread-topbar">
+            {sidebarCollapsed ? (
               <Button
                 type="text"
                 size="small"
                 icon={<MenuOutlined />}
                 aria-label="打开侧边栏"
                 onClick={() => setSidebarCollapsed(false)}
-                style={{ marginLeft: 8, marginRight: 4 }}
               />
             ) : null}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '0 14px',
-                height: '100%',
-                background: '#fff',
-                borderRight: BORDER,
-                borderTop: `2px solid ${PRIMARY}`,
-                fontSize: 13,
-                color: '#2b3a4a',
-              }}
-            >
-              <FileTextOutlined style={{ color: PRIMARY, fontSize: 13 }} />
-              {docTitle}
+            <div className="pro-thread-heading">
+              <strong title={latestUserPrompt}>{latestUserPrompt === '尚未提出研究问题' ? '专业统计分析' : latestUserPrompt}</strong>
+              <span className={isWorking ? 'is-working' : ''} aria-live="polite">
+                <i aria-hidden /> {statusLabel} · {docTitle}
+              </span>
             </div>
-            <div style={{ flex: 1 }} />
-            <div style={{ paddingRight: 12 }}>
+            <div className="pro-thread-actions">
+              <Button
+                type="text"
+                size="small"
+                icon={<UploadOutlined />}
+                onClick={() => setUploaderOpen(true)}
+                disabled={isArchived}
+                aria-label="上传数据集"
+              >
+                数据
+              </Button>
+              <Button
+                type={workspaceOpen ? 'default' : 'text'}
+                size="small"
+                icon={<AreaChartOutlined />}
+                aria-label={workspaceOpen ? '收起分析检查器' : '打开分析检查器'}
+                onClick={() => setWorkspaceOpen((open) => !open)}
+              >
+                检查器
+              </Button>
+              <span className="pro-privacy">
+                <span className="privacy-status__dot" aria-hidden />
+                本机确定性引擎 · 数值非 LLM 生成
+              </span>
+              {!llmConfigured ? (
+                <span className="pro-llm-status">AI 解读未配置 · 统计引擎可用</span>
+              ) : null}
               <ModeToggle mode={mode} onChange={onModeChange} />
             </div>
-          </div>
+          </header>
 
-          {/* 数据集工具条 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '8px 16px',
-              borderBottom: BORDER,
-              background: PANEL_BG,
-              flexWrap: 'wrap',
-            }}
-          >
-            <Button
-              size="small"
-              icon={<UploadOutlined />}
-              onClick={() => setUploaderOpen(true)}
-              disabled={isArchived}
-              aria-label="上传数据集"
-            >
-              上传数据集
-            </Button>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              已载入 {datasets.length}
-            </Text>
+          <div className="pro-thread-context" aria-label="分析上下文">
+            <span className="pro-context-label"><DatabaseOutlined /> Context</span>
+            <Text type="secondary" className="pro-context-count">{datasets.length} 个数据集</Text>
             {datasets.map((ds) => {
               const isSel = (selectedDataset?.dataset_id ?? null) === ds.dataset_id;
               return (
-                <Tag.CheckableTag
-                  key={ds.dataset_id}
-                  checked={isSel}
-                  onChange={() => {
-                    if (isArchived) return;
-                    handleSelect(isSel ? null : ds);
-                  }}
-                  style={{
-                    border: `1px solid ${isSel ? PRIMARY : '#d9d9d9'}`,
-                    padding: '2px 10px',
-                    fontSize: 12,
-                  }}
-                  aria-label={`数据集: ${ds.file_name}`}
-                >
-                  {ds.file_name} · {ds.row_count}行
-                </Tag.CheckableTag>
+              <Button
+                key={ds.dataset_id}
+                type={isSel ? 'default' : 'text'}
+                size="small"
+                className={`pro-dataset-context-button${isSel ? ' is-selected' : ''}`}
+                aria-pressed={isSel}
+                onClick={() => {
+                  if (isArchived) return;
+                  handleSelect(isSel ? null : ds);
+                }}
+                aria-label={`数据集: ${ds.file_name}`}
+              >
+                {ds.file_name} · {ds.row_count} × {ds.columns.length}
+              </Button>
               );
             })}
+            {analysis ? (
+              <Tag className="pro-method-tag">{analysis.algorithm_id.replace(/^model_/, '').replace(/_/g, ' ')}</Tag>
+            ) : null}
           </div>
 
-          <div
-            ref={(el) => {
-              centerRef.el = el;
-            }}
-            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-          >
-            <div style={{ flexGrow: reportFlex, flexShrink: 1, flexBasis: 0, overflowY: 'auto', minHeight: 0, padding: 20 }}>
-              <div style={{ maxWidth: contentMaxWidth, margin: '0 auto' }}>
-                {selectedDataset ? (
-                  <div style={{ marginBottom: 16 }}>
-                    <AnalysisConfigurator
-                      summary={selectedDataset}
-                      onSubmit={handleConfiguredRun}
-                      disabled={isArchived || directRunRunning}
-                    />
-                  </div>
-                ) : null}
-                {directRunRunning ? (
-                  <Alert type="info" showIcon message="正在运行后端统计引擎" style={{ marginBottom: 12 }} />
-                ) : null}
-                {directRunError ? (
-                  <Alert type="error" showIcon message="运行失败" description={directRunError} style={{ marginBottom: 12 }} />
-                ) : null}
-                <ReportViewer messages={reportMessages} selectedDataset={selectedDataset ?? lastProfiledDataset} />
-                {isCompact ? (
-                  <div
-                    style={{
-                      marginTop: 16,
-                      minHeight: 260,
-                      border: BORDER,
-                      borderRadius: 8,
-                      padding: 12,
-                      background: PANEL_BG,
-                    }}
-                  >
-                    <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* 上下拖拽分隔条 */}
-            <div
-              role="separator"
-              aria-label="调整报告与助手区域比例"
-              onMouseDown={startVDrag}
-              style={{
-                height: 6,
-                cursor: 'row-resize',
-                background: '#eceae3',
-                borderTop: BORDER,
-                borderBottom: BORDER,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <div style={{ width: 36, height: 3, borderRadius: 2, background: '#c2cad3' }} />
-            </div>
-
-            <div style={{ flexGrow: 1 - reportFlex, flexShrink: 1, flexBasis: 0, minHeight: 0, background: PANEL_BG, padding: 12, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 12, color: '#6a7a8c', marginBottom: 8, fontWeight: 600, maxWidth: contentMaxWidth, margin: '0 auto 8px', width: '100%' }}>
-                AI 助手 · Stats 分析顾问
-              </div>
-              <div style={{ flex: 1, minHeight: 0, maxWidth: contentMaxWidth, margin: '0 auto', width: '100%' }}>
+          <Layout className="pro-codex-body">
+            <Content className="pro-thread-content">
+              <main className="pro-thread-conversation" aria-label="研究对话">
                 <AssistantPanel
                   sessionId={sessionId}
                   chat={chat}
+                  messages={workspaceMessages}
                   isArchived={isArchived}
                   onSend={onSend}
                   onChoiceSubmit={onChoiceSubmit}
@@ -406,21 +452,19 @@ export function ProModeView({
                   onOpenDatasetPicker={() => setUploaderOpen(true)}
                   onOpenSettings={onOpenSettings}
                   onOpenVoiceInput={() => setVoiceDrawerOpen(true)}
+                  onOpenResult={handleOpenResult}
                 />
-              </div>
-            </div>
-          </div>
-        </Content>
-
-        {/* 右侧代码面板 */}
-        {!isCompact ? (
-          <Sider width={codeWidth} theme="light" style={{ background: PANEL_BG, borderLeft: BORDER, overflowY: 'auto', padding: 12 }}>
-            <CodePanel sessionId={sessionId} analysis={analysis} disabled={isArchived} />
-          </Sider>
-        ) : null}
+              </main>
+            </Content>
+            {!isNarrow && workspaceOpen ? (
+              <Sider className="pro-workspace-sider" width={workspaceWidth} theme="light">
+                {workspace}
+              </Sider>
+            ) : null}
+          </Layout>
+        </Layout>
       </Layout>
 
-      {/* 上传数据集抽屉 */}
       <Drawer title="上传数据集" placement="left" width={420} open={uploaderOpen} onClose={() => setUploaderOpen(false)}>
         <DatasetUploader
           sessionId={sessionId}
@@ -448,6 +492,33 @@ export function ProModeView({
           />
         </div>
       </Drawer>
+
+      <Drawer
+        placement="right"
+        width="min(100vw, 560px)"
+        open={isNarrow && workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        closable={false}
+        styles={{ body: { padding: 0 } }}
+      >
+        {workspace}
+      </Drawer>
+
+      {pendingRun ? (
+        <AnalysisPreflightModal
+          open
+          dataset={datasets.find((dataset) => dataset.dataset_id === pendingRun.request.dataset_id) ?? selectedDataset!}
+          request={pendingRun.request}
+          promptText={pendingRun.promptText}
+          confirming={directRunRunning}
+          onCancel={() => setPendingRun(null)}
+          onConfirm={() => {
+            const confirmed = pendingRun;
+            setPendingRun(null);
+            void executeConfiguredRun(confirmed.request, confirmed.promptText);
+          }}
+        />
+      ) : null}
     </Layout>
   );
 }

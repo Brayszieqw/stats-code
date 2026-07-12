@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import * as fc from 'fast-check';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +113,16 @@ describe('AppShell unit (Requirements 1.3, 2.7)', () => {
     mocks.llm.configured = false;
     render(<AppShell />);
     expect(screen.getByTestId('onboarding-card-overlay')).toBeInTheDocument();
+  });
+
+  it('dismisses onboarding into Pro mode while keeping the local engine available', () => {
+    mocks.llm.configured = false;
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByRole('button', { name: '暂不配置，进入专业模式' }));
+
+    expect(mocks.modeState.setMode).toHaveBeenCalledWith('pro');
+    expect(screen.queryByTestId('onboarding-card-overlay')).not.toBeInTheDocument();
   });
 
   it('syncs initialMessages into the chat via setMessages on mount (R9.1)', () => {

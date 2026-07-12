@@ -22,7 +22,7 @@ import type { DatasetSummary } from '../../api/types';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-const PRIMARY = '#38618c';
+const PRIMARY = '#244f73';
 
 export interface WelcomeHeroProps {
   onSend: (text: string) => void;
@@ -74,28 +74,29 @@ export function WelcomeHero({
   const resolvedModelLabel = modelLabel?.trim() || 'DeepSeek';
 
   return (
-    <div style={{ width: '100%', maxWidth: 720, margin: '0 auto' }} className="hero-stagger">
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+    <div style={{ width: '100%', maxWidth: 760, margin: '0 auto' }} className="hero-stagger welcome-hero">
+      <div className="welcome-copy" style={{ textAlign: 'left', marginBottom: 34 }}>
+        <span className="welcome-kicker">Local research workspace</span>
         <Title
           level={2}
-          className="serif-display"
-          style={{ color: '#1f2b38', marginBottom: 10, fontSize: 34, letterSpacing: '0.01em' }}
+          className="serif-display welcome-title"
+          style={{ color: '#172c42', marginBottom: 12, fontSize: 50, letterSpacing: '-0.035em' }}
         >
-          开始你的统计分析<span style={{ color: '#c0392b' }}>。</span>
+          开始你的统计分析
         </Title>
-        <Text type="secondary" style={{ fontSize: 14 }}>
-          用自然语言描述研究问题，Stats 会引导你完成分析
+        <Text type="secondary" className="welcome-subtitle" style={{ fontSize: 15 }}>
+          用自然语言描述研究问题，Stats Code 会把数据、方法与结论整理成可复现的分析手稿。
         </Text>
       </div>
 
       <div
         className="hero-input-shell"
         style={{
-          border: '1px solid #e3e1d8',
-          borderRadius: 18,
-          background: '#fff',
-          boxShadow: '0 4px 20px rgba(56, 97, 140, 0.06)',
-          padding: '14px 16px 10px',
+          border: '1px solid #cbc3b3',
+          borderRadius: 9,
+          background: '#fffefa',
+          boxShadow: '0 18px 48px -38px rgba(23, 44, 66, 0.72)',
+          padding: '16px 18px 12px',
         }}
       >
         <TextArea
@@ -111,6 +112,7 @@ export function WelcomeHero({
         />
 
         <div
+          className="hero-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -141,8 +143,8 @@ export function WelcomeHero({
               style={{
                 color: PRIMARY,
                 borderRadius: 16,
-                background: 'rgba(56,97,140,0.08)',
-                paddingInline: 12,
+                background: 'rgba(36,79,115,0.08)',
+                paddingInline: 11,
                 maxWidth: '100%',
               }}
             >

@@ -3,6 +3,16 @@
 /web/dist/
 /web/tsconfig.tsbuildinfo
 
+# Desktop shell (Electron)
+/desktop/node_modules/
+/desktop/dist/
+/desktop/dist-electron/
+
+# Local scratch / QA noise (never ship)
+/work/
+.playwright-cli/
+/web/output/
+design-qa.md
 
 # Local runtime config/state
 /config/agent.yaml
@@ -45,3 +55,5 @@ codex_tmp/
 /tables/
 stats-code-artifacts/
 /scratch-artifacts/
+# Built demo/release binaries stay local unless explicitly released
+/ts-backend/build/

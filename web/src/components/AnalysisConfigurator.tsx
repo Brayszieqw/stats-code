@@ -143,7 +143,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
 
   return (
     <Card
-      className="glass-panel"
+      className="glass-panel analysis-configurator-card"
       title={
         <Title level={5} style={{ margin: 0, color: '#2b3a4a' }}>
           <SettingOutlined style={{ marginRight: '6px', color: '#38618c' }} />
@@ -207,7 +207,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                 >
                   <Select
                     placeholder="请选择分组变量 (如 Group, Sex等)"
-                    options={categoricalColumns}
+                    options={allColumns}
                     allowClear
                     showSearch
                   />
@@ -257,7 +257,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                 >
                   <Select
                     placeholder="请选择分类自变量 (两组，如 Gender: 0/1 或 Arm: A/B)"
-                    options={categoricalColumns}
+                    options={allColumns}
                     showSearch
                   />
                 </Form.Item>
@@ -323,7 +323,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                 >
                   <Select
                     placeholder="请选择分组比较变量 (如 Group, Stage等)"
-                    options={categoricalColumns}
+                    options={allColumns}
                     allowClear
                     showSearch
                   />
@@ -400,6 +400,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
 
         <Form.Item style={{ marginBottom: 0, marginTop: '12px' }}>
           <Button
+            className="analysis-configurator-submit"
             type="primary"
             htmlType="submit"
             icon={<PlayCircleOutlined />}
@@ -407,10 +408,10 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
             block
             style={{
               height: '42px',
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #38618c 0%, #2b4b6e 100%)',
+              borderRadius: '7px',
+              background: '#244f73',
               border: 'none',
-              boxShadow: '0 4px 12px rgba(56, 97, 140, 0.25)',
+              boxShadow: '0 10px 24px -16px rgba(23, 59, 90, 0.9)',
             }}
           >
             开始统计计算

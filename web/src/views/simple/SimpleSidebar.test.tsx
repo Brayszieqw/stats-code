@@ -125,4 +125,12 @@ describe('SimpleSidebar (Requirements 2.1, 2.2, 9.6)', () => {
     fireEvent.click(screen.getByText('线性回归'));
     expect(onUseTemplate).toHaveBeenCalledWith(expect.stringContaining('线性关系'));
   });
+
+  it('opens the product capability boundary from the persistent footer', () => {
+    render(<SimpleSidebar sessionList={makeList()} onNewSession={() => {}} onSelectSession={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '关于与能力边界' }));
+    expect(screen.getByRole('article', { name: '能力边界' })).toBeInTheDocument();
+    expect(screen.getByText(/当前不支持：PSM/)).toBeInTheDocument();
+  });
 });

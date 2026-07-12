@@ -117,6 +117,8 @@ export interface EquivalentCodeSidecarProps {
   releaseVersion: string;
   /** Notify parent when the active-tab snippet text changes (for external copy). */
   onSnippetTextChange?: (text: string | undefined) => void;
+  /** Inspector surfaces can own the single visible copy action. */
+  showCopy?: boolean;
 }
 
 /**
@@ -142,6 +144,7 @@ export function EquivalentCodeSidecar({
   params,
   releaseVersion,
   onSnippetTextChange,
+  showCopy = true,
 }: EquivalentCodeSidecarProps): ReactElement {
   // R is the default active tab on first render (Requirement 1.2 / 6.3).
   const [activeTab, setActiveTab] = useState<ReferenceSoftware>('R');
@@ -303,10 +306,12 @@ export function EquivalentCodeSidecar({
           </>
         )}
 
-        <CopyToClipboard
-          text={snippetText}
-          disabled={cellState === 'none'}
-        />
+        {showCopy ? (
+          <CopyToClipboard
+            text={snippetText}
+            disabled={cellState === 'none'}
+          />
+        ) : null}
       </div>
 
       <SidecarFooter

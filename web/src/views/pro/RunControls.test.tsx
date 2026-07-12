@@ -44,10 +44,13 @@ describe('RunControls (Requirements 7.4, 12.7)', () => {
   });
 
   it('runs and shows the success state (R12.7)', async () => {
-    stubFetch(async () => okResponse({ schema_version: '1.0', payload: {}, risk_signals: [] }));
-    render(<RunControls sessionId="s1" analysis={analysis} />);
+    const result = { schema_version: '1.0', payload: {}, risk_signals: [] };
+    const onRunComplete = vi.fn();
+    stubFetch(async () => okResponse(result));
+    render(<RunControls sessionId="s1" analysis={analysis} onRunComplete={onRunComplete} />);
     fireEvent.click(screen.getByLabelText('运行'));
     await waitFor(() => expect(screen.getByText('运行完成')).toBeInTheDocument());
+    expect(onRunComplete).toHaveBeenCalledWith(result);
   });
 
   it('shows the error code/message on failure (R12.7)', async () => {
@@ -56,5 +59,21 @@ describe('RunControls (Requirements 7.4, 12.7)', () => {
     fireEvent.click(screen.getByLabelText('运行'));
     await waitFor(() => expect(screen.getByText('SkillInvalidArgs')).toBeInTheDocument());
     expect(screen.getByText('缺少参数')).toBeInTheDocument();
+  });
+
+  it('hands a completed backend run to the workspace even if the code tab unmounts', async () => {
+    let resolveFetch!: (response: Response) => void;
+    const result = { schema_version: '1.0', payload: {}, risk_signals: [] };
+    stubFetch(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    const onRunComplete = vi.fn();
+    const { unmount } = render(
+      <RunControls sessionId="s1" analysis={analysis} onRunComplete={onRunComplete} />,
+    );
+
+    fireEvent.click(screen.getByLabelText('运行'));
+    unmount();
+    resolveFetch(okResponse(result));
+
+    await waitFor(() => expect(onRunComplete).toHaveBeenCalledWith(result));
   });
 });

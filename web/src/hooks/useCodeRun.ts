@@ -18,7 +18,7 @@ export type RunState =
 
 export interface UseCodeRunReturn {
   state: RunState;
-  run: (sessionId: string, body: RunRequest) => Promise<void>;
+  run: (sessionId: string, body: RunRequest) => Promise<SkillResult | null>;
   reset: () => void;
   stop: () => void;
 }
@@ -38,15 +38,17 @@ export function useCodeRun(): UseCodeRunReturn {
     try {
       const result = await runSkill(sessionId, body, controller.signal);
       // Ignore the result if this run was superseded/aborted.
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return null;
       setState({ status: 'success', result });
+      return result;
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return null;
       if (err instanceof ApiError) {
         setState({ status: 'error', message: err.payload.message, code: err.payload.error_code });
       } else {
         setState({ status: 'error', message: err instanceof Error ? err.message : '运行失败' });
       }
+      return null;
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;

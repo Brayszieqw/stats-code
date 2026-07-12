@@ -14,6 +14,7 @@ import {
   AreaChartOutlined,
   BulbOutlined,
   CheckCircleOutlined,
+  CodeOutlined,
   FileTextOutlined,
   RobotOutlined,
   UserOutlined,
@@ -28,6 +29,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { shouldMountAnalysisResultView } from '../lib/analysisResultMount';
 import { AnalysisResultView } from './AnalysisResultView';
 import { useCoverageMatrix } from '../lib/coverageMatrixContext';
+import { ANALYSIS_TRUST_STATEMENT } from '../lib/analysisPreflight';
 
 const { Text, Paragraph } = Typography;
 
@@ -41,7 +43,7 @@ export interface MessageListProps {
   disabled?: boolean;
   /** Pro workspace keeps full tables/charts in the artifact pane. */
   resultPresentation?: 'inline' | 'reference';
-  onOpenResult?: (view: 'report' | 'chart') => void;
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }
 
 function hasVisibleMessageContent(message: ChatMessage): boolean {
@@ -198,7 +200,7 @@ function AnalysisResultReference({
   onOpenResult,
 }: {
   result: SkillResult;
-  onOpenResult?: (view: 'report' | 'chart') => void;
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }) {
   const analysis = result.analysis;
   const algorithmLabel = analysis?.algorithm_id
@@ -223,7 +225,7 @@ function AnalysisResultReference({
         </Tag>
       </div>
       <Text className="analysis-result-reference__summary" type="secondary">
-        报告、统计图与数据依据已放入右侧分析工件；对话中保留这条可追溯引用。
+        {ANALYSIS_TRUST_STATEMENT}
       </Text>
       <div className="analysis-result-reference__actions">
         <Button
@@ -241,6 +243,14 @@ function AnalysisResultReference({
           onClick={() => onOpenResult?.('chart')}
         >
           查看图表
+        </Button>
+        <Button
+          size="small"
+          icon={<CodeOutlined />}
+          aria-label="查看代码"
+          onClick={() => onOpenResult?.('code')}
+        >
+          查看代码
         </Button>
       </div>
     </section>
@@ -396,7 +406,7 @@ function MessageBubble({
   onChoiceSubmit?: (answer: ChoiceAnswer) => void;
   disabled?: boolean;
   resultPresentation: 'inline' | 'reference';
-  onOpenResult?: (view: 'report' | 'chart') => void;
+  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
 }) {
   const { token } = antdTheme.useToken();
   const isUser = message.role === 'user';

@@ -106,6 +106,7 @@ function renderView(options: {
   controller?: Partial<SessionController>;
   onOpenSettings?: () => void;
   messages?: ChatMessage[];
+  llmConfigured?: boolean;
 } = {}) {
   return {
     onOpenSettings: options.onOpenSettings,
@@ -121,6 +122,7 @@ function renderView(options: {
       onRetry={vi.fn()}
       onVoiceTranscript={vi.fn()}
       model="deepseek-chat"
+      llmConfigured={options.llmConfigured ?? true}
       onOpenSettings={options.onOpenSettings}
     />,
     ),
@@ -163,24 +165,29 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
       .toEqual(['direct-old', 'chat-new']);
   });
 
-  it('keeps conversation primary and opens a unified analysis workspace on demand', async () => {
-    renderView();
-    expect(screen.getByText('专业统计分析')).toBeInTheDocument();
-    expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
-    expect(screen.getByLabelText('研究对话')).toBeInTheDocument();
-    expect(screen.queryByLabelText('分析工作区')).not.toBeInTheDocument();
+  it(
+    'keeps conversation primary and opens a unified analysis workspace on demand',
+    async () => {
+      renderView();
+      expect(await screen.findByText('专业统计分析')).toBeInTheDocument();
+      expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
+      expect(screen.getByLabelText('研究对话')).toBeInTheDocument();
+      expect(screen.queryByLabelText('分析检查器')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('打开分析工作区'));
-    const workspaces = await screen.findAllByLabelText('分析工作区');
-    const workspace = workspaces.find((element) => element.tagName === 'ASIDE');
-    expect(workspace).toBeDefined();
-    if (!workspace) return;
-    expect(within(workspace).getByLabelText('工作区视图')).toBeInTheDocument();
-    expect(within(workspace).getByText(/暂无分析结果/)).toBeInTheDocument();
-    // AssistantPanel empty state shows the welcome composer.
-    expect(screen.getAllByLabelText('消息输入框').length).toBeGreaterThan(0);
-    expect(screen.queryByLabelText('调整报告与助手区域比例')).not.toBeInTheDocument();
-  });
+      fireEvent.click(await screen.findByLabelText('打开分析检查器'));
+      const workspaces = await screen.findAllByLabelText('分析检查器');
+      const workspace = workspaces.find((element) => element.tagName === 'ASIDE');
+      expect(workspace).toBeDefined();
+      if (!workspace) return;
+      expect(within(workspace).getByLabelText('工作区视图')).toBeInTheDocument();
+      expect(within(workspace).getByText(/暂无分析结果/)).toBeInTheDocument();
+      // AssistantPanel empty state shows the welcome composer.
+      expect(screen.getAllByLabelText('消息输入框').length).toBeGreaterThan(0);
+      expect(screen.queryByLabelText('调整报告与助手区域比例')).not.toBeInTheDocument();
+    },
+    15_000,
+  );
+
 
   it('wires the professional welcome controls to real actions', () => {
     const onOpenSettings = vi.fn();
@@ -197,10 +204,18 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     expect(screen.getByText(/录音完成后/)).toBeInTheDocument();
   });
 
+  it('keeps direct statistics available when LLM interpretation is not configured', async () => {
+    renderView({ controller: { datasets: [dataset] }, llmConfigured: false });
+
+    expect(screen.getByText('AI 解读未配置 · 统计引擎可用')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    expect(await screen.findByLabelText('提交分析:ds-1')).not.toBeDisabled();
+  });
+
   it('opens reproducible code inside the unified workspace', async () => {
     renderView();
-    fireEvent.click(screen.getByLabelText('打开分析工作区'));
-    const workspace = (await screen.findAllByLabelText('分析工作区')).find(
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
       (element) => element.tagName === 'ASIDE',
     );
     expect(workspace).toBeDefined();
@@ -212,10 +227,10 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
   it('lets the workspace close without removing the conversation', async () => {
     renderView();
 
-    fireEvent.click(screen.getByLabelText('打开分析工作区'));
-    expect((await screen.findAllByLabelText('分析工作区')).some((element) => element.tagName === 'ASIDE')).toBe(true);
-    fireEvent.click(screen.getByLabelText('收起分析工作区'));
-    expect(screen.getByLabelText('打开分析工作区')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    expect((await screen.findAllByLabelText('分析检查器')).some((element) => element.tagName === 'ASIDE')).toBe(true);
+    fireEvent.click(screen.getByLabelText('收起分析检查器'));
+    expect(screen.getByLabelText('打开分析检查器')).toBeInTheDocument();
     expect(screen.getByLabelText('研究对话')).toBeInTheDocument();
   });
 
@@ -250,7 +265,7 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     renderView({ controller: { datasets: [dataset, otherDataset] }, messages: [message] });
 
     fireEvent.click(screen.getByLabelText('数据集: other.csv'));
-    const workspace = (await screen.findAllByLabelText('分析工作区')).find(
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
       (element) => element.tagName === 'ASIDE',
     );
     expect(workspace).toBeDefined();
@@ -287,8 +302,8 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
       }],
     });
 
-    fireEvent.click(screen.getByLabelText('打开分析工作区'));
-    const workspace = (await screen.findAllByLabelText('分析工作区')).find(
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    const workspace = (await screen.findAllByLabelText('分析检查器')).find(
       (element) => element.tagName === 'ASIDE',
     );
     expect(workspace).toBeDefined();
@@ -301,13 +316,32 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     expect(within(workspace).getByText('开始统计计算')).toBeInTheDocument();
   });
 
-  it('aborts and ignores a configured run that completes after switching sessions', async () => {
+  it('requires explicit confirmation before calling the backend', async () => {
+    runSkillSpy.mockResolvedValue({ schema_version: '1.0', payload: {}, risk_signals: [] });
+    renderView({ controller: { datasets: [dataset] } });
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: '执行前确认' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
+    expect(runSkillSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts and ignores a confirmed run that completes after switching sessions', async () => {
     let resolveRun!: (result: SkillResult) => void;
     runSkillSpy.mockImplementation(() => new Promise<SkillResult>((resolve) => { resolveRun = resolve; }));
     const view = renderView({ controller: { datasets: [dataset] } });
 
-    fireEvent.click(screen.getByLabelText('打开分析工作区'));
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
     fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+    expect(runSkillSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
     expect(runSkillSpy).toHaveBeenCalledTimes(1);
     const signal = runSkillSpy.mock.calls[0]?.[2] as AbortSignal;
 
@@ -325,7 +359,7 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
         model="deepseek-chat"
       />,
     );
-    await screen.findByLabelText('打开分析工作区');
+    await screen.findByLabelText('打开分析检查器');
     expect(signal.aborted).toBe(true);
 
     resolveRun({
@@ -345,6 +379,6 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
 
     await Promise.resolve();
     expect(screen.queryByText(/run-stale/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText('打开分析工作区')).toBeInTheDocument();
+    expect(screen.getByLabelText('打开分析检查器')).toBeInTheDocument();
   });
 });

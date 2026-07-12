@@ -70,7 +70,7 @@ export function AnalysisWorkspace({
   const openConfiguration = () => setConfigOpen(true);
 
   return (
-    <aside className="pro-workspace-panel" aria-label="分析工作区">
+    <aside className="pro-workspace-panel" aria-label="分析检查器">
       <header className="pro-workspace-panel__header">
         <div className="pro-workspace-panel__title">
           <span className="pro-workspace-panel__eyebrow">Workspace</span>
@@ -83,7 +83,7 @@ export function AnalysisWorkspace({
           type="text"
           size="small"
           icon={<CloseOutlined />}
-          aria-label="关闭分析工作区"
+          aria-label="关闭分析检查器"
           onClick={onClose}
         />
       </header>

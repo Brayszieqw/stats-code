@@ -125,4 +125,44 @@ describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
     expect(screen.getByLabelText('助手消息输入框')).toBeDisabled();
     expect(screen.getByLabelText('发送')).toBeDisabled();
   });
+
+  it('keeps analysis output as a reference to the artifact pane', () => {
+    const onOpenResult = vi.fn();
+    const resultMessage: ChatMessage = {
+      id: 'analysis-1',
+      role: 'agent',
+      content: '分析完成',
+      timestamp: new Date(),
+      skillResult: {
+        schema_version: '1.0',
+        payload: {},
+        risk_signals: [],
+        analysis: {
+          algorithm_id: 'model_linear',
+          dataset_id: 'ds-1',
+          dataset_sha256: null,
+          columns: [],
+          params: {},
+          run_id: 'run-1',
+          run_status: 'completed',
+        },
+      },
+    };
+    render(
+      <AssistantPanel
+        sessionId="s1"
+        chat={makeChat({ messages: [resultMessage] })}
+        isArchived={false}
+        onSend={() => {}}
+        onChoiceSubmit={() => {}}
+        onRetry={() => {}}
+        onVoiceTranscript={() => {}}
+        onOpenResult={onOpenResult}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('查看图表'));
+    expect(onOpenResult).toHaveBeenCalledWith('chart');
+    expect(screen.queryByTestId('analysis-result-view')).not.toBeInTheDocument();
+  });
 });

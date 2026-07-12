@@ -23,8 +23,10 @@ import {
   ApartmentOutlined,
   ReloadOutlined,
   DeleteOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { DecisionAssistantToggle } from '../../components/DecisionAssistantToggle';
+import { CapabilityStatement } from '../../components/CapabilityStatement';
 import type { UseSessionListReturn } from '../../hooks/useSessionList';
 
 const { Text } = Typography;
@@ -127,6 +129,7 @@ export function SimpleSidebar({
   const deletingSessionIdsRef = useRef(new Set<string>());
   const [deletingSessionIds, setDeletingSessionIds] = useState<Set<string>>(() => new Set());
   const [purging, setPurging] = useState(false);
+  const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
 
   const filteredSessions = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -168,35 +171,18 @@ export function SimpleSidebar({
 
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="stats-sidebar__inner">
       {/* 品牌 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 14px 10px' }}>
-        <span
-          aria-hidden
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 7,
-            background: 'linear-gradient(135deg, #38618c, #2c4e73)',
-            color: '#fff',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-serif)',
-            fontWeight: 700,
-            fontSize: 14,
-            boxShadow: '0 2px 6px rgba(44, 78, 115, 0.28)',
-          }}
-        >
-          σ
-        </span>
-        <Text strong className="brand-wordmark" style={{ fontSize: 16 }}>
-          Stats 智能分析<span className="brand-dot">.</span>
-        </Text>
+      <div className="stats-brand">
+        <div className="stats-brand__wordmark">
+          <span className="stats-brand__name">Stats Code</span>
+          <span className="stats-brand__caption">Evidence Workspace</span>
+        </div>
+        <span className="stats-brand__edition">LOCAL</span>
       </div>
 
       {/* 顶部入口 */}
-      <div style={{ padding: '4px 8px' }}>
+      <div className="stats-nav" style={{ padding: '4px 8px' }}>
         {NAV_ITEMS.map((it) => (
           <NavRow
             key={it.key}
@@ -209,11 +195,11 @@ export function SimpleSidebar({
       </div>
 
       {/* 历史区 */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
+      <div className="stats-sidebar__history" style={{ padding: '8px' }} aria-label="历史会话列表">
+        <div className="stats-sidebar__section-label" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
           <FolderOpenOutlined /> 默认项目
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
+        <div className="stats-sidebar__section-label" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
           <HistoryOutlined /> 历史会话
         </div>
 
@@ -232,6 +218,7 @@ export function SimpleSidebar({
             return (
               <div
                 key={s.id}
+                className="history-session-row"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -253,8 +240,8 @@ export function SimpleSidebar({
                     minWidth: 0,
                     padding: '8px 8px 8px 12px',
                     border: 'none',
-                    background: active ? 'rgba(56,97,140,0.12)' : 'transparent',
-                    borderRadius: 8,
+                    background: active ? 'rgba(36,79,115,0.10)' : 'transparent',
+                    borderRadius: 6,
                     cursor: 'pointer',
                     color: '#3a4654',
                     fontSize: 13,
@@ -270,6 +257,7 @@ export function SimpleSidebar({
                 </button>
                 {onDeleteSession ? (
                   <Button
+                    className="history-session-delete"
                     type="text"
                     danger
                     size="small"
@@ -287,26 +275,46 @@ export function SimpleSidebar({
         )}
       </div>
 
-      {/* Always-visible 辅助决策 — not buried only inside 自动化 drawer */}
-      {typeof decisionAssistant === 'boolean' && onDecisionAssistantChange ? (
-        <div
-          style={{
-            padding: '10px 12px 14px',
-            borderTop: '1px solid #e8e6df',
-            background: '#f7f6f3',
-          }}
+      <div className="stats-sidebar__footer">
+        <Button
+          type="text"
+          block
+          icon={<InfoCircleOutlined />}
+          aria-label="关于与能力边界"
+          onClick={() => setCapabilitiesOpen(true)}
+          className="capability-entry"
         >
-          <DecisionAssistantToggle
-            value={decisionAssistant}
-            onChange={onDecisionAssistantChange}
-            sessionId={sessionId}
-            disabled={isArchived}
-          />
+          关于与能力边界
+        </Button>
+        <div className="privacy-status" role="status">
+          <span className="privacy-status__dot" aria-hidden />
+          数据仅在本机处理
         </div>
-      ) : null}
+        {/* Always-visible 辅助决策 — not buried only inside 自动化 drawer */}
+        {typeof decisionAssistant === 'boolean' && onDecisionAssistantChange ? (
+          <div style={{ padding: '6px 12px 14px' }}>
+            <DecisionAssistantToggle
+              value={decisionAssistant}
+              onChange={onDecisionAssistantChange}
+              sessionId={sessionId}
+              disabled={isArchived}
+            />
+          </div>
+        ) : null}
+      </div>
       </div>
 
       {/* mask=false so the left nav stays clickable when switching panels */}
+      <Drawer
+        title="关于与能力边界"
+        placement="left"
+        width={440}
+        open={capabilitiesOpen}
+        onClose={() => setCapabilitiesOpen(false)}
+      >
+        <CapabilityStatement />
+      </Drawer>
+
       <Drawer
         title="搜索历史会话"
         placement="left"

@@ -280,6 +280,9 @@ describe('HTTP contract routes', () => {
         if (routePath === '/assets/app.js') {
           return { bytes: enc('console.log(1)'), contentType: 'text/javascript; charset=utf-8' };
         }
+        if (routePath === '/demo_cohort.csv') {
+          return { bytes: enc('age,group\n42,A\n'), contentType: 'text/csv; charset=utf-8' };
+        }
         return undefined;
       },
       indexHtml() {
@@ -304,6 +307,15 @@ describe('HTTP contract routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toContain('text/javascript');
       expect(res.body).toBe('console.log(1)');
+      await app.close();
+    });
+
+    it('serves an embedded root-level public asset instead of the SPA shell', async () => {
+      const app = spaApp();
+      const res = await app.inject({ method: 'GET', url: '/demo_cohort.csv' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.body).toBe('age,group\n42,A\n');
       await app.close();
     });
 

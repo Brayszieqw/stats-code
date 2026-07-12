@@ -66,7 +66,7 @@ describe('useCodeRun state machine (Requirements 7.4, 12.7)', () => {
     let resolveFetch: ((r: Response) => void) | null = null;
     stubFetch(() => new Promise<Response>((res) => { resolveFetch = res; }));
     const { result: r } = renderHook(() => useCodeRun());
-    let pending: Promise<void> | null = null;
+    let pending: Promise<unknown> | null = null;
     act(() => {
       pending = r.current.run('sid', RUN_BODY);
     });

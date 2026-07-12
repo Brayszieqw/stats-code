@@ -94,6 +94,8 @@ function formatLevel(level: { count: number; percent: number } | undefined): str
 /** Engine tableone payload: { strata, continuous, categorical, groups[] } */
 function renderGroupsTableOne(payload: {
   strata?: string | null;
+  continuous?: string[];
+  categorical?: string[];
   groups: TableOneGroup[];
 }) {
   const groups = payload.groups;
@@ -102,14 +104,10 @@ function renderGroupsTableOne(payload: {
   const first = groups[0]!;
   const continuousNames =
     first.continuous?.map((c) => c.variable) ??
-    (Array.isArray((payload as { continuous?: string[] }).continuous)
-      ? ((payload as { continuous: string[] }).continuous)
-      : []);
+    (Array.isArray(payload.continuous) ? payload.continuous : []);
   const categoricalNames =
     first.categorical?.map((c) => c.variable) ??
-    (Array.isArray((payload as { categorical?: string[] }).categorical)
-      ? ((payload as { categorical: string[] }).categorical)
-      : []);
+    (Array.isArray(payload.categorical) ? payload.categorical : []);
 
   const findContinuous = (group: TableOneGroup, variable: string) =>
     group.continuous?.find((c) => c.variable === variable);
@@ -210,7 +208,12 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
         typeof first === 'object' &&
         (Array.isArray(first.continuous) || Array.isArray(first.categorical))
       ) {
-        const rendered = renderGroupsTableOne(payload as { strata?: string | null; groups: TableOneGroup[] });
+        const rendered = renderGroupsTableOne(payload as {
+          strata?: string | null;
+          continuous?: string[];
+          categorical?: string[];
+          groups: TableOneGroup[];
+        });
         if (rendered) return rendered;
       }
     }

@@ -8,10 +8,25 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createSession, getSession } from '../api/client';
+import {
+  approveAnalysisPlan as requestAnalysisPlanApproval,
+  auditDataset as requestDatasetAudit,
+  createSession,
+  getSession,
+  patchResearchProtocol,
+} from '../api/client';
 import { mapSessionMessages } from '../lib/sessionMessages';
 import type { ChatMessage } from './useSseChat';
-import type { DatasetSummary, Session } from '../api/types';
+import type {
+  AnalysisPlanApproval,
+  AnalysisPlanApprovalRequest,
+  DatasetAudit,
+  DatasetAuditRequest,
+  DatasetSummary,
+  ResearchProtocol,
+  ResearchProtocolInput,
+  Session,
+} from '../api/types';
 
 export interface SessionController {
   sessionId: string;
@@ -20,8 +35,14 @@ export interface SessionController {
   isArchived: boolean;
   datasets: DatasetSummary[];
   decisionAssistant: boolean;
+  researchProtocol: ResearchProtocol | null;
+  datasetAudits: DatasetAudit[];
+  analysisPlanApprovals: AnalysisPlanApproval[];
   setDecisionAssistant: (v: boolean) => void;
   addDataset: (s: DatasetSummary) => void;
+  saveResearchProtocol: (input: ResearchProtocolInput) => Promise<ResearchProtocol>;
+  auditDataset: (datasetId: string, input: DatasetAuditRequest) => Promise<DatasetAudit>;
+  approveAnalysisPlan: (input: AnalysisPlanApprovalRequest) => Promise<AnalysisPlanApproval>;
   /** Messages mapped from the loaded session; the shell syncs them into useSseChat. */
   initialMessages: ChatMessage[];
   startNewSession: () => Promise<void>;
@@ -36,6 +57,17 @@ function readUrlSessionId(): string | null {
   }
 }
 
+function writeUrlSessionId(sessionId: string): void {
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('session_id') === sessionId) return;
+    url.searchParams.set('session_id', sessionId);
+    window.history.replaceState(window.history.state, '', url);
+  } catch {
+    // Embedded shells may not expose a mutable History API; session state still works in memory.
+  }
+}
+
 export function useSessionController(): SessionController {
   const [sessionId, setSessionId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -43,11 +75,18 @@ export function useSessionController(): SessionController {
   const [isArchived, setIsArchived] = useState(false);
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [decisionAssistant, setDecisionAssistant] = useState(true);
+  const [researchProtocol, setResearchProtocol] = useState<ResearchProtocol | null>(null);
+  const [datasetAudits, setDatasetAudits] = useState<DatasetAudit[]>([]);
+  const [analysisPlanApprovals, setAnalysisPlanApprovals] = useState<AnalysisPlanApproval[]>([]);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
 
   const applySession = useCallback((session: Session) => {
+    writeUrlSessionId(session.id);
     setSessionId(session.id);
     setDecisionAssistant(session.settings.decision_assistant);
+    setResearchProtocol(session.research_protocol ?? null);
+    setDatasetAudits(session.dataset_audits ?? []);
+    setAnalysisPlanApprovals(session.analysis_plan_approvals ?? []);
     setDatasets(session.datasets ?? []);
     setIsArchived(session.status === 'Archived');
     setInitialMessages(mapSessionMessages(session.messages ?? []));
@@ -56,6 +95,8 @@ export function useSessionController(): SessionController {
   // 请求序号：快速连点切换会话时，只允许最后一次请求落地，
   // 防止慢响应覆盖新会话状态。
   const requestSeqRef = useRef(0);
+  const activeSessionIdRef = useRef('');
+  activeSessionIdRef.current = sessionId;
 
   const loadSession = useCallback(
     async (sid: string) => {
@@ -82,6 +123,7 @@ export function useSessionController(): SessionController {
       sessionId &&
       datasets.length === 0 &&
       initialMessages.length === 0 &&
+      !researchProtocol &&
       !isArchived
     ) {
       setError(null);
@@ -101,11 +143,48 @@ export function useSessionController(): SessionController {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [applySession, sessionId, datasets.length, initialMessages.length, isArchived]);
+  }, [applySession, sessionId, datasets.length, initialMessages.length, researchProtocol, isArchived]);
 
   const addDataset = useCallback((s: DatasetSummary) => {
     setDatasets((prev) => (prev.some((d) => d.dataset_id === s.dataset_id) ? prev : [...prev, s]));
   }, []);
+
+  const saveResearchProtocol = useCallback(async (input: ResearchProtocolInput) => {
+    if (!sessionId) throw new Error('会话尚未就绪');
+    const targetSessionId = sessionId;
+    const session = await patchResearchProtocol(targetSessionId, {
+      ...input,
+      ...(researchProtocol ? { expected_version: researchProtocol.version } : {}),
+    });
+    const saved = session.research_protocol;
+    if (!saved) throw new Error('后端未返回研究协议');
+    if (activeSessionIdRef.current === targetSessionId) setResearchProtocol(saved);
+    return saved;
+  }, [researchProtocol, sessionId]);
+
+  const auditDataset = useCallback(async (datasetId: string, input: DatasetAuditRequest) => {
+    if (!sessionId) throw new Error('会话尚未就绪');
+    const targetSessionId = sessionId;
+    const audit = await requestDatasetAudit(targetSessionId, datasetId, input);
+    if (activeSessionIdRef.current === targetSessionId) {
+      setDatasetAudits((current) => current.some((item) => item.audit_id === audit.audit_id)
+        ? current
+        : [...current, audit]);
+    }
+    return audit;
+  }, [sessionId]);
+
+  const approveAnalysisPlan = useCallback(async (input: AnalysisPlanApprovalRequest) => {
+    if (!sessionId) throw new Error('会话尚未就绪');
+    const targetSessionId = sessionId;
+    const approval = await requestAnalysisPlanApproval(targetSessionId, input);
+    if (activeSessionIdRef.current === targetSessionId) {
+      setAnalysisPlanApprovals((current) => current.some((item) => item.plan_id === approval.plan_id)
+        ? current
+        : [...current, approval]);
+    }
+    return approval;
+  }, [sessionId]);
 
   // Mount: load from ?session_id= or create a fresh session.
   const didInit = useRef(false);
@@ -123,8 +202,14 @@ export function useSessionController(): SessionController {
     isArchived,
     datasets,
     decisionAssistant,
+    researchProtocol,
+    datasetAudits,
+    analysisPlanApprovals,
     setDecisionAssistant,
     addDataset,
+    saveResearchProtocol,
+    auditDataset,
+    approveAnalysisPlan,
     initialMessages,
     startNewSession,
     loadSession,

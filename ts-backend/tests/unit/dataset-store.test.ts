@@ -37,8 +37,19 @@ describe('createFsDatasetStore (Requirements 6.1, 6.2, 6.7, 6.8)', () => {
     expect(summary.columns[1].inferred_type).toBe('String');
     expect(summary.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
     expect(summary.preview_rows).toEqual([
-      { age: 42, name: 'alice' },
-      { age: 37, name: 'bob' },
+      { age: 42, name: '[已脱敏]' },
+      { age: 37, name: '[已脱敏]' },
+    ]);
+  });
+
+  it('redacts identifier-shaped values even when the column name is generic', async () => {
+    const store = createFsDatasetStore({ root: freshRoot() });
+    const sid = randomUUID();
+    const bytes = enc('participant_id,notes\nP001,alice@example.com\nP002,ordinary\n');
+    const summary = await store.saveAndParse(sid, 'data.csv', bytes);
+    expect(summary.preview_rows).toEqual([
+      { participant_id: 'P001', notes: '[已脱敏]' },
+      { participant_id: 'P002', notes: 'ordinary' },
     ]);
   });
 

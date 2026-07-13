@@ -1,11 +1,8 @@
 // server/conversation/risk-signals.ts — risk signal detection.
 //
-// Mirrors crates/agent-core/src/skill/risk.rs::detect_risk_signals verbatim:
-//   - payload.p_value > 0.05            → PValueAboveAlpha
-//   - payload.vif has any value > 10.0  → VifTooHigh
-//   - payload.power < 0.8 (or achieved_power < 0.8) → LowPower
-//   - payload.cox_ph_violated == true (or ph_test.violated == true)
-//                                       → CoxPhAssumptionViolated
+// Only actionable method/diagnostic problems belong here. A p-value above an
+// arbitrary alpha is a result, not a method risk. Power is assessed only while
+// designing a study; post-hoc/observed power must not be inferred from results.
 
 import type { RiskSignal } from './skill-runner-types.js';
 
@@ -13,13 +10,15 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-export function detectRiskSignals(payload: Record<string, unknown>): RiskSignal[] {
-  const signals: RiskSignal[] = [];
+export interface DetectRiskSignalsOptions {
+  phase?: 'analysis' | 'design';
+}
 
-  const p = asNumber(payload.p_value);
-  if (p !== undefined && p > 0.05) {
-    signals.push('PValueAboveAlpha');
-  }
+export function detectRiskSignals(
+  payload: Record<string, unknown>,
+  options: DetectRiskSignalsOptions = {},
+): RiskSignal[] {
+  const signals: RiskSignal[] = [];
 
   const vif = payload.vif;
   if (vif !== null && typeof vif === 'object' && !Array.isArray(vif)) {
@@ -30,13 +29,11 @@ export function detectRiskSignals(payload: Record<string, unknown>): RiskSignal[
     if (anyHigh) signals.push('VifTooHigh');
   }
 
-  const power = asNumber(payload.power);
-  if (power !== undefined && power < 0.8) {
-    signals.push('LowPower');
-  }
-  const achieved = asNumber(payload.achieved_power);
-  if (achieved !== undefined && achieved < 0.8 && !signals.includes('LowPower')) {
-    signals.push('LowPower');
+  if (options.phase === 'design') {
+    const power = asNumber(payload.power) ?? asNumber(payload.achieved_power);
+    if (power !== undefined && power < 0.8) {
+      signals.push('LowPower');
+    }
   }
 
   if (payload.cox_ph_violated === true) {
@@ -49,6 +46,30 @@ export function detectRiskSignals(payload: Record<string, unknown>): RiskSignal[
       !signals.includes('CoxPhAssumptionViolated')
     ) {
       signals.push('CoxPhAssumptionViolated');
+    }
+  }
+
+  const modelDiagnostics = payload.model_diagnostics;
+  if (modelDiagnostics !== null && typeof modelDiagnostics === 'object' && !Array.isArray(modelDiagnostics)) {
+    const diagnostics = modelDiagnostics as Record<string, unknown>;
+    const convergence = diagnostics.convergence;
+    if (convergence !== null && typeof convergence === 'object' && !Array.isArray(convergence)) {
+      if ((convergence as Record<string, unknown>).status === 'failed') {
+        signals.push('ModelConvergenceFailed');
+      }
+    }
+    const sparseData = diagnostics.sparse_data;
+    if (sparseData !== null && typeof sparseData === 'object' && !Array.isArray(sparseData)) {
+      if ((sparseData as Record<string, unknown>).status === 'warning') {
+        signals.push('SparseData');
+      }
+    }
+    const collinearity = diagnostics.collinearity;
+    if (collinearity !== null && typeof collinearity === 'object' && !Array.isArray(collinearity)) {
+      const status = (collinearity as Record<string, unknown>).status;
+      if (status === 'warning' || status === 'failed') {
+        signals.push('CollinearityDetected');
+      }
     }
   }
 

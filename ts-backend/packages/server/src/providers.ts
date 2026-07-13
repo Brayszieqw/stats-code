@@ -6,13 +6,18 @@
 // snapshot generators wrap their bodies in guardedSpawn internally), so a
 // forbidden runtime spawn aborts the request.
 
+import { createHash } from 'node:crypto';
+import { platform, release } from 'node:os';
 import { coverage, sidecar as engineSidecar, snapshot as engineSnapshot } from '@stats-code/engine';
 import type { z } from 'zod';
 import { sidecar as sidecarContract } from './contract/index.js';
 import type {
   CoverageMatrixProvider,
+  DatasetStore,
   SidecarProvider,
   SnapshotProvider,
+  SnapshotRunRecorder,
+  SnapshotRunRegistration,
 } from './state.js';
 
 type WireMatrix = z.infer<typeof sidecarContract.coverageMatrix>;
@@ -103,11 +108,13 @@ export function createSidecarProvider(): SidecarProvider {
  * session/run store; absence of a run surfaces as an error (HTTP 500 per route).
  */
 export function createSnapshotProvider(
-  resolveRun: (runId: string) => engineSnapshot.RunSnapshot | undefined,
+  resolveRun: (
+    runId: string,
+  ) => engineSnapshot.RunSnapshot | undefined | Promise<engineSnapshot.RunSnapshot | undefined>,
 ): SnapshotProvider {
   return {
-    export(runId, destination) {
-      const run = resolveRun(runId);
+    async export(runId, destination) {
+      const run = await resolveRun(runId);
       if (!run) {
         throw new Error(`run not found: ${runId}`);
       }
@@ -115,4 +122,115 @@ export function createSnapshotProvider(
       return { snapshot_path: result.snapshotPath, sha256: result.sha256 };
     },
   };
+}
+
+export interface SnapshotRunRegistry {
+  recorder: SnapshotRunRecorder;
+  provider: SnapshotProvider;
+}
+
+function osFamily(): string {
+  if (platform() === 'win32') return 'Windows';
+  if (platform() === 'darwin') return 'macOS';
+  return 'Linux';
+}
+
+function commitSha(): string {
+  const value = process.env.STATS_CODE_COMMIT_SHA ?? '';
+  return /^[0-9a-f]{40}$/i.test(value) ? value.toLowerCase() : '0'.repeat(40);
+}
+
+/**
+ * Keep only lightweight run metadata in memory. Dataset bytes are reloaded
+ * from the local dataset store when the user exports a snapshot, avoiding one
+ * large in-memory copy per completed run.
+ */
+export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotRunRegistry {
+  const records = new Map<string, SnapshotRunRegistration>();
+  const enc = new TextEncoder();
+
+  const recorder: SnapshotRunRecorder = {
+    register(run) {
+      records.set(run.runId, run);
+    },
+  };
+
+  const provider = createSnapshotProvider(async (runId) => {
+    const record = records.get(runId);
+    if (!record) return undefined;
+
+    const datasetBytes = await datasetStore.readRawById(record.datasetSummary.dataset_id);
+    const datasetHex = engineSnapshot.sha256Hex(datasetBytes);
+    const protocolDocument = record.researchProtocol ?? { status: 'NotRecorded' };
+    const approvalDocument = {
+      schema_version: 1,
+      session_id: record.sessionId,
+      run_id: record.runId,
+      protocol_status: record.researchProtocol?.status ?? 'NotRecorded',
+      protocol_version: record.analysisPlanApproval.protocol_version,
+      protocol_sha256: record.analysisPlanApproval.protocol_sha256,
+      protocol_approval_id: record.analysisPlanApproval.protocol_approval_id,
+      protocol_updated_at: record.researchProtocol?.updated_at ?? null,
+      protocol_approved_at: record.researchProtocol?.approved_at ?? null,
+      plan_id: record.analysisPlanApproval.plan_id,
+      plan_approval_id: record.analysisPlanApproval.approval_id,
+      plan_approved_at: record.analysisPlanApproval.approved_at,
+      run_spec_sha256: record.analysisPlanApproval.run_spec_sha256,
+      audit_id: record.analysisPlanApproval.audit_id,
+      audit_sha256: record.analysisPlanApproval.audit_sha256,
+    };
+    const protocolBytes = enc.encode(JSON.stringify(protocolDocument));
+    const approvalBytes = enc.encode(JSON.stringify(approvalDocument));
+    const auditBytes = enc.encode(JSON.stringify(record.datasetAudit));
+    const resultBytes = enc.encode(JSON.stringify(record.result));
+    const resultPath = 'artifacts/step-1/result.json';
+
+    return {
+      runId: record.runId,
+      status: 'completed',
+      datasetSha256: createHash('sha256').update(datasetBytes).digest(),
+      datasetCsvBytes: datasetBytes,
+      workflow: {
+        schemaVersion: 1,
+        inputDataset: { path: 'data.csv', sha256: datasetHex },
+        steps: [{
+          id: 'step-1',
+          algorithm: record.algorithmId,
+          params: record.params,
+          inputs: [
+            { path: 'protocol.json', sha256: engineSnapshot.sha256Hex(protocolBytes) },
+            { path: 'approval.json', sha256: engineSnapshot.sha256Hex(approvalBytes) },
+            { path: 'dataset-audit.json', sha256: engineSnapshot.sha256Hex(auditBytes) },
+          ],
+          outputs: [{ path: resultPath, sha256: engineSnapshot.sha256Hex(resultBytes) }],
+          startedAtUtc: record.startedAtUtc,
+          endedAtUtc: record.endedAtUtc,
+        }],
+      },
+      artifacts: [
+        { path: 'protocol.json', bytes: protocolBytes },
+        { path: 'approval.json', bytes: approvalBytes },
+        { path: 'dataset-audit.json', bytes: auditBytes },
+        { path: resultPath, bytes: resultBytes },
+      ],
+      llmCalls: [],
+      referenceSoftware: [],
+      osFamily: osFamily(),
+      osVersion: release(),
+      releaseVersion: coverage.getLoadedMatrix().release_version,
+      commitSha: commitSha(),
+      createdAtUtc: record.endedAtUtc,
+      runtimeDependencies: { node: process.versions.node },
+      apiKeys: [],
+      narrativeSteps: [{
+        id: 'step-1',
+        algorithm: record.algorithmId,
+        displayName: record.algorithmId,
+        paramsSummary: '按已审批研究协议执行本机确定性分析',
+        keyMetrics: [],
+      }],
+    };
+  });
+
+  return { recorder, provider };
 }

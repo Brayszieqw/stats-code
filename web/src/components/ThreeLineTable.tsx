@@ -74,6 +74,29 @@ type TableOneGroup = {
   categorical?: CategoricalSummary[];
 };
 
+type TableOneStandardizedDifferences = {
+  comparison: { first: string; second: string } | null;
+  continuous: Array<{ variable: string; smd: number | null }>;
+  categorical: Array<{
+    variable: string;
+    smd: number | null;
+    levels: Array<{ level: string; smd: number | null }>;
+  }>;
+};
+
+type TableOneCategoricalTest = {
+  variable: string;
+  status: 'computed' | 'not_computed' | 'not_applicable';
+  method: 'pearson_chi_square' | 'fisher_exact' | null;
+  statistic: number | null;
+  degrees_of_freedom: number | null;
+  p_value: number | null;
+  min_expected_count: number | null;
+  expected_below_5: number;
+  observed_zero_cells: number;
+  reason: string | null;
+};
+
 function formatContinuous(summary: ContinuousSummary | undefined): string {
   if (!summary) return '-';
   if (typeof summary.mean === 'number' && Number.isFinite(summary.mean)) {
@@ -91,12 +114,31 @@ function formatLevel(level: { count: number; percent: number } | undefined): str
   return `${level.count} (${fmtNum(level.percent, 1)}%)`;
 }
 
+function formatCountMeta(summary: { n?: number; missing?: number } | undefined): string {
+  if (!summary) return '有效 n=- · 缺失=-';
+  return `有效 n=${summary.n ?? '-'} · 缺失=${summary.missing ?? '-'}`;
+}
+
+function formatSmd(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? fmtNum(value) : '-';
+}
+
+function formatCategoricalTest(test: TableOneCategoricalTest | undefined): string | null {
+  if (!test || test.status === 'not_applicable') return null;
+  if (test.status === 'not_computed') return `组间检验未计算：${test.reason ?? '当前数据不满足方法要求。'}`;
+  const method = test.method === 'fisher_exact' ? 'Fisher 精确检验' : 'Pearson χ² 检验';
+  const zeroCell = test.observed_zero_cells > 0 ? ` · 零频单元 ${test.observed_zero_cells}` : '';
+  return `${method} · p=${fmtP(test.p_value)}${zeroCell}`;
+}
+
 /** Engine tableone payload: { strata, continuous, categorical, groups[] } */
 function renderGroupsTableOne(payload: {
   strata?: string | null;
   continuous?: string[];
   categorical?: string[];
   groups: TableOneGroup[];
+  standardized_differences?: TableOneStandardizedDifferences;
+  categorical_tests?: TableOneCategoricalTest[];
 }) {
   const groups = payload.groups;
   if (!Array.isArray(groups) || groups.length === 0) return null;
@@ -113,6 +155,15 @@ function renderGroupsTableOne(payload: {
     group.continuous?.find((c) => c.variable === variable);
   const findCategorical = (group: TableOneGroup, variable: string) =>
     group.categorical?.find((c) => c.variable === variable);
+  const standardizedDifferences = payload.standardized_differences;
+  const showSmd = standardizedDifferences?.comparison !== null
+    && standardizedDifferences?.comparison !== undefined;
+  const findContinuousSmd = (variable: string) =>
+    standardizedDifferences?.continuous.find((entry) => entry.variable === variable)?.smd;
+  const findCategoricalSmd = (variable: string) =>
+    standardizedDifferences?.categorical.find((entry) => entry.variable === variable);
+  const findCategoricalTest = (variable: string) =>
+    payload.categorical_tests?.find((entry) => entry.variable === variable);
 
   // Collect all categorical levels across groups for stable row layout.
   const levelsByVar = new Map<string, string[]>();
@@ -140,9 +191,10 @@ function renderGroupsTableOne(payload: {
                 {group.label} (N={group.n})
               </th>
             ))}
+            {showSmd ? <th style={{ textAlign: 'center' }}>SMD</th> : null}
           </tr>
           <tr>
-            <th colSpan={1 + groups.length} style={{ fontWeight: 500, color: '#5a6e85', borderBottom: '1px solid #2b3b4c' }}>
+            <th colSpan={1 + groups.length + (showSmd ? 1 : 0)} style={{ fontWeight: 500, color: '#5a6e85', borderBottom: '1px solid #2b3b4c' }}>
               {strataLabel}
             </th>
           </tr>
@@ -157,8 +209,12 @@ function renderGroupsTableOne(payload: {
               {groups.map((group) => (
                 <td key={`${group.label}-${variable}`} style={{ textAlign: 'center', fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>
                   {formatContinuous(findContinuous(group, variable))}
+                  <div className="table-one-cell-meta">{formatCountMeta(findContinuous(group, variable))}</div>
                 </td>
               ))}
+              {showSmd ? (
+                <td className="table-one-smd">{formatSmd(findContinuousSmd(variable))}</td>
+              ) : null}
             </tr>
           ))}
           {categoricalNames.map((variable) => {
@@ -166,10 +222,25 @@ function renderGroupsTableOne(payload: {
             return (
               <Fragment key={`cat-block-${variable}`}>
                 <tr>
-                  <td colSpan={1 + groups.length}>
+                  <td>
                     <Text strong>{variable}</Text>
                     <span style={{ marginLeft: 8, fontSize: 11, color: '#8c8c8c' }}>分类 · n (%)</span>
+                    {formatCategoricalTest(findCategoricalTest(variable)) ? (
+                      <div className="table-one-cell-meta">
+                        {formatCategoricalTest(findCategoricalTest(variable))}
+                      </div>
+                    ) : null}
                   </td>
+                  {groups.map((group) => (
+                    <td key={`${group.label}-${variable}-meta`} className="table-one-cell-meta table-one-cell-meta--standalone">
+                      {formatCountMeta(findCategorical(group, variable))}
+                    </td>
+                  ))}
+                  {showSmd ? (
+                    <td className="table-one-smd table-one-smd--summary">
+                      最大 |SMD| {formatSmd(findCategoricalSmd(variable)?.smd)}
+                    </td>
+                  ) : null}
                 </tr>
                 {levels.map((level) => (
                   <tr key={`cat-${variable}-${level}`}>
@@ -183,6 +254,11 @@ function renderGroupsTableOne(payload: {
                         </td>
                       );
                     })}
+                    {showSmd ? (
+                      <td className="table-one-smd">
+                        {formatSmd(findCategoricalSmd(variable)?.levels.find((entry) => entry.level === level)?.smd)}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </Fragment>
@@ -213,6 +289,7 @@ export function ThreeLineTable({ markdown, skillResult }: ThreeLineTableProps) {
           continuous?: string[];
           categorical?: string[];
           groups: TableOneGroup[];
+          standardized_differences?: TableOneStandardizedDifferences;
         });
         if (rendered) return rendered;
       }

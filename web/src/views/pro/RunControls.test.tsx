@@ -26,6 +26,7 @@ const analysis: AnalysisResultMeta = {
   algorithm_id: 'model_linear',
   dataset_id: 'ds-1',
   dataset_sha256: null,
+  plan_id: '33333333-3333-4333-8333-333333333333',
   columns: [],
   params: { outcome: 'y' },
   run_id: 'run-1',
@@ -43,6 +44,13 @@ describe('RunControls (Requirements 7.4, 12.7)', () => {
     expect(screen.getByLabelText('运行')).toBeDisabled();
   });
 
+  it('disables rerun for legacy results without a server-approved plan', () => {
+    const { plan_id: _planId, ...legacyAnalysis } = analysis;
+    render(<RunControls sessionId="s1" analysis={legacyAnalysis} />);
+    expect(screen.getByLabelText('运行')).toBeDisabled();
+    expect(screen.getByText(/没有服务端方案审批记录/)).toBeInTheDocument();
+  });
+
   it('runs and shows the success state (R12.7)', async () => {
     const result = { schema_version: '1.0', payload: {}, risk_signals: [] };
     const onRunComplete = vi.fn();
@@ -50,6 +58,17 @@ describe('RunControls (Requirements 7.4, 12.7)', () => {
     render(<RunControls sessionId="s1" analysis={analysis} onRunComplete={onRunComplete} />);
     fireEvent.click(screen.getByLabelText('运行'));
     await waitFor(() => expect(screen.getByText('运行完成')).toBeInTheDocument());
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/sessions/s1/run',
+      expect.objectContaining({
+        body: JSON.stringify({
+          skill_id: 'model_linear',
+          dataset_id: 'ds-1',
+          args: { outcome: 'y' },
+          plan_id: '33333333-3333-4333-8333-333333333333',
+        }),
+      }),
+    );
     expect(onRunComplete).toHaveBeenCalledWith(result);
   });
 

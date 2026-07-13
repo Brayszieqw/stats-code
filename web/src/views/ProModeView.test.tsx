@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 const { useCoverageMatrixSpy, runSkillSpy } = vi.hoisted(() => ({
   useCoverageMatrixSpy: vi.fn(),
@@ -48,7 +48,7 @@ import { ProModeView, mergeWorkspaceMessages } from './ProModeView';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn, ChatMessage } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
-import type { DatasetSummary, SkillResult } from '../api/types';
+import type { AnalysisPlanApproval, DatasetAudit, DatasetSummary, ResearchProtocol, SkillResult } from '../api/types';
 
 beforeEach(() => {
   runSkillSpy.mockReset();
@@ -59,6 +59,31 @@ beforeEach(() => {
   });
 });
 
+const approvedProtocol: ResearchProtocol = {
+  status: 'Approved',
+  research_question: '年龄与结局是否相关？',
+  study_design: 'cross_sectional',
+  population: '成人观察性队列',
+  eligibility_criteria: '有基线记录',
+  exposure: 'age',
+  comparator: '每增加 1 岁',
+  outcome: 'outcome',
+  time_zero: '基线',
+  follow_up: '不适用',
+  analysis_unit: '参与者',
+  estimand: '年龄每增加 1 岁对应的平均结局差',
+  confounders: '',
+  missing_data_strategy: '完整案例',
+  primary_analysis: '多元线性回归',
+  sensitivity_analysis: '',
+  version: 1,
+  content_sha256: 'a'.repeat(64),
+  state_sha256: 'e'.repeat(64),
+  approval_id: '11111111-1111-4111-8111-111111111111',
+  approved_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
 function makeController(overrides: Partial<SessionController> = {}): SessionController {
   return {
     sessionId: 's1',
@@ -67,8 +92,45 @@ function makeController(overrides: Partial<SessionController> = {}): SessionCont
     isArchived: false,
     datasets: [],
     decisionAssistant: true,
+    researchProtocol: approvedProtocol,
+    datasetAudits: [],
+    analysisPlanApprovals: [],
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
+    saveResearchProtocol: vi.fn(async () => approvedProtocol),
+    auditDataset: vi.fn(async (datasetId, input): Promise<DatasetAudit> => ({
+      schema_version: '1.0',
+      audit_rules_version: '1.1.0',
+      audit_id: '22222222-2222-4222-8222-222222222222',
+      dataset_id: datasetId,
+      dataset_sha256: 'b'.repeat(64),
+      protocol_version: input.expected_protocol_version,
+      skill_id: input.skill_id,
+      run_spec_sha256: 'c'.repeat(64),
+      roles: input.audit_roles ?? {},
+      status: 'passed',
+      findings: [],
+      audit_sha256: 'd'.repeat(64),
+      created_at: '2026-01-01T00:00:01Z',
+    })),
+    approveAnalysisPlan: vi.fn(async (input): Promise<AnalysisPlanApproval> => ({
+      schema_version: '1.0',
+      plan_id: '33333333-3333-4333-8333-333333333333',
+      approval_id: '44444444-4444-4444-8444-444444444444',
+      status: 'Approved',
+      protocol_version: input.expected_protocol_version,
+      protocol_sha256: approvedProtocol.content_sha256,
+      protocol_approval_id: approvedProtocol.approval_id!,
+      dataset_id: input.dataset_id,
+      dataset_sha256: 'b'.repeat(64),
+      skill_id: input.skill_id,
+      args: input.args,
+      run_spec_sha256: 'c'.repeat(64),
+      audit_id: '22222222-2222-4222-8222-222222222222',
+      audit_sha256: 'd'.repeat(64),
+      audit_roles: input.audit_roles ?? {},
+      approved_at: '2026-01-01T00:00:02Z',
+    })),
     initialMessages: [],
     startNewSession: vi.fn(async () => {}),
     loadSession: vi.fn(async () => {}),
@@ -323,14 +385,37 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     fireEvent.click(screen.getByLabelText('打开分析检查器'));
     fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
     expect(runSkillSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog', { name: '执行前确认' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '分析方案审批' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
     expect(runSkillSpy).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
-    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
-    expect(runSkillSpy).toHaveBeenCalledTimes(1);
+    const approveButton = screen.getByRole('button', { name: '批准方案并运行' });
+    await waitFor(() => expect(approveButton).not.toBeDisabled());
+    fireEvent.click(approveButton);
+    await waitFor(() => expect(runSkillSpy).toHaveBeenCalledTimes(1));
+    expect(runSkillSpy.mock.calls[0]?.[1]).toMatchObject({
+      plan_id: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(runSkillSpy.mock.calls[0]?.[1].args).not.toHaveProperty('workflow_approval');
+  });
+
+  it('makes protocol approval the first gate of the professional workflow', async () => {
+    renderView({ controller: { datasets: [dataset], researchProtocol: null } });
+
+    expect(screen.getByLabelText('研究工作流')).toHaveTextContent('研究协议');
+    expect(screen.getByRole('button', { name: '研究协议：未建立' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('打开分析检查器'));
+    fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
+
+    expect(await screen.findByText('研究协议尚未审批')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '批准方案并运行' })).toBeDisabled();
+    expect(runSkillSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '完善并审批协议' }));
+    expect(await screen.findByText('研究协议卡')).toBeInTheDocument();
   });
 
   it('aborts and ignores a confirmed run that completes after switching sessions', async () => {
@@ -341,8 +426,10 @@ describe('ProModeView (Requirements 4.1, 4.3)', () => {
     fireEvent.click(screen.getByLabelText('打开分析检查器'));
     fireEvent.click(await screen.findByLabelText('提交分析:ds-1'));
     expect(runSkillSpy).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '确认并运行' }));
-    expect(runSkillSpy).toHaveBeenCalledTimes(1);
+    const approveButton = screen.getByRole('button', { name: '批准方案并运行' });
+    await waitFor(() => expect(approveButton).not.toBeDisabled());
+    fireEvent.click(approveButton);
+    await waitFor(() => expect(runSkillSpy).toHaveBeenCalledTimes(1));
     const signal = runSkillSpy.mock.calls[0]?.[2] as AbortSignal;
 
     view.rerender(

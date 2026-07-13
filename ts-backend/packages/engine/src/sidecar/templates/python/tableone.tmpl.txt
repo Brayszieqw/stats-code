@@ -4,9 +4,25 @@ from scipy import stats
 data = pd.read_csv("data.csv")
 group = {{params.group_quoted}}
 continuous = [{{params.continuous_quoted}}]
+categorical = [{{params.categorical_quoted}}]
 groups = data[group].dropna().unique()
 for variable in continuous:
     group_a = data[data[group] == groups[0]][variable]
     group_b = data[data[group] == groups[1]][variable]
     result = stats.ttest_ind(group_a, group_b)
     print(variable, result)
+
+for variable in categorical:
+    observed = pd.crosstab(data[group], data[variable], dropna=True).to_numpy()
+    if observed.shape[0] < 2 or observed.shape[1] < 2 or (observed.sum(axis=0) == 0).any() or (observed.sum(axis=1) == 0).any():
+        print(variable, "not computed: insufficient dimensions or zero margin")
+        continue
+    chi2, p_value, dof, expected = stats.chi2_contingency(observed, correction=False)
+    sparse_2x2 = observed.shape == (2, 2) and ((expected < 5).any() or (observed == 0).any())
+    pearson_rule_failed = (expected < 1).any() or (expected < 5).mean() > 0.20
+    if sparse_2x2:
+        print(variable, stats.fisher_exact(observed, alternative="two-sided"))
+    elif pearson_rule_failed:
+        print(variable, "not computed: sparse non-2x2 table requires an exact test")
+    else:
+        print(variable, {"method": "Pearson chi-square", "statistic": chi2, "df": dof, "p_value": p_value})

@@ -100,7 +100,7 @@ describe('main', () => {
   it('help text does not advertise statistical subcommands', () => {
     // Public usage must not name internal statistical subcommands.
     for (const sub of ['tableone', 'survival', 'power', 'parity', 'replay', 'workflow']) {
-      expect(USAGE).not.toContain(sub);
+      expect(USAGE.toLowerCase()).not.toMatch(new RegExp(`\\b${sub}\\b`));
     }
   });
 });

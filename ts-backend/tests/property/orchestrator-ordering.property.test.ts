@@ -15,10 +15,10 @@ import {
   SkillRunner,
   MemSessionStore,
   type AgentEvent,
-  type DatasetStore,
   type DatasetSummary,
   type LlmEvent,
   type LlmProvider,
+  type ResearchWorkflowService,
 } from '@stats-code/server';
 
 function summaryFor(csv: string): DatasetSummary {
@@ -68,19 +68,30 @@ describe('Property 3: skill_result precedes interpretation (Requirements 8.2, 8.
         async (xs, decisionAssistant) => {
           const csv = `y,x\n${xs.map((x, i) => `${2 * x + (i % 2)},${x}`).join('\n')}\n`;
           const summary = summaryFor(csv);
-          const datasetStore: DatasetStore = {
-            saveAndParse: () => Promise.resolve(summary),
-            readRawById: () => Promise.resolve(new TextEncoder().encode(csv)),
-          };
           const registry = SkillRegistry.withDefaults();
+          const runner = new SkillRunner(registry);
           const sessionStore = new MemSessionStore();
           const session = await sessionStore.create();
           await sessionStore.appendDataset(session.id, summary);
+          const researchWorkflow: ResearchWorkflowService = {
+            now: () => new Date('2026-07-13T00:00:00.000Z'),
+            auditDataset: async () => { throw new Error('not used'); },
+            approveAnalysisPlan: async () => { throw new Error('not used'); },
+            execute: async ({ datasetId, skillId, args }) => {
+              const descriptor = registry.get(skillId);
+              if (!descriptor) throw new Error(`unknown skill: ${skillId}`);
+              if (datasetId !== summary.dataset_id) throw new Error(`unknown dataset: ${datasetId}`);
+              return runner.run(
+                descriptor,
+                { ...args, dataset_id: datasetId },
+                { datasetBytes: new TextEncoder().encode(csv), datasetSummary: summary },
+              );
+            },
+          };
           const orchestrator = createOrchestrator({
             sessionStore,
-            datasetStore,
             registry,
-            runner: new SkillRunner(registry),
+            researchWorkflow,
             llmProviderFactory: () =>
               mockLlm(
                 '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"],"dataset_id":"ds-1"},"has_query_intent":true,"text_response":null}',

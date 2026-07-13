@@ -13,14 +13,17 @@
 //  - catch thrown engine errors → execution_failed (excerpt ≤ 2048 chars)
 
 import { randomUUID } from 'node:crypto';
-import { stats } from '@stats-code/engine';
+import { coverage, stats } from '@stats-code/engine';
 import { detectRiskSignals } from './risk-signals.js';
 import { skillToAlgorithm } from './skill-algorithm-map.js';
+import { parseDelimitedTable } from './delimited-table.js';
 import type { SkillContext, SkillDescriptor, SkillRegistry } from './skill-registry.js';
 import {
   SkillRunErrorException,
   type AnalysisResultMeta,
+  type ResultContractEstimate,
   type SkillResult,
+  type StandardResultContract,
 } from './skill-runner-types.js';
 
 const DEFAULT_MAX_WALL_SECS = 120;
@@ -35,24 +38,14 @@ export interface SkillRunnerOptions {
   maxWallSecs?: number;
 }
 
-/** Parse CSV/TSV bytes into a header list + row records (string fields). */
-function parseRows(bytes: Uint8Array, fileName: string): { headers: string[]; rows: string[][] } {
-  const delimiter = fileName.toLowerCase().endsWith('.tsv') ? '\t' : ',';
-  const text = new TextDecoder('utf-8').decode(bytes);
-  const lines = text.split(/\r\n|\n|\r/).filter((l, idx, arr) => l.length > 0 || idx !== arr.length - 1);
-  if (lines.length === 0) throw new Error('empty dataset');
-  const split = (line: string): string[] => line.split(delimiter).map((s) => s.trim());
-  const headers = split(lines[0]!);
-  const rows = lines.slice(1).map(split);
-  return { headers, rows };
-}
-
 /** Extract a numeric column by name; throws if the column is missing/non-numeric. */
 function numericColumn(headers: string[], rows: string[][], name: string): number[] {
   const idx = columnIndex(headers, name);
-  return rows.map((r) => {
-    const v = Number(r[idx]);
-    if (!Number.isFinite(v)) throw new Error(`non-numeric value in column ${name}: ${r[idx]}`);
+  return rows.map((r, rowIndex) => {
+    const raw = r[idx]?.trim() ?? '';
+    if (raw.length === 0) throw new Error(`missing numeric value in column ${name} at data row ${rowIndex + 1}`);
+    const v = Number(raw);
+    if (!Number.isFinite(v)) throw new Error(`non-numeric value in column ${name} at data row ${rowIndex + 1}`);
     return v;
   });
 }
@@ -131,6 +124,112 @@ function designMatrix(headers: string[], rows: string[][], predictors: string[])
   return rows.map((_, i) => [1, ...cols.map((c) => c[i]!)]);
 }
 
+const COLLINEARITY_CONDITION_WARNING = 30;
+const COLLINEARITY_VIF_WARNING = 10;
+const SPARSE_INFORMATION_WARNING = 10;
+
+function modelDesignDiagnostic(
+  predictorRows: readonly (readonly number[])[],
+  predictors: readonly string[],
+): Record<string, unknown> {
+  const diagnostic = stats.modelDiagnostics.diagnosePredictorDesign(predictorRows, predictors);
+  if (diagnostic.rankDeficient) {
+    const implicated = diagnostic.constantTerms.length > 0
+      ? ` Constant predictors: ${diagnostic.constantTerms.join(', ')}.`
+      : ' Remove redundant or linearly dependent predictors.';
+    throw new Error(
+      `Design matrix is rank deficient (rank ${diagnostic.rank} of ${diagnostic.predictorCount}).${implicated}`,
+    );
+  }
+  const highVif = diagnostic.maxVif !== null && diagnostic.maxVif > COLLINEARITY_VIF_WARNING;
+  const highCondition = diagnostic.conditionIndex > COLLINEARITY_CONDITION_WARNING;
+  const warning = highVif || highCondition;
+  const maxVifLabel = diagnostic.maxVif === null ? '不可用' : diagnostic.maxVif.toPrecision(4);
+  const conditionLabel = Number.isFinite(diagnostic.conditionIndex)
+    ? diagnostic.conditionIndex.toPrecision(4)
+    : '∞';
+  return {
+    status: warning ? 'warning' : 'passed',
+    rank: diagnostic.rank,
+    predictor_count: diagnostic.predictorCount,
+    condition_index: Number.isFinite(diagnostic.conditionIndex) ? diagnostic.conditionIndex : null,
+    condition_warning_threshold: COLLINEARITY_CONDITION_WARNING,
+    vif: diagnostic.vif,
+    max_vif: diagnostic.maxVif,
+    vif_warning_threshold: COLLINEARITY_VIF_WARNING,
+    message: warning
+      ? `共线性筛查触发：最大 VIF=${maxVifLabel}，条件指数=${conditionLabel}；应检查变量编码、冗余与估计稳定性。`
+      : `共线性筛查未触发：秩 ${diagnostic.rank}/${diagnostic.predictorCount}，最大 VIF=${maxVifLabel}，条件指数=${conditionLabel}。`,
+  };
+}
+
+function sparseInformationDiagnostic(
+  informationKind: 'rarer_outcome_class' | 'events' | 'not_applicable',
+  informationN: number | null,
+  predictorCount: number,
+): Record<string, unknown> {
+  if (informationKind === 'not_applicable' || informationN === null || predictorCount === 0) {
+    return {
+      status: 'not_applicable',
+      information_kind: informationKind,
+      information_n: informationN,
+      predictor_count: predictorCount,
+      information_per_predictor: null,
+      warning_threshold: SPARSE_INFORMATION_WARNING,
+      message: predictorCount === 0
+        ? '无预测变量，事件/参数经验性筛查不适用。'
+        : '当前模型不使用事件/参数经验性筛查。',
+    };
+  }
+  const ratio = informationN / predictorCount;
+  const warning = ratio < SPARSE_INFORMATION_WARNING;
+  const label = informationKind === 'events' ? '事件数' : '较少结局类别数';
+  return {
+    status: warning ? 'warning' : 'passed',
+    information_kind: informationKind,
+    information_n: informationN,
+    predictor_count: predictorCount,
+    information_per_predictor: ratio,
+    warning_threshold: SPARSE_INFORMATION_WARNING,
+    message: warning
+      ? `${label}/预测变量=${ratio.toPrecision(4)}，低于经验性筛查阈值 10；应精简模型、增加信息量或采用适当惩罚方法。该阈值不是硬有效性判据。`
+      : `${label}/预测变量=${ratio.toPrecision(4)}，未触发经验性稀疏信息警告；这不保证模型充分。`,
+  };
+}
+
+function convergenceDiagnostic(converged: boolean | null, iterations?: number): Record<string, unknown> {
+  if (converged === null) {
+    return { status: 'not_applicable', iterations: null, message: '闭式解模型不适用迭代收敛诊断。' };
+  }
+  return {
+    status: converged ? 'passed' : 'failed',
+    iterations: iterations ?? null,
+    message: converged
+      ? `迭代拟合已收敛${iterations === undefined ? '' : `（${iterations} 次迭代）`}。`
+      : `迭代拟合未收敛${iterations === undefined ? '' : `（达到 ${iterations} 次迭代）`}；系数、区间和检验不应解释。`,
+  };
+}
+
+function logisticSeparationDiagnostic(
+  coefficients: readonly { beta: number; stdError: number }[],
+  converged: boolean,
+): Record<string, unknown> {
+  const slopes = coefficients.slice(1);
+  const maxAbsBeta = slopes.reduce((max, coefficient) => Math.max(max, Math.abs(coefficient.beta)), 0);
+  const maxStdError = slopes.reduce((max, coefficient) => Math.max(max, coefficient.stdError), 0);
+  const warning = !converged || maxAbsBeta > 10 || maxStdError > 10;
+  return {
+    status: warning ? 'warning' : 'passed',
+    max_abs_beta: maxAbsBeta,
+    max_standard_error: maxStdError,
+    beta_warning_threshold: 10,
+    standard_error_warning_threshold: 10,
+    message: warning
+      ? '分离数值筛查触发（未收敛、|β|>10 或标准误>10）；需检查完全/准完全分离与稀疏单元格。'
+      : '分离数值筛查未触发；该筛查不能证明完全/准完全分离不存在。',
+  };
+}
+
 /** Attach human-readable term names: intercept first, then predictors in order. */
 function withCoefficientTerms<T extends object>(
   coefficients: readonly T[],
@@ -147,6 +246,271 @@ function withCoefficientTerms<T extends object>(
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function finiteNumber(record: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function selectedRunVariables(
+  skillId: string,
+  args: Record<string, unknown>,
+  ctx: SkillContext,
+): string[] {
+  const strings = (...values: unknown[]): string[] => values.flatMap((value) => {
+    if (typeof value === 'string' && value.length > 0) return [value];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+    return [];
+  });
+  const variables = skillId === 'tableone'
+    ? strings(args.group, args.continuous, args.categorical)
+    : skillId === 'ttest'
+      ? strings(args.group, args.testVar)
+      : skillId === 'survival_km'
+        ? strings(args.time, args.event, args.group)
+        : skillId === 'model_cox'
+          ? strings(args.time, args.event, args.predictors)
+          : strings(args.outcome, args.predictors);
+  return [...new Set(variables.length > 0 ? variables : ctx.datasetSummary.columns.map((column) => column.name))];
+}
+
+function resultCounts(
+  skillId: string,
+  args: Record<string, unknown>,
+  ctx: SkillContext,
+): StandardResultContract['counts'] {
+      const { headers, rows } = parseDelimitedTable(ctx.datasetBytes, ctx.datasetSummary.file_name);
+  const variables = selectedRunVariables(skillId, args, ctx);
+  const variableIndexes = variables.map((variable) => columnIndex(headers, variable));
+  const completeCaseN = rows.filter((row) => variableIndexes.every((index) => (row[index] ?? '').trim().length > 0)).length;
+  const eventVariable = skillId === 'model_logistic'
+    ? (typeof args.outcome === 'string' ? args.outcome : null)
+    : skillId === 'model_cox' || skillId === 'survival_km'
+      ? (typeof args.event === 'string' ? args.event : null)
+      : null;
+  const eventN = eventVariable
+    ? rows.reduce((sum, row) => {
+        const value = Number(row[columnIndex(headers, eventVariable)]);
+        return sum + (Number.isFinite(value) && value !== 0 ? 1 : 0);
+      }, 0)
+    : null;
+  const timeVariable = skillId === 'model_cox' || skillId === 'survival_km'
+    ? (typeof args.time === 'string' ? args.time : null)
+    : null;
+  const personTime = timeVariable
+    ? rows.reduce((sum, row) => {
+        const value = Number(row[columnIndex(headers, timeVariable)]);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0)
+    : null;
+  return {
+    input_n: rows.length,
+    complete_case_n: completeCaseN,
+    missing_n: rows.length - completeCaseN,
+    event_n: eventN,
+    person_time: personTime,
+  };
+}
+
+function coefficientEstimates(
+  algorithmId: string,
+  payload: Record<string, unknown>,
+  adjustment: ResultContractEstimate['adjustment'],
+): ResultContractEstimate[] {
+  if (!Array.isArray(payload.coefficients)) return [];
+  const unit: ResultContractEstimate['effect_unit'] = algorithmId === 'logistic'
+    ? 'OR'
+    : algorithmId === 'cox'
+      ? 'HR'
+      : 'Beta';
+  return payload.coefficients.flatMap<ResultContractEstimate>((value, index) => {
+    if (!isRecord(value)) return [];
+    const estimate = algorithmId === 'logistic'
+      ? finiteNumber(value, 'oddsRatio', 'odds_ratio')
+      : algorithmId === 'cox'
+        ? finiteNumber(value, 'hazardRatio', 'hazard_ratio')
+        : finiteNumber(value, 'estimate', 'beta');
+    if (estimate === null) return [];
+    const lower = finiteNumber(value, 'ciLower', 'ci_lower');
+    const upper = finiteNumber(value, 'ciUpper', 'ci_upper');
+    return [{
+      term: typeof value.term === 'string' ? value.term : `term_${index}`,
+      estimate,
+      ci_95: lower !== null && upper !== null ? { lower, upper } : null,
+      p_value: finiteNumber(value, 'pValue', 'p_value'),
+      effect_unit: unit,
+      adjustment,
+    }];
+  });
+}
+
+function contractEstimates(
+  skillId: string,
+  algorithmId: string,
+  args: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): ResultContractEstimate[] {
+  if (['linear', 'logistic', 'cox'].includes(algorithmId)) {
+    const predictors = Array.isArray(args.predictors) ? args.predictors : [];
+    return coefficientEstimates(algorithmId, payload, predictors.length > 1 ? 'adjusted' : 'unadjusted');
+  }
+  if (skillId === 'ttest') {
+    const estimate = finiteNumber(payload, 'mean_diff');
+    if (estimate === null) return [];
+    const lower = finiteNumber(payload, 'ci_lower');
+    const upper = finiteNumber(payload, 'ci_upper');
+    return [{
+      term: typeof args.testVar === 'string' ? args.testVar : 'mean_difference',
+      estimate,
+      ci_95: lower !== null && upper !== null ? { lower, upper } : null,
+      p_value: finiteNumber(payload, 'p_value'),
+      effect_unit: 'Mean difference',
+      adjustment: 'unadjusted',
+    }];
+  }
+  if (skillId === 'survival_km') {
+    const estimate = finiteNumber(payload, 'median_survival');
+    return estimate === null ? [] : [{
+      term: 'median_survival',
+      estimate,
+      ci_95: null,
+      p_value: null,
+      effect_unit: 'Median survival',
+      adjustment: 'descriptive',
+    }];
+  }
+  return [];
+}
+
+function assumptionDiagnostics(
+  algorithmId: string,
+  payload: Record<string, unknown>,
+): StandardResultContract['assumption_diagnostics'] {
+  const diagnostics: StandardResultContract['assumption_diagnostics'] = [];
+  const modelDiagnostics = isRecord(payload.model_diagnostics) ? payload.model_diagnostics : null;
+  const appendModelDiagnostic = (key: string, code: string): void => {
+    const value = modelDiagnostics && isRecord(modelDiagnostics[key]) ? modelDiagnostics[key] as Record<string, unknown> : null;
+    if (value === null || typeof value.message !== 'string') return;
+    const rawStatus = value.status;
+    if (rawStatus === 'not_applicable') return;
+    const status = rawStatus === 'passed' || rawStatus === 'failed' || rawStatus === 'warning'
+      ? rawStatus
+      : 'not_evaluated';
+    diagnostics.push({ code, status, message: value.message });
+  };
+  appendModelDiagnostic('convergence', 'model-convergence');
+  appendModelDiagnostic('sparse_data', 'model-sparse-data');
+  appendModelDiagnostic('collinearity', 'model-collinearity');
+  if (algorithmId === 'logistic') appendModelDiagnostic('separation_screen', 'logistic-separation-screen');
+
+  if (algorithmId === 'cox') {
+    const phTest = payload.ph_test && typeof payload.ph_test === 'object'
+      ? payload.ph_test as Record<string, unknown>
+      : null;
+    if (phTest?.status === 'computed' && typeof phTest.p_value === 'number') {
+      const violated = phTest.violated === true;
+      diagnostics.push({
+        code: 'cox-ph',
+        status: violated ? 'failed' : 'passed',
+        message: violated
+          ? `时间交互 score 诊断提示比例风险假设可能违反（p=${phTest.p_value.toPrecision(4)}）；建议评估分层 Cox、时间交互项或分时段 HR。`
+          : `时间交互 score 诊断未发现比例风险假设违反（p=${phTest.p_value.toPrecision(4)}）；这不等同于证明假设成立。`,
+      });
+    } else {
+      diagnostics.push({
+        code: 'cox-ph',
+        status: 'not_evaluated',
+        message: '比例风险诊断未计算；请检查事件数、模型收敛和信息矩阵。',
+      });
+    }
+  }
+  const definitions: Record<string, Array<[string, string]>> = {
+    ttest: [
+      ['ttest-normality', '正态性未在当前运行中自动检验。'],
+      ['ttest-variance', '方差结构未在当前运行中自动诊断；当前方法使用 Welch 校正。'],
+    ],
+    linear: [
+      ['linear-linearity', '线性关系未在当前运行中自动诊断。'],
+      ['linear-residuals', '残差正态性与同方差性未在当前运行中自动诊断。'],
+    ],
+    logistic: [
+      ['logistic-calibration', '模型校准未在当前运行中自动诊断。'],
+    ],
+    kaplan_meier: [['km-censoring', '独立删失假设无法由当前数据自动验证。']],
+  };
+  diagnostics.push(...(definitions[algorithmId] ?? []).map(([code, message]) => ({
+    code,
+    status: 'not_evaluated' as const,
+    message,
+  })));
+  return diagnostics;
+}
+
+function buildStandardResultContract(
+  skillId: string,
+  algorithmId: string,
+  args: Record<string, unknown>,
+  ctx: SkillContext,
+  payload: Record<string, unknown>,
+): StandardResultContract {
+  const predictors = Array.isArray(args.predictors) ? args.predictors : [];
+  const isRegression = ['linear', 'logistic', 'cox'].includes(algorithmId);
+  const adjustedAvailable = isRegression && predictors.length > 1;
+  const estimates = contractEstimates(skillId, algorithmId, args, payload);
+  const counts = resultCounts(skillId, args, ctx);
+  const matrix = coverage.getLoadedMatrix();
+  const matrixEntry = matrix.algorithms.find((entry) => entry.id === algorithmId);
+  const convergence = algorithmId === 'logistic' || algorithmId === 'cox'
+    ? payload.converged === true
+      ? 'converged'
+      : payload.converged === false
+        ? 'failed'
+        : 'unknown'
+    : 'not_applicable';
+  const unsupportedConclusions = [
+    '不能仅凭观察性统计关联作出因果结论。',
+    '不能用于独立诊断、治疗或个体决策。',
+  ];
+  if (adjustedAvailable) {
+    unsupportedConclusions.push('当前运行未同时计算未调整模型，不能把调整前后差异作为既得结论。');
+  }
+
+  return {
+    schema_version: '1.0',
+    method: { algorithm_id: algorithmId, method_version: SCHEMA_VERSION },
+    estimates,
+    counts,
+    analysis_availability: isRegression
+      ? {
+          unadjusted: adjustedAvailable ? 'not_computed' : 'available',
+          adjusted: adjustedAvailable ? 'available' : 'not_computed',
+        }
+      : { unadjusted: skillId === 'tableone' ? 'not_applicable' : 'available', adjusted: 'not_applicable' },
+    effect_unit: estimates[0]?.effect_unit ?? null,
+    convergence: { status: convergence },
+    assumption_diagnostics: assumptionDiagnostics(algorithmId, payload),
+    exclusions: counts.missing_n > 0
+      ? [{ reason: '所用变量至少一项缺失；具体排除与可用案例规则见算法结果。', n: counts.missing_n }]
+      : [],
+    interpretation: {
+      statistical: null,
+      practical_significance: null,
+      unsupported_conclusions: unsupportedConclusions,
+    },
+    provenance: {
+      engine_name: '@stats-code/engine',
+      engine_version: matrix.release_version,
+      validation_coverage: matrixEntry ? { ...matrixEntry.coverage } : {},
+    },
+  };
+}
+
 function tableOneColumns(args: Record<string, unknown>, ctx: SkillContext): { continuous: string[]; categorical: string[] } {
   const continuous = asOptionalStringArray(args.continuous, 'continuous');
   const categorical = asOptionalStringArray(args.categorical, 'categorical');
@@ -161,6 +525,142 @@ function tableOneColumns(args: Record<string, unknown>, ctx: SkillContext): { co
       .filter((column) => column.inferred_type === 'Categorical' || column.inferred_type === 'String')
       .map((column) => column.name),
   };
+}
+
+type TableOneGroupSummary = {
+  label: string;
+  n: number;
+  continuous: Array<ReturnType<typeof stats.tableone.summarizeContinuous>>;
+  categorical: Array<ReturnType<typeof stats.tableone.summarizeCategorical>>;
+};
+
+function tableOneStandardizedDifferences(
+  groups: TableOneGroupSummary[],
+  continuous: string[],
+  categorical: string[],
+) {
+  const pair = groups.length === 2 ? [groups[0]!, groups[1]!] as const : null;
+  const findContinuous = (group: TableOneGroupSummary, variable: string) =>
+    group.continuous.find((summary) => summary.variable === variable);
+  const findCategorical = (group: TableOneGroupSummary, variable: string) =>
+    group.categorical.find((summary) => summary.variable === variable);
+
+  return {
+    comparison: pair ? { first: pair[0].label, second: pair[1].label } : null,
+    continuous: continuous.map((variable) => {
+      const first = pair ? findContinuous(pair[0], variable) : undefined;
+      const second = pair ? findContinuous(pair[1], variable) : undefined;
+      return {
+        variable,
+        smd: first && second ? stats.tableone.standardizedMeanDifference(first, second) : null,
+      };
+    }),
+    categorical: categorical.map((variable) => {
+      const first = pair ? findCategorical(pair[0], variable) : undefined;
+      const second = pair ? findCategorical(pair[1], variable) : undefined;
+      const levels = [...new Set([
+        ...(first?.levels.map((level) => level.level) ?? []),
+        ...(second?.levels.map((level) => level.level) ?? []),
+      ])].sort();
+      const levelDifferences = levels.map((level) => ({
+        level,
+        smd: first && second
+          ? stats.tableone.standardizedProportionDifference(
+              first.levels.find((entry) => entry.level === level)?.count ?? 0,
+              first.n,
+              second.levels.find((entry) => entry.level === level)?.count ?? 0,
+              second.n,
+            )
+          : null,
+      }));
+      const finiteDifferences = levelDifferences
+        .map((entry) => entry.smd)
+        .filter((value): value is number => value !== null && Number.isFinite(value));
+      return {
+        variable,
+        smd: finiteDifferences.length > 0 ? Math.max(...finiteDifferences) : null,
+        levels: levelDifferences,
+      };
+    }),
+  };
+}
+
+const CATEGORICAL_TEST_REASON = {
+  empty_table: '没有可用于比较的非缺失观测。',
+  insufficient_dimensions: '至少需要 2 个组和 2 个非缺失水平。',
+  zero_margin: '至少一个组或水平没有非缺失观测，未计算检验。',
+  sparse_non_2x2: '存在期望频数小于 5；当前仅对 2×2 表提供 Fisher 精确检验。',
+} as const;
+
+function tableOneCategoricalTests(
+  groups: TableOneGroupSummary[],
+  categorical: string[],
+  strata: string | null,
+) {
+  const findCategorical = (group: TableOneGroupSummary, variable: string) =>
+    group.categorical.find((summary) => summary.variable === variable);
+
+  return categorical.map((variable) => {
+    if (variable === strata) {
+      return {
+        variable,
+        status: 'not_applicable' as const,
+        method: null,
+        statistic: null,
+        degrees_of_freedom: null,
+        p_value: null,
+        min_expected_count: null,
+        expected_below_5: 0,
+        observed_zero_cells: 0,
+        groups: groups.map((group) => group.label),
+        levels: [],
+        observed: [],
+        reason: '分组变量自身不进行组间独立性检验。',
+      };
+    }
+
+    const levels = [...new Set(groups.flatMap((group) =>
+      findCategorical(group, variable)?.levels.map((level) => level.level) ?? []))].sort();
+    const table = groups.map((group) => {
+      const summary = findCategorical(group, variable);
+      return levels.map((level) => summary?.levels.find((entry) => entry.level === level)?.count ?? 0);
+    });
+    const result = stats.contingency.categoricalIndependenceTest(table);
+    if (result.status === 'not_computed') {
+      return {
+        variable,
+        status: result.status,
+        method: null,
+        statistic: null,
+        degrees_of_freedom: null,
+        p_value: null,
+        min_expected_count: result.minExpectedCount,
+        expected_below_5: result.expectedBelowFive,
+        observed_zero_cells: result.observedZeroCells,
+        groups: groups.map((group) => group.label),
+        levels,
+        observed: table,
+        reason: CATEGORICAL_TEST_REASON[result.reason],
+      };
+    }
+    return {
+      variable,
+      status: result.status,
+      method: result.method,
+      statistic: result.statistic,
+      degrees_of_freedom: result.degreesOfFreedom,
+      p_value: result.pValue,
+      min_expected_count: result.minExpectedCount,
+      expected_below_5: result.expectedBelowFive,
+      observed_zero_cells: result.observedZeroCells,
+      groups: groups.map((group) => group.label),
+      levels,
+      observed: table,
+      reason: result.method === 'fisher_exact'
+        ? '期望频数小于 5 或出现零格，已自动使用 Fisher 精确检验。'
+        : null,
+    };
+  });
 }
 
 function runTableOne(headers: string[], rows: string[][], args: Record<string, unknown>, ctx: SkillContext): Record<string, unknown> {
@@ -182,7 +682,7 @@ function runTableOne(headers: string[], rows: string[][], args: Record<string, u
     groupIndexes.set('Overall', allIndexes);
   }
 
-  const groups = [...groupIndexes.entries()].map(([label, indexes]) => ({
+  const groups: TableOneGroupSummary[] = [...groupIndexes.entries()].map(([label, indexes]) => ({
     label,
     n: indexes.length,
     continuous: continuous.map((name) =>
@@ -198,6 +698,8 @@ function runTableOne(headers: string[], rows: string[][], args: Record<string, u
     continuous,
     categorical,
     groups,
+    standardized_differences: tableOneStandardizedDifferences(groups, continuous, categorical),
+    categorical_tests: tableOneCategoricalTests(groups, categorical, group),
   };
 }
 
@@ -284,7 +786,9 @@ export class SkillRunner {
     ctx: SkillContext,
   ): Promise<SkillResult> {
     const payload = await this.computePayload(descriptor, args, ctx);
-    const riskSignals = detectRiskSignals(payload);
+    const riskSignals = detectRiskSignals(payload, {
+      phase: descriptor.skillId === 'power' ? 'design' : 'analysis',
+    });
 
     let analysis: AnalysisResultMeta | null = null;
     const algorithmId = skillToAlgorithm(descriptor.skillId);
@@ -297,6 +801,7 @@ export class SkillRunner {
         params: args,
         run_id: randomUUID(),
         run_status: 'completed',
+        result_contract: buildStandardResultContract(descriptor.skillId, algorithmId, args, ctx, payload),
       };
     }
 
@@ -320,7 +825,7 @@ export class SkillRunner {
       return this.runNative(skillId, args, ctx);
     }
 
-    const { headers, rows } = parseRows(ctx.datasetBytes, ctx.datasetSummary.file_name);
+    const { headers, rows } = parseDelimitedTable(ctx.datasetBytes, ctx.datasetSummary.file_name);
 
     switch (invoker.algorithmId) {
       case 'tableone':
@@ -332,6 +837,7 @@ export class SkillRunner {
         const predictors = asStringArray(args.predictors, 'predictors');
         const y = numericColumn(headers, rows, outcome);
         const x = designMatrix(headers, rows, predictors);
+        const collinearity = modelDesignDiagnostic(x.map((row) => row.slice(1)), predictors);
         const res = stats.linear.ols(x, y);
         return {
           coefficients: withCoefficientTerms(res.coefficients, predictors),
@@ -341,6 +847,11 @@ export class SkillRunner {
           p_value: res.fPValue,
           residual_std_error: res.residualStdError,
           n: res.n,
+          model_diagnostics: {
+            convergence: convergenceDiagnostic(null),
+            sparse_data: sparseInformationDiagnostic('not_applicable', null, predictors.length),
+            collinearity,
+          },
         };
       }
       case 'logistic': {
@@ -348,13 +859,25 @@ export class SkillRunner {
         const predictors = asStringArray(args.predictors, 'predictors');
         const y = numericColumn(headers, rows, outcome);
         const x = designMatrix(headers, rows, predictors);
+        const collinearity = modelDesignDiagnostic(x.map((row) => row.slice(1)), predictors);
         const res = stats.logistic.logisticRegression(x, y);
+        const eventN = y.reduce((sum, value) => sum + value, 0);
+        const nonEventN = y.length - eventN;
         return {
           coefficients: withCoefficientTerms(res.coefficients, predictors),
           odds_ratios: res.coefficients.map((c) => c.oddsRatio),
           p_values: res.coefficients.map((c) => c.pValue),
           log_likelihood: res.logLikelihood,
           converged: res.converged,
+          iterations: res.iterations,
+          event_n: eventN,
+          non_event_n: nonEventN,
+          model_diagnostics: {
+            convergence: convergenceDiagnostic(res.converged, res.iterations),
+            sparse_data: sparseInformationDiagnostic('rarer_outcome_class', Math.min(eventN, nonEventN), predictors.length),
+            collinearity,
+            separation_screen: logisticSeparationDiagnostic(res.coefficients, res.converged),
+          },
         };
       }
       case 'cox': {
@@ -363,14 +886,57 @@ export class SkillRunner {
         const predictors = asStringArray(args.predictors, 'predictors');
         const times = numericColumn(headers, rows, time);
         const events = numericColumn(headers, rows, event);
+        if (events.some((value) => value !== 0 && value !== 1)) {
+          throw new Error('Cox event indicator must be encoded as 0/1.');
+        }
         const predCols = predictors.map((p) => numericColumn(headers, rows, p));
+        const predictorRows = rows.map((_, i) => predCols.map((column) => column[i]!));
+        const collinearity = modelDesignDiagnostic(predictorRows, predictors);
         const observations = rows.map((_, i) => ({
           time: times[i]!,
           event: events[i]! !== 0,
-          x: predCols.map((c) => c[i]!),
+          x: predictorRows[i]!,
           weight: 1,
         }));
         const res = stats.cox.coxRegression(observations);
+        const eventN = observations.filter((observation) => observation.event).length;
+        const phTest = res.converged
+          ? stats.cox.coxProportionalHazardsTest(observations, res.coefficients.map((coefficient) => coefficient.beta))
+          : null;
+        const phPayload = phTest === null ? {
+          status: 'not_computed',
+          method: 'time_interaction_score',
+          time_transform: 'centered_log1p',
+          alpha: 0.05,
+          statistic: null,
+          degrees_of_freedom: null,
+          p_value: null,
+          violated: false,
+          reason: 'model_not_converged',
+          covariates: [],
+          recommendation: '模型未收敛，不能解释 PH 诊断；应先修复模型拟合。',
+        } : {
+          status: phTest.status,
+          method: phTest.method,
+          time_transform: phTest.timeTransform,
+          alpha: phTest.alpha,
+          statistic: phTest.statistic,
+          degrees_of_freedom: phTest.degreesOfFreedom,
+          p_value: phTest.pValue,
+          violated: phTest.violated,
+          reason: phTest.status === 'not_computed' ? phTest.reason : null,
+          covariates: phTest.covariates.map((covariate) => ({
+            term: predictors[covariate.index] ?? `β${covariate.index}`,
+            statistic: covariate.statistic,
+            p_value: covariate.pValue,
+            violated: covariate.violated,
+          })),
+          recommendation: phTest.status === 'computed' && phTest.violated
+            ? '评估分层 Cox、显式时间交互项或分时段 HR，并由方法专家审核。'
+            : phTest.status === 'computed'
+              ? '未发现系统性时间趋势；仍需结合图形、设计和领域知识审核。'
+              : '事件信息或信息矩阵不足，PH 诊断不可解释。',
+        };
         // Cox design has no intercept column — terms are predictors only.
         return {
           coefficients: res.coefficients.map((coeff, index) => ({
@@ -381,6 +947,15 @@ export class SkillRunner {
           p_values: res.coefficients.map((c) => c.pValue),
           log_partial_likelihood: res.logPartialLikelihood,
           converged: res.converged,
+          iterations: res.iterations,
+          event_n: eventN,
+          ph_test: phPayload,
+          cox_ph_violated: phPayload.violated,
+          model_diagnostics: {
+            convergence: convergenceDiagnostic(res.converged, res.iterations),
+            sparse_data: sparseInformationDiagnostic('events', eventN, predictors.length),
+            collinearity,
+          },
         };
       }
       case 'kaplan_meier': {
@@ -388,10 +963,59 @@ export class SkillRunner {
         const event = asString(args.event, 'event');
         const times = numericColumn(headers, rows, time);
         const events = numericColumn(headers, rows, event).map((v) => v !== 0);
-        const res = stats.survival.kaplanMeier(times, events);
+        const group = typeof args.group === 'string' && args.group.trim().length > 0 ? args.group : null;
+        const groupValues = group
+          ? rows.map((row) => row[columnIndex(headers, group)]?.trim() ?? '')
+          : rows.map(() => 'Overall');
+        if (groupValues.some((value) => value.length === 0)) {
+          throw new Error(`Kaplan-Meier group column ${group ?? ''} contains missing values.`);
+        }
+        const labels = [...new Set(groupValues)].sort();
+        const overall = stats.survival.kaplanMeier(times, events);
+        const grouped = labels.map((label) => {
+          const indexes = groupValues.map((value, index) => value === label ? index : -1).filter((index) => index >= 0);
+          const groupTimes = indexes.map((index) => times[index]!);
+          const groupEvents = indexes.map((index) => events[index]!);
+          return {
+            label,
+            times: groupTimes,
+            events: groupEvents,
+            result: stats.survival.kaplanMeier(groupTimes, groupEvents),
+          };
+        });
+        const logRank = group ? stats.survival.logRankTest(times, events, groupValues) : null;
         return {
-          survival_table: res.points,
-          median_survival: res.medianSurvival,
+          survival_table: overall.points,
+          median_survival: overall.medianSurvival,
+          groups: labels,
+          steps: grouped.flatMap((entry) => entry.result.points.map((point) => ({
+            group: entry.label,
+            time: point.time,
+            at_risk: point.atRisk,
+            events: point.events,
+            censored: point.censored,
+            survival: point.survival,
+            std_error: point.stdError,
+          }))),
+          group_summaries: grouped.map((entry) => {
+            const eventCount = entry.events.filter(Boolean).length;
+            return {
+              group: entry.label,
+              n: entry.times.length,
+              event_n: eventCount,
+              censored_n: entry.times.length - eventCount,
+              median_survival: entry.result.medianSurvival,
+            };
+          }),
+          log_rank: logRank === null ? null : {
+            status: logRank.status,
+            method: logRank.method,
+            statistic: logRank.statistic,
+            degrees_of_freedom: logRank.degreesOfFreedom,
+            p_value: logRank.pValue,
+            reason: logRank.status === 'not_computed' ? logRank.reason : null,
+            groups: logRank.groups,
+          },
         };
       }
       default:

@@ -40,6 +40,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 
 import {
   coverageOf,
+  lookup,
   type CoverageState,
   type ReferenceSoftware,
 } from '../lib/coverageMatrix';
@@ -47,6 +48,7 @@ import { useCoverageMatrix } from '../lib/coverageMatrixContext';
 import { useSidecar, type SidecarColumn } from '../hooks/useSidecar';
 import { CopyToClipboard } from './CopyToClipboard';
 import { SidecarFooter } from './SidecarFooter';
+import { ValidationCertificate } from './ValidationCertificate';
 
 // ---------------------------------------------------------------------------
 // Tab order — fixed by Requirement 1.2.
@@ -159,6 +161,7 @@ export function EquivalentCodeSidecar({
     !matrixLoading && matrix !== undefined,
     matrix ? coverageOf(matrix, algorithmId, activeTab) : undefined,
   );
+  const matrixEntry = matrix ? lookup(matrix, algorithmId) : undefined;
 
   // The hook is called unconditionally to satisfy the rules of hooks.
   // `enabled: false` makes the hook a no-op when:
@@ -313,6 +316,15 @@ export function EquivalentCodeSidecar({
           />
         ) : null}
       </div>
+
+      {!matrixLoading && matrixError === undefined && matrix ? (
+        <ValidationCertificate
+          algorithmId={algorithmId}
+          entry={matrixEntry}
+          releaseVersion={releaseVersion}
+          matrixSchemaVersion={matrix.schema_version}
+        />
+      ) : null}
 
       <SidecarFooter
         datasetSha256={datasetSha256}

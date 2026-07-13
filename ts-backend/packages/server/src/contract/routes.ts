@@ -12,9 +12,14 @@ import {
   session,
   sessionSummary,
   sessionSettings,
+  researchProtocolInput,
   datasetSummary,
   skillResult,
   runRequest,
+  datasetAudit,
+  datasetAuditRequest,
+  analysisPlanApproval,
+  analysisPlanApprovalRequest,
   errorPayload,
   llmProvider,
 } from './domain.js';
@@ -51,6 +56,8 @@ export const healthResponse = z.object({ status: z.literal('ok') });
 export const patchSettingsRequest = z.object({
   decision_assistant: z.boolean(),
 });
+
+export const patchResearchProtocolRequest = researchProtocolInput;
 
 // Dataset upload (JSON base64 variant). multipart is also accepted by the
 // handler but the contract schema covers the JSON shape.
@@ -94,7 +101,7 @@ export const postMessageRequest = z.object({
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
 
-/** The 13 API_Contract routes. The SPA fallback is registered separately (task 3.4). */
+/** API contract routes. The SPA fallback is registered separately (task 3.4). */
 export const ROUTE_CONTRACTS: readonly RouteContract[] = [
   {
     id: 'health',
@@ -132,6 +139,14 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     successStatus: 200,
   },
   {
+    id: 'patch_research_protocol',
+    method: 'PATCH',
+    path: '/api/sessions/:sid/protocol',
+    request: patchResearchProtocolRequest,
+    response: session,
+    successStatus: 200,
+  },
+  {
     id: 'post_message',
     method: 'POST',
     path: '/api/sessions/:sid/messages',
@@ -162,6 +177,22 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     path: '/api/sessions/:sid/datasets/:did',
     response: datasetSummary,
     successStatus: 200,
+  },
+  {
+    id: 'audit_dataset',
+    method: 'POST',
+    path: '/api/sessions/:sid/datasets/:did/audit',
+    request: datasetAuditRequest,
+    response: datasetAudit,
+    successStatus: 200,
+  },
+  {
+    id: 'approve_analysis_plan',
+    method: 'POST',
+    path: '/api/sessions/:sid/analysis-plans/approve',
+    request: analysisPlanApprovalRequest,
+    response: analysisPlanApproval,
+    successStatus: 201,
   },
   {
     id: 'get_llm_status',

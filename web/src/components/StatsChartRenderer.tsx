@@ -52,9 +52,10 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
         });
       });
 
-      const pValueText = payload.log_rank
-        ? `Log-rank p: ${payload.log_rank.p_value < 0.001 ? '< 0.001' : payload.log_rank.p_value.toFixed(4)}`
-        : '';
+      const logRankP = typeof payload.log_rank?.p_value === 'number' ? payload.log_rank.p_value : null;
+      const pValueText = logRankP === null
+        ? ''
+        : `Log-rank p: ${logRankP < 0.001 ? '< 0.001' : logRankP.toFixed(4)}`;
 
       return {
         title: {

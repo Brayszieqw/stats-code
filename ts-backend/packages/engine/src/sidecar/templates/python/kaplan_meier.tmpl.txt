@@ -1,7 +1,7 @@
 import pandas as pd
 from lifelines import KaplanMeierFitter
+from lifelines.statistics import multivariate_logrank_test
 
 data = pd.read_csv("data.csv")
 fitter = KaplanMeierFitter()
-fitter.fit(durations=data["{{column.0.name}}"], event_observed=data["{{column.1.name}}"])
-print(fitter.survival_function_)
+{{params.km_python_block}}

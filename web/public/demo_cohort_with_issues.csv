@@ -1,0 +1,13 @@
+participant_id,disease,death,fu_time,fu_pt,age,bmi,smoke,sex
+P001,0,0,11,0.92,35,22.1,never,female
+P002,0,0,12,1.00,42,23.2,former,female
+P003,1,0,10,0.83,49,24.3,current,female
+P004,0,0,11,0.92,56,25.4,never,male
+P004,1,1,12,1.00,63,26.5,former,male
+P006,2,0,10,0.83,70,27.6,current,male
+P007,0,0,11,0,32,28.7,never,female
+P008,1,0,12,1.00,39,29.8,former,female
+P009,0,0,10,0.83,46,20.9,current,female
+P010,1,1,11,0.92,53,22.0,never,male
+P011,0,0,12,1.00,60,23.1,former,male
+P012,1,0,10,0.83,67,24.2,current,male

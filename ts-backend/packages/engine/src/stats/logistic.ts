@@ -46,6 +46,16 @@ export function fitLogistic(x: Matrix, y: readonly number[], weights?: readonly 
   if (n === 0 || p === 0) {
     throw new Error('Empty design matrix.');
   }
+  if (x.some((row) => row.length !== p || row.some((value) => !Number.isFinite(value)))) {
+    throw new Error('Logistic design matrix must be rectangular and finite.');
+  }
+  if (y.length !== n || y.some((value) => value !== 0 && value !== 1)) {
+    throw new Error('Logistic outcome must be aligned to rows and encoded as 0/1.');
+  }
+  const eventCount = y.reduce((sum, value) => sum + value, 0);
+  if (eventCount === 0 || eventCount === n) {
+    throw new Error('Logistic regression requires observations in both outcome classes.');
+  }
   const w = weights ?? new Array(n).fill(1);
   if (w.length !== n || w.some((v) => !Number.isFinite(v) || v <= 0)) {
     throw new Error('Logistic weights must be positive, finite, and aligned to rows.');

@@ -11,6 +11,12 @@ export type AgentBlock = z.infer<typeof domain.agentBlock>;
 export type DatasetSummary = z.infer<typeof domain.datasetSummary>;
 export type ColumnSummary = z.infer<typeof domain.columnSummary>;
 export type SessionSettings = z.infer<typeof domain.sessionSettings>;
+export type ResearchProtocol = z.infer<typeof domain.researchProtocol>;
+export type DatasetAudit = z.infer<typeof domain.datasetAudit>;
+export type DatasetAuditFinding = z.infer<typeof domain.datasetAuditFinding>;
+export type DatasetAuditRoles = z.infer<typeof domain.datasetAuditRoles>;
+export type AnalysisPlanApproval = z.infer<typeof domain.analysisPlanApproval>;
+export type SkillRun = z.infer<typeof domain.skillRun>;
 
 /**
  * Lightweight session summary for the history list (Requirement 11). Shaped to
@@ -42,6 +48,12 @@ export interface SessionStore {
   create(): Promise<Session>;
   get(id: string): Promise<Session>;
   updateSettings(id: string, settings: SessionSettings): Promise<void>;
+  /** Atomic compare-and-swap; false means the expected version is stale. */
+  updateResearchProtocol(id: string, protocol: ResearchProtocol, expectedVersion?: number): Promise<boolean>;
+  appendDatasetAudit(id: string, audit: DatasetAudit): Promise<void>;
+  /** Atomically append only while the session is active and the bound protocol is still current. */
+  appendAnalysisPlanApproval(id: string, approval: AnalysisPlanApproval): Promise<boolean>;
+  appendSkillRun(id: string, run: SkillRun): Promise<void>;
   appendMessages(id: string, messages: Message[]): Promise<void>;
   appendDataset(id: string, dataset: DatasetSummary): Promise<void>;
   deleteSession(id: string): Promise<void>;
@@ -77,7 +89,29 @@ export interface SidecarProvider {
 }
 
 export interface SnapshotProvider {
-  export(runId: string, destination: string): z.infer<typeof sidecar.snapshotExportResponse>;
+  export(
+    runId: string,
+    destination: string,
+  ): z.infer<typeof sidecar.snapshotExportResponse> | Promise<z.infer<typeof sidecar.snapshotExportResponse>>;
+}
+
+export interface SnapshotRunRegistration {
+  runId: string;
+  sessionId: string;
+  algorithmId: string;
+  params: Record<string, unknown>;
+  result: unknown;
+  datasetSummary: DatasetSummary;
+  researchProtocol: ResearchProtocol | null;
+  analysisPlanApproval: AnalysisPlanApproval;
+  datasetAudit: DatasetAudit;
+  startedAtUtc: string;
+  endedAtUtc: string;
+}
+
+/** Records completed deterministic runs so the snapshot route can materialize them later. */
+export interface SnapshotRunRecorder {
+  register(run: SnapshotRunRegistration): void;
 }
 
 /** Dataset persistence + parsing abstraction (conversation layer). */
@@ -116,6 +150,38 @@ export interface SkillRunnerLike {
     args: Record<string, unknown>,
     ctx: RunSkillContext,
   ): Promise<unknown>;
+}
+
+export interface ResearchWorkflowAuditInput {
+  sessionId: string;
+  datasetId: string;
+  skillId: string;
+  args: Record<string, unknown>;
+  expectedProtocolVersion: number;
+  auditRoles?: DatasetAuditRoles;
+}
+
+export interface ResearchWorkflowApproveInput extends ResearchWorkflowAuditInput {
+  expectedAuditId: string;
+  expectedAuditSha256: string;
+}
+
+export interface ResearchWorkflowExecuteInput {
+  sessionId: string;
+  datasetId: string;
+  skillId: string;
+  args: Record<string, unknown>;
+  /** Required for HTTP; conversation may opt into an exact previously approved match. */
+  planId?: string;
+  allowMatchingPlan?: boolean;
+}
+
+/** Single session-aware gate used by every server execution entry point. */
+export interface ResearchWorkflowService {
+  now(): Date;
+  auditDataset(input: ResearchWorkflowAuditInput): Promise<DatasetAudit>;
+  approveAnalysisPlan(input: ResearchWorkflowApproveInput): Promise<AnalysisPlanApproval>;
+  execute(input: ResearchWorkflowExecuteInput): Promise<unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +223,8 @@ export interface AppState {
   skillRunner?: SkillRunnerLike;
   /** Skill registry for resolving a run target descriptor (Requirement 12). */
   skillRegistry?: SkillRegistryLike;
+  /** Mandatory gate for formal analysis execution. */
+  researchWorkflow?: ResearchWorkflowService;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
   /** Whether the backend can drive an OAuth flow (Requirement 13.4/13.5). */
@@ -164,4 +232,5 @@ export interface AppState {
   coverageMatrixProvider?: CoverageMatrixProvider;
   sidecarProvider?: SidecarProvider;
   snapshotProvider?: SnapshotProvider;
+  snapshotRunRecorder?: SnapshotRunRecorder;
 }

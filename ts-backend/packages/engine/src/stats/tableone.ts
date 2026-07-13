@@ -82,3 +82,50 @@ export function summarizeCategorical(variable: string, raw: readonly (string | n
     .map(([level, count]) => ({ level, count, percent: n > 0 ? (count / n) * 100 : 0 }));
   return { variable, type: 'categorical', n, missing, levels };
 }
+
+/** Absolute standardized mean difference using the equal-weight pooled SD. */
+export function standardizedMeanDifference(
+  first: ContinuousSummary,
+  second: ContinuousSummary,
+): number | null {
+  if (
+    first.n === 0
+    || second.n === 0
+    || !Number.isFinite(first.mean)
+    || !Number.isFinite(second.mean)
+    || !Number.isFinite(first.sd)
+    || !Number.isFinite(second.sd)
+  ) return null;
+
+  const difference = Math.abs(first.mean - second.mean);
+  const pooledSd = Math.sqrt((first.sd ** 2 + second.sd ** 2) / 2);
+  if (pooledSd === 0) return difference === 0 ? 0 : null;
+  return difference / pooledSd;
+}
+
+/** Absolute SMD for a binary indicator defined by one categorical level. */
+export function standardizedProportionDifference(
+  firstCount: number,
+  firstN: number,
+  secondCount: number,
+  secondN: number,
+): number | null {
+  if (
+    firstN <= 0
+    || secondN <= 0
+    || firstCount < 0
+    || secondCount < 0
+    || firstCount > firstN
+    || secondCount > secondN
+  ) return null;
+
+  const firstProportion = firstCount / firstN;
+  const secondProportion = secondCount / secondN;
+  const difference = Math.abs(firstProportion - secondProportion);
+  const pooledSd = Math.sqrt((
+    firstProportion * (1 - firstProportion)
+    + secondProportion * (1 - secondProportion)
+  ) / 2);
+  if (pooledSd === 0) return difference === 0 ? 0 : null;
+  return difference / pooledSd;
+}

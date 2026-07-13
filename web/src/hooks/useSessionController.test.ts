@@ -8,14 +8,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { Session } from '../api/types';
 
-const { createSessionMock, getSessionMock } = vi.hoisted(() => ({
+const {
+  approveAnalysisPlanMock,
+  auditDatasetMock,
+  createSessionMock,
+  getSessionMock,
+  patchResearchProtocolMock,
+} = vi.hoisted(() => ({
+  approveAnalysisPlanMock: vi.fn(),
+  auditDatasetMock: vi.fn(),
   createSessionMock: vi.fn(),
   getSessionMock: vi.fn(),
+  patchResearchProtocolMock: vi.fn(),
 }));
 
 vi.mock('../api/client', () => ({
+  approveAnalysisPlan: approveAnalysisPlanMock,
+  auditDataset: auditDatasetMock,
   createSession: createSessionMock,
   getSession: getSessionMock,
+  patchResearchProtocol: patchResearchProtocolMock,
 }));
 
 import { useSessionController } from './useSessionController';
@@ -27,6 +39,9 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     created_at: '2026-01-01T00:00:00Z',
     last_active_at: '2026-01-01T00:00:00Z',
     settings: { decision_assistant: true },
+    research_protocol: null,
+    dataset_audits: [],
+    analysis_plan_approvals: [],
     messages: [],
     datasets: [],
     skill_runs: [],
@@ -47,6 +62,7 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(createSessionMock).toHaveBeenCalledTimes(1);
     expect(result.current.sessionId).toBe('fresh');
+    expect(new URL(window.location.href).searchParams.get('session_id')).toBe('fresh');
   });
 
   it('loads the session from ?session_id= when present (R9.2)', async () => {
@@ -79,6 +95,7 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
       await result.current.loadSession('history-1');
     });
     expect(result.current.sessionId).toBe('history-1');
+    expect(new URL(window.location.href).searchParams.get('session_id')).toBe('history-1');
     expect(result.current.initialMessages).toHaveLength(1);
     expect(result.current.initialMessages[0]!.content).toBe('历史问题');
   });
@@ -111,5 +128,46 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
     });
     expect(result.current.sessionId).toBe('second');
     expect(result.current.initialMessages).toHaveLength(0);
+  });
+
+  it('persists an approved research protocol in the active session', async () => {
+    createSessionMock.mockResolvedValue(makeSession({ id: 'protocol-session' }));
+    const input = {
+      status: 'Approved' as const,
+      research_question: '暴露与结局是否相关？',
+      study_design: 'cohort' as const,
+      population: '成人队列',
+      eligibility_criteria: '有基线记录',
+      exposure: 'exposure',
+      comparator: '未暴露',
+      outcome: 'outcome',
+      time_zero: '基线',
+      follow_up: '一年',
+      analysis_unit: '参与者',
+      estimand: '调整后风险比',
+      confounders: 'age',
+      missing_data_strategy: '完整案例',
+      primary_analysis: '回归模型',
+      sensitivity_analysis: '改变协变量集',
+    };
+    const saved = {
+      ...input,
+      version: 1,
+      content_sha256: 'a'.repeat(64),
+      state_sha256: 'e'.repeat(64),
+      approval_id: '11111111-1111-4111-8111-111111111111',
+      approved_at: '2026-01-02T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+    };
+    patchResearchProtocolMock.mockResolvedValue(makeSession({ research_protocol: saved }));
+
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.sessionId).toBe('protocol-session'));
+    await act(async () => {
+      await result.current.saveResearchProtocol(input);
+    });
+
+    expect(patchResearchProtocolMock).toHaveBeenCalledWith('protocol-session', input);
+    expect(result.current.researchProtocol).toEqual(saved);
   });
 });

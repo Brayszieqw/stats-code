@@ -16,6 +16,7 @@ import {
   createFsDatasetStore,
   createOrchestrator,
   createLlmProvider,
+  createResearchWorkflowService,
   SkillRegistry,
   SkillRunner,
   type AppState,
@@ -47,7 +48,7 @@ function scriptedProvider(): LlmProvider {
     // eslint-disable-next-line @typescript-eslint/require-await
     async *chatStream(): AsyncIterable<LlmEvent> {
       const intent =
-        '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"],"dataset_id":"DATASET_ID"},"has_query_intent":true,"text_response":null}';
+        '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"]},"has_query_intent":true,"text_response":null}';
       const text = call === 0 ? intent : '线性回归解读。';
       call += 1;
       yield { type: 'text_delta', text };
@@ -75,6 +76,12 @@ describe('conversation end-to-end (Requirements 10.2, 10.4, 13.5)', () => {
     const datasetStore = createFsDatasetStore({ root: freshRoot() });
     const registry = SkillRegistry.withDefaults();
     const runner = new SkillRunner(registry);
+    const researchWorkflow = createResearchWorkflowService({
+      sessionStore,
+      datasetStore,
+      registry,
+      runner,
+    });
     const llmConfigStore = memConfigStore();
     const llmProbe: LlmProbe = { probe: () => Promise.resolve() };
 
@@ -86,9 +93,8 @@ describe('conversation end-to-end (Requirements 10.2, 10.4, 13.5)', () => {
 
     const messageHandler = createOrchestrator({
       sessionStore,
-      datasetStore,
       registry,
-      runner,
+      researchWorkflow,
       llmProviderFactory,
     });
 
@@ -98,6 +104,7 @@ describe('conversation end-to-end (Requirements 10.2, 10.4, 13.5)', () => {
       llmConfigStore,
       llmProbe,
       messageHandler,
+      researchWorkflow,
       oauthCapability: { available: false },
     };
     const app = buildRouter({ state });
@@ -121,11 +128,60 @@ describe('conversation end-to-end (Requirements 10.2, 10.4, 13.5)', () => {
     const upload = await app.inject({
       method: 'POST',
       url: `/api/sessions/${sid}/datasets`,
-      payload: { filename: 'data.csv', data: b64('y,x\n1,1\n2,2\n3,3.1\n4,3.9\n5,5\n') },
+      payload: { filename: 'data.csv', data: b64('participant_id,y,x\nP001,1,1\nP002,2,2\nP003,3,3.1\nP004,4,3.9\nP005,5,5\n') },
     });
     expect(upload.statusCode).toBe(201);
     datasetId = upload.json().dataset_id as string;
     expect(datasetId).toMatch(/[0-9a-f-]{36}/);
+
+    const protocol = await app.inject({
+      method: 'PATCH',
+      url: `/api/sessions/${sid}/protocol`,
+      payload: {
+        status: 'Approved',
+        research_question: 'x 是否与 y 相关？',
+        study_design: 'cross_sectional',
+        population: '演示成人队列',
+        eligibility_criteria: '每人一行',
+        exposure: 'x',
+        comparator: 'x 每增加 1 单位',
+        outcome: 'y',
+        time_zero: '基线',
+        follow_up: '横断面',
+        analysis_unit: '参与者',
+        estimand: 'x 每增加 1 单位对应的平均 y 差',
+        confounders: '',
+        missing_data_strategy: '完整案例',
+        primary_analysis: '多元线性回归',
+        sensitivity_analysis: '',
+      },
+    });
+    expect(protocol.statusCode).toBe(200);
+    const audit = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/datasets/${datasetId}/audit`,
+      payload: {
+        skill_id: 'model_linear',
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+      },
+    });
+    expect(audit.statusCode).toBe(200);
+    const auditResult = audit.json();
+    const approval = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/analysis-plans/approve`,
+      payload: {
+        skill_id: 'model_linear',
+        dataset_id: datasetId,
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+        expected_audit_id: auditResult.audit_id,
+        expected_audit_sha256: auditResult.audit_sha256,
+        audit_roles: auditResult.roles,
+      },
+    });
+    expect(approval.statusCode).toBe(201);
 
     // 4. Send a recognized single-skill message; assert the SSE stream order.
     const res = await app.inject({
@@ -150,15 +206,21 @@ describe('conversation end-to-end (Requirements 10.2, 10.4, 13.5)', () => {
     const sessionStore = new MemSessionStore();
     const datasetStore = createFsDatasetStore({ root: freshRoot() });
     const registry = SkillRegistry.withDefaults();
-    const llmConfigStore = memConfigStore();
-    const messageHandler = createOrchestrator({
+    const runner = new SkillRunner(registry);
+    const researchWorkflow = createResearchWorkflowService({
       sessionStore,
       datasetStore,
       registry,
-      runner: new SkillRunner(registry),
+      runner,
+    });
+    const llmConfigStore = memConfigStore();
+    const messageHandler = createOrchestrator({
+      sessionStore,
+      registry,
+      researchWorkflow,
       llmProviderFactory: () => (llmConfigStore.read() ? createLlmProvider({ provider: 'deepseek', apiKey: 'x' }) : null),
     });
-    const state: AppState = { sessionStore, datasetStore, llmConfigStore, messageHandler };
+    const state: AppState = { sessionStore, datasetStore, llmConfigStore, messageHandler, researchWorkflow };
     const app = buildRouter({ state });
 
     // Health works; status reports unconfigured.

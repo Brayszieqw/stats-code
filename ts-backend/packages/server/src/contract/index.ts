@@ -8,6 +8,7 @@ export {
   type HttpMethod,
   healthResponse,
   patchSettingsRequest,
+  patchResearchProtocolRequest,
   base64DatasetRequest,
   postAudioResponse,
   llmStatusResponse,

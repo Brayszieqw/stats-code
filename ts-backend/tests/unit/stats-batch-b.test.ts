@@ -72,6 +72,47 @@ describe('Kaplan-Meier', () => {
     // median survival is the first time S ≤ 0.5
     expect(r.medianSurvival).toBe(2);
   });
+
+  it('keeps the terminal all-event standard error finite', () => {
+    const r = survival.kaplanMeier([1], [true]);
+    expect(r.points[0]).toMatchObject({ survival: 0, stdError: 0 });
+    expect(Number.isFinite(r.points[0]!.stdError)).toBe(true);
+  });
+});
+
+describe('log-rank', () => {
+  it('matches the lifelines two-group gold value', () => {
+    const result = survival.logRankTest(
+      [1, 2, 3, 4, 5, 2, 3, 4, 5, 6],
+      [true, true, false, true, false, false, true, false, false, true],
+      ['A', 'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B'],
+    );
+    expect(result.status).toBe('computed');
+    expect(result.statistic).toBeCloseTo(1.5333798671220824, 12);
+    expect(result.pValue).toBeCloseTo(0.21560589487391288, 9);
+    expect(result.degreesOfFreedom).toBe(1);
+    expect(result.groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ group: 'A', n: 5, events: 3, censored: 2 }),
+      expect.objectContaining({ group: 'B', n: 5, events: 2, censored: 3 }),
+    ]));
+  });
+
+  it('uses the full covariance for a three-group comparison', () => {
+    const result = survival.logRankTest(
+      [1, 2, 3, 4, 5, 2, 3, 4, 5, 6, 1, 3, 4, 6, 7],
+      [true, true, false, true, false, false, true, false, false, true, true, false, true, false, false],
+      ['A', 'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B', 'C', 'C', 'C', 'C', 'C'],
+    );
+    expect(result.status).toBe('computed');
+    expect(result.statistic).toBeCloseTo(1.3869230534821408, 12);
+    expect(result.pValue).toBeCloseTo(0.4998428516102297, 9);
+    expect(result.degreesOfFreedom).toBe(2);
+  });
+
+  it('reports all-censored data instead of fabricating a p-value', () => {
+    const result = survival.logRankTest([1, 2, 3, 4], [false, false, false, false], ['A', 'A', 'B', 'B']);
+    expect(result).toMatchObject({ status: 'not_computed', reason: 'no_events', pValue: null });
+  });
 });
 
 describe('life table', () => {

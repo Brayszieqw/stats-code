@@ -13,23 +13,22 @@
 import { randomUUID } from 'node:crypto';
 import type {
   AgentEvent,
-  DatasetStore,
   MessageHandler,
+  ResearchWorkflowService,
   SessionSettings,
   SessionStore,
   UserMessageInput,
 } from '../state.js';
 import type { LlmEvent, LlmProvider, LlmRequest } from './llm-provider.js';
 import type { SkillDescriptor, SkillRegistry } from './skill-registry.js';
-import { SkillRunner } from './skill-runner.js';
 import { SkillRunErrorException, type SkillResult } from './skill-runner-types.js';
 import { heuristicIntent } from './heuristic-intent.js';
+import { ResearchWorkflowError } from './research-workflow.js';
 
 export interface OrchestratorDeps {
   sessionStore: SessionStore;
-  datasetStore: DatasetStore;
   registry: SkillRegistry;
-  runner: SkillRunner;
+  researchWorkflow: ResearchWorkflowService;
   /** Returns a provider from the CURRENT persisted config, or null if unconfigured. */
   llmProviderFactory: () => LlmProvider | null;
 }
@@ -128,7 +127,7 @@ function findMissingArgs(desc: SkillDescriptor, resolved: Record<string, unknown
 }
 
 export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
-  const { sessionStore, datasetStore, registry, runner, llmProviderFactory } = deps;
+  const { sessionStore, registry, researchWorkflow, llmProviderFactory } = deps;
 
   async function addSessionDatasetDefault(
     sessionId: string,
@@ -208,11 +207,15 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
   function generateFollowUpPrompt(result: SkillResult): ChoicePrompt {
     const options: ChoiceOption[] = [];
     const signals = result.risk_signals;
-    if (signals.includes('PValueAboveAlpha')) {
-      options.push({ option_id: 'change_model', text: '尝试其他模型', explanation: '当前结果不显著，可能需要换用其他统计方法' });
-    }
-    if (signals.includes('VifTooHigh')) {
+    const actionableSignals = signals.filter((signal) => signal !== 'PValueAboveAlpha');
+    if (signals.includes('VifTooHigh') || signals.includes('CollinearityDetected')) {
       options.push({ option_id: 'reduce_vars', text: '减少自变量', explanation: '存在多重共线性，建议移除部分高相关变量' });
+    }
+    if (signals.includes('ModelConvergenceFailed')) {
+      options.push({ option_id: 'repair_fit', text: '检查模型拟合', explanation: '模型未收敛，应先检查编码、分离、尺度和模型复杂度' });
+    }
+    if (signals.includes('SparseData')) {
+      options.push({ option_id: 'review_sparse', text: '处理稀疏信息', explanation: '精简参数、增加事件信息或评估合适的惩罚方法' });
     }
     if (signals.includes('LowPower')) {
       options.push({ option_id: 'increase_sample', text: '功效分析', explanation: '检验功效不足，建议进行样本量估算' });
@@ -220,7 +223,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     options.push({ option_id: 'sensitivity', text: '做敏感性分析', explanation: '验证结果稳健性' });
     options.push({ option_id: 'add_variables', text: '补充变量', explanation: '加入更多协变量或交互项' });
     options.push({ option_id: 'done', text: '结束分析', explanation: '当前结果已满足需求' });
-    const recommendation = signals.length > 0 ? 'sensitivity' : null;
+    const recommendation = actionableSignals.length > 0 ? 'sensitivity' : null;
     return {
       prompt_id: randomUUID(),
       question: '分析已完成。您接下来想：',
@@ -378,29 +381,6 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     return text;
   }
 
-  /** Resolve the dataset bytes/summary for a skill run from session + store. */
-  async function loadDatasetContext(
-    sessionId: string,
-    args: Record<string, unknown>,
-  ): Promise<{ bytes: Uint8Array; summary: import('../state.js').DatasetSummary }> {
-    const session = await sessionStore.get(sessionId);
-    const datasetId = typeof args.dataset_id === 'string' ? args.dataset_id : undefined;
-    let summary = datasetId ? session.datasets.find((d) => d.dataset_id === datasetId) : undefined;
-    // Fall back to the most recently uploaded dataset when none is named.
-    if (!summary && session.datasets.length > 0) {
-      summary = session.datasets[session.datasets.length - 1];
-    }
-    if (!summary) {
-      throw new SkillRunErrorException({
-        kind: 'invalid_args',
-        missing: ['dataset_id'],
-        message: '在当前会话中未找到数据集',
-      });
-    }
-    const bytes = await datasetStore.readRawById(summary.dataset_id);
-    return { bytes, summary };
-  }
-
   async function* handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent> {
     const provider = llmProviderFactory();
     if (!provider) {
@@ -471,15 +451,17 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
         yield { type: 'error', payload: action.payload };
         break;
       case 'run_skill': {
-        const desc = registry.get(action.skillId)!;
         yield { type: 'skill_call', skill_id: action.skillId, args: action.args };
         let result: SkillResult;
         try {
-          const ctx = await loadDatasetContext(sessionId, action.args);
-          result = await runner.run(desc, action.args, {
-            datasetBytes: ctx.bytes,
-            datasetSummary: ctx.summary,
-          });
+          const datasetId = typeof action.args.dataset_id === 'string' ? action.args.dataset_id : '';
+          result = await researchWorkflow.execute({
+            sessionId,
+            datasetId,
+            skillId: action.skillId,
+            args: action.args,
+            allowMatchingPlan: true,
+          }) as SkillResult;
         } catch (err) {
           yield { type: 'error', payload: mapSkillError(err) };
           break;
@@ -509,6 +491,9 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
 
 /** Map a thrown skill error to an AgentEvent error payload. */
 function mapSkillError(err: unknown): { error_code: string; message: string } {
+  if (err instanceof ResearchWorkflowError) {
+    return { error_code: err.code, message: err.message };
+  }
   if (err instanceof SkillRunErrorException) {
     const d = err.detail;
     switch (d.kind) {

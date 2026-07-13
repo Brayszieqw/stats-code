@@ -5,8 +5,22 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { listSessions, deleteSession, postDataset, runSkill, ApiError } from './client';
-import type { DatasetSummary, SessionSummary, SkillResult } from './types';
+import {
+  ApiError,
+  approveAnalysisPlan,
+  auditDataset,
+  deleteSession,
+  listSessions,
+  postDataset,
+  runSkill,
+} from './client';
+import type {
+  AnalysisPlanApproval,
+  DatasetAudit,
+  DatasetSummary,
+  SessionSummary,
+  SkillResult,
+} from './types';
 
 function mockFetchOnce(status: number, body: unknown) {
   const fn = vi.fn().mockResolvedValue({
@@ -74,6 +88,91 @@ describe('runSkill', () => {
     await expect(
       runSkill('sid-1', { skill_id: 'model_linear', dataset_id: 'ds-1', args: {} }),
     ).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('research workflow gates', () => {
+  const audit: DatasetAudit = {
+    schema_version: '1.0',
+    audit_rules_version: '1.1.0',
+    audit_id: '22222222-2222-4222-8222-222222222222',
+    dataset_id: 'ds-1',
+    dataset_sha256: 'b'.repeat(64),
+    protocol_version: 2,
+    skill_id: 'model_linear',
+    run_spec_sha256: 'c'.repeat(64),
+    roles: { primary_key: ['participant_id'] },
+    status: 'passed',
+    findings: [],
+    audit_sha256: 'd'.repeat(64),
+    created_at: '2026-01-01T00:00:00Z',
+  };
+
+  it('requests a server dataset audit without client approval timestamps', async () => {
+    const fetchFn = mockFetchOnce(200, audit);
+    const body = {
+      skill_id: 'model_linear',
+      args: { outcome: 'y', predictors: ['x'] },
+      expected_protocol_version: 2,
+      audit_roles: { primary_key: ['participant_id'] },
+    };
+
+    await expect(auditDataset('sid-1', 'ds-1', body)).resolves.toEqual(audit);
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/sessions/sid-1/datasets/ds-1/audit',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(JSON.parse(fetchFn.mock.calls[0]![1].body)).not.toHaveProperty('approved_at');
+  });
+
+  it('approves the exact audit the user reviewed', async () => {
+    const approval: AnalysisPlanApproval = {
+      schema_version: '1.0',
+      plan_id: '33333333-3333-4333-8333-333333333333',
+      approval_id: '44444444-4444-4444-8444-444444444444',
+      status: 'Approved',
+      protocol_version: 2,
+      protocol_sha256: 'a'.repeat(64),
+      protocol_approval_id: '11111111-1111-4111-8111-111111111111',
+      dataset_id: 'ds-1',
+      dataset_sha256: audit.dataset_sha256,
+      skill_id: audit.skill_id,
+      args: { outcome: 'y', predictors: ['x'] },
+      run_spec_sha256: audit.run_spec_sha256,
+      audit_id: audit.audit_id,
+      audit_sha256: audit.audit_sha256,
+      audit_roles: audit.roles,
+      approved_at: '2026-01-01T00:00:01Z',
+    };
+    const fetchFn = mockFetchOnce(200, approval);
+    const body = {
+      dataset_id: 'ds-1',
+      skill_id: audit.skill_id,
+      args: approval.args,
+      expected_protocol_version: 2,
+      expected_audit_id: audit.audit_id,
+      expected_audit_sha256: audit.audit_sha256,
+      audit_roles: audit.roles,
+    };
+
+    await expect(approveAnalysisPlan('sid-1', body)).resolves.toEqual(approval);
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/sessions/sid-1/analysis-plans/approve',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    );
+    const sent = JSON.parse(fetchFn.mock.calls[0]![1].body);
+    expect(sent).toMatchObject({
+      expected_audit_id: audit.audit_id,
+      expected_audit_sha256: audit.audit_sha256,
+    });
+    expect(sent).not.toHaveProperty('approved_at');
   });
 });
 

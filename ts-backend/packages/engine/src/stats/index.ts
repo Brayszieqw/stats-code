@@ -45,6 +45,7 @@ export * as anova from './anova.js';
 export * as correlation from './correlation.js';
 export * as nonparametric from './nonparametric.js';
 export * as tableone from './tableone.js';
+export * as contingency from './contingency.js';
 export { rankWithTies } from './rank.js';
 
 // Batch B (Phase 3, task 7.1).
@@ -52,6 +53,7 @@ export * as linear from './linear.js';
 export * as epi from './epi.js';
 export * as survival from './survival.js';
 export * as diagnostic from './diagnostic.js';
+export * as modelDiagnostics from './model-diagnostics.js';
 export * as standardization from './standardization.js';
 
 // Iterative algorithms (Phase 4, task 9.1).

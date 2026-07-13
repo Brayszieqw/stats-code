@@ -46,11 +46,45 @@ describe('logistic regression (IRLS)', () => {
     expect(fit.iterations).toBeLessThanOrEqual(50);
     expect(fit.beta).toHaveLength(2);
   });
+
+  it('rejects non-binary and single-class outcomes before fitting', () => {
+    const x = [[1, 0], [1, 1], [1, 2]];
+    expect(() => logistic.logisticRegression(x, [0, 2, 1])).toThrow(/encoded as 0\/1/);
+    expect(() => logistic.logisticRegression(x, [0, 0, 0])).toThrow(/both outcome classes/);
+  });
 });
 
 describe('Cox proportional hazards (Efron ties)', () => {
   function obs(time: number, event: boolean, x: number[], weight = 1): cox.CoxObservation {
     return { time, event, x, weight };
+  }
+
+  function simulatedBinaryCox(seed: number, crossing: boolean): cox.CoxObservation[] {
+    let state = seed >>> 0;
+    const random = () => {
+      state = (1664525 * state + 1013904223) >>> 0;
+      return (state + 0.5) / 4294967296;
+    };
+    const exponential = (rate: number) => -Math.log(random()) / rate;
+    const observations: cox.CoxObservation[] = [];
+    const perGroup = crossing ? 60 : 100;
+    for (const x of [0, 1]) {
+      for (let index = 0; index < perGroup; index += 1) {
+        let time: number;
+        if (crossing) {
+          const earlyRate = x === 0 ? 0.35 : 0.04;
+          const lateRate = x === 0 ? 0.04 : 0.35;
+          const earlyTime = exponential(earlyRate);
+          time = earlyTime < 5 ? earlyTime : 5 + exponential(lateRate);
+        } else {
+          time = exponential(x === 0 ? 0.10 : 0.18);
+        }
+        const censor = crossing ? 6 + 6 * random() : 12 * random();
+        const event = time <= censor;
+        observations.push(obs(event ? time : censor, event, [x]));
+      }
+    }
+    return observations;
   }
 
   it('converges and gives a positive coefficient when higher covariate → earlier events', () => {
@@ -106,5 +140,37 @@ describe('Cox proportional hazards (Efron ties)', () => {
     expect(r.tiedEventTimes).toBe(0);
     expect(r.converged).toBe(true);
     expect(Number.isFinite(r.coefficients[0]!.beta)).toBe(true);
+  });
+
+  it('does not flag a seeded proportional-hazards dataset', () => {
+    const observations = simulatedBinaryCox(7, false);
+    const fit = cox.coxRegression(observations);
+    const diagnostic = cox.coxProportionalHazardsTest(
+      observations,
+      fit.coefficients.map((coefficient) => coefficient.beta),
+    );
+    expect(diagnostic.status).toBe('computed');
+    expect(diagnostic.statistic).toBeCloseTo(1.292030198041073, 10);
+    expect(diagnostic.pValue).toBeCloseTo(0.25567414788078313, 8);
+    expect(diagnostic.violated).toBe(false);
+  });
+
+  it('flags a seeded crossing-hazards dataset and identifies the covariate', () => {
+    const observations = simulatedBinaryCox(42, true);
+    const fit = cox.coxRegression(observations);
+    const diagnostic = cox.coxProportionalHazardsTest(
+      observations,
+      fit.coefficients.map((coefficient) => coefficient.beta),
+    );
+    expect(diagnostic.status).toBe('computed');
+    expect(diagnostic.statistic).toBeCloseTo(26.727339787374135, 9);
+    expect(diagnostic.pValue).toBeLessThan(1e-6);
+    expect(diagnostic.violated).toBe(true);
+    expect(diagnostic.covariates[0]).toMatchObject({ violated: true });
+  });
+
+  it('rejects an all-censored Cox fit before returning meaningless coefficients', () => {
+    expect(() => cox.coxRegression([obs(1, false, [0]), obs(2, false, [1])]))
+      .toThrow(/at least one observed event/);
   });
 });

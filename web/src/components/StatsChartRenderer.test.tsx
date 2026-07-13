@@ -1,56 +1,51 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { SkillResult } from '../api/types';
 import { StatsChartRenderer } from './StatsChartRenderer';
-
-const chartCapture = vi.hoisted(() => ({ option: null as any }));
+import type { SkillResult } from '../api/types';
 
 vi.mock('echarts-for-react', () => ({
-  default: ({ option }: { option: unknown }) => {
-    chartCapture.option = option;
-    return <div data-testid="stats-chart" />;
-  },
+  default: ({ option }: { option: { title?: { text?: string; subtext?: string }; series?: Array<{ name?: string; data?: unknown[] }> } }) => (
+    <div data-testid="echarts-option">
+      {option.title?.text} | {option.title?.subtext} |
+      {option.series?.map((series) => `${series.name}:${series.data?.length ?? 0}`).join(',')}
+    </div>
+  ),
 }));
 
-function result(payload: unknown): SkillResult {
-  return { schema_version: '1.0', payload, risk_signals: [] };
-}
-
-function renderCustomSeries(payload: unknown, row: number[]) {
-  chartCapture.option = null;
-  render(<StatsChartRenderer skillResult={result(payload)} />);
-
-  const customSeries = chartCapture.option.series.find((series: any) => series.type === 'custom');
-  const api = {
-    value: vi.fn((index: number) => row[index]),
-    coord: vi.fn((point: number[]) => [point[0]! * 10, point[1]! * 10]),
-  };
-
-  expect(() => customSeries.renderItem({}, api)).not.toThrow();
-  expect(api.coord).toHaveBeenCalledTimes(2);
-}
-
-describe('StatsChartRenderer custom error bars', () => {
-  it('uses the ECharts coord API for regression confidence intervals', () => {
-    renderCustomSeries(
-      {
-        coefficients: [
-          { term: 'age', beta: 0.12, ci_lower: 0.06, ci_upper: 0.18, p_value: 0.001 },
+describe('StatsChartRenderer Kaplan-Meier', () => {
+  it('renders separate step curves and a finite log-rank p-value', () => {
+    const result: SkillResult = {
+      schema_version: '1.0',
+      payload: {
+        groups: ['A', 'B'],
+        steps: [
+          { group: 'A', time: 1, survival: 0.8 },
+          { group: 'A', time: 4, survival: 0.3 },
+          { group: 'B', time: 3, survival: 0.75 },
         ],
+        log_rank: { status: 'computed', statistic: 1.533, degrees_of_freedom: 1, p_value: 0.215605895 },
       },
-      [0.12, 0, 0.06, 0.18],
-    );
+      risk_signals: [],
+    };
+
+    render(<StatsChartRenderer skillResult={result} />);
+    expect(screen.getByTestId('echarts-option')).toHaveTextContent('Kaplan-Meier 生存曲线');
+    expect(screen.getByTestId('echarts-option')).toHaveTextContent('Log-rank p: 0.2156');
+    expect(screen.getByTestId('echarts-option')).toHaveTextContent('A:3,B:2');
   });
 
-  it('uses the ECharts coord API for ANOVA error bars', () => {
-    renderCustomSeries(
-      {
-        variable: 'age',
-        overall_mean: 50,
-        p_value: 0.03,
-        groups: [{ group: 'control', mean: 48, sd: 4 }],
+  it('does not display a false significant p-value when log-rank is unavailable', () => {
+    const result: SkillResult = {
+      schema_version: '1.0',
+      payload: {
+        groups: ['A', 'B'],
+        steps: [{ group: 'A', time: 1, survival: 1 }],
+        log_rank: { status: 'not_computed', p_value: null, reason: 'no_events' },
       },
-      [0, 44, 52],
-    );
+      risk_signals: [],
+    };
+
+    render(<StatsChartRenderer skillResult={result} />);
+    expect(screen.getByTestId('echarts-option')).not.toHaveTextContent('Log-rank p:');
   });
 });

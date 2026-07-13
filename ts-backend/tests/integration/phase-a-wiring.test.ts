@@ -2,8 +2,8 @@
 //
 // Boots the production AppState from `defaultState()` and asserts the
 // coverage-matrix and sidecar routes respond as specified, with DTO shapes
-// conforming to the Rust contract. Also confirms the snapshot route stays 503
-// (no run resolver wired in production).
+// conforming to the Rust contract. Also confirms the snapshot provider is
+// wired in production (an unknown run is a 500, not provider-unavailable 503).
 //
 // _Requirements: 1.3, 1.4, 1.6_
 
@@ -44,14 +44,14 @@ describe('Phase A — production defaultState() wiring', () => {
     await app.close();
   });
 
-  it('POST /api/snapshot/export → 503 (no run resolver wired in production)', async () => {
+  it('POST /api/snapshot/export is wired (unknown run → 500)', async () => {
     const app = buildRouter({ state: defaultState() });
     const res = await app.inject({
       method: 'POST',
       url: '/api/snapshot/export',
       payload: { run_id: 'run-1', destination: 'out.zip' },
     });
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(500);
     await app.close();
   });
 });

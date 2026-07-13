@@ -23,6 +23,8 @@ import {
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ColumnSummary, DatasetStore, DatasetSummary } from '../state.js';
+import { parseDelimitedTable } from './delimited-table.js';
+import { isSensitiveFieldName, looksLikeDirectIdentifier } from './sensitive-data.js';
 
 const MAX_DATASET_BYTES = 70 * 1024 * 1024; // 70 MiB
 const APP_DIR = 'stats-code';
@@ -56,37 +58,6 @@ function sha256HexLower(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Split a line on a delimiter with minimal CSV quoting support. */
-function splitDelimited(line: string, delimiter: string): string[] {
-  const fields: string[] = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i]!;
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += ch;
-      }
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === delimiter) {
-      fields.push(cur);
-      cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  fields.push(cur);
-  return fields;
-}
-
 const PREVIEW_ROW_LIMIT = 10;
 
 /** Coerce a cell to number when it is a finite numeric string; otherwise keep string. */
@@ -94,6 +65,22 @@ function coerceCell(field: string): string | number {
   if (field.length === 0) return '';
   const n = Number(field);
   return Number.isFinite(n) && field.trim() !== '' ? n : field;
+}
+
+function previewCell(column: string, field: string): string | number {
+  const value = field.trim();
+  return isSensitiveFieldName(column) || looksLikeDirectIdentifier(value)
+    ? '[已脱敏]'
+    : coerceCell(value);
+}
+
+/** Re-sanitize persisted previews created by older releases before returning them. */
+export function sanitizePreviewRows(
+  rows: Record<string, unknown>[],
+): Record<string, string | number>[] {
+  return rows.map((row) => Object.fromEntries(
+    Object.entries(row).map(([column, value]) => [column, previewCell(column, String(value))]),
+  ));
 }
 
 /**
@@ -105,23 +92,15 @@ export function extractPreviewRows(
   fileName: string,
   limit = PREVIEW_ROW_LIMIT,
 ): Record<string, string | number>[] {
-  const ext = (fileName.split('.').pop() ?? '').toLowerCase();
-  const delimiter = ext === 'tsv' ? '\t' : ',';
-  const text = new TextDecoder('utf-8').decode(bytes);
-  const lines = text.split(/\r\n|\n|\r/).filter((l, idx, arr) => {
-    if (l.length > 0) return true;
-    return idx !== arr.length - 1;
-  });
-  if (lines.length < 2) return [];
-  const headers = splitDelimited(lines[0]!, delimiter).map((h) => h.trim());
+  const { headers, rows: records } = parseDelimitedTable(bytes, fileName);
+  if (records.length === 0) return [];
   const rows: Record<string, string | number>[] = [];
-  for (let r = 1; r < lines.length && rows.length < limit; r += 1) {
-    const record = splitDelimited(lines[r]!, delimiter);
+  for (const record of records.slice(0, limit)) {
     const obj: Record<string, string | number> = {};
     for (let i = 0; i < headers.length; i += 1) {
       const key = headers[i]!;
       if (!key) continue;
-      obj[key] = coerceCell((record[i] ?? '').trim());
+      obj[key] = previewCell(key, record[i] ?? '');
     }
     rows.push(obj);
   }
@@ -132,20 +111,9 @@ export function extractPreviewRows(
 function parseTextTable(
   bytes: Uint8Array,
   fileName: string,
-  ext: string,
+  _ext: string,
 ): { row_count: number; columns: ColumnSummary[]; preview_rows: Record<string, string | number>[] } {
-  const delimiter = ext === 'tsv' ? '\t' : ',';
-  const text = new TextDecoder('utf-8').decode(bytes);
-  // Split into non-empty physical lines (handle CRLF/LF).
-  const lines = text.split(/\r\n|\n|\r/).filter((l, idx, arr) => {
-    // Keep all lines except a single trailing empty line.
-    if (l.length > 0) return true;
-    return idx !== arr.length - 1;
-  });
-  if (lines.length === 0) {
-    throw new Error('empty dataset: no header row');
-  }
-  const headers = splitDelimited(lines[0]!, delimiter).map((h) => h.trim());
+  const { headers, rows } = parseDelimitedTable(bytes, fileName);
   const columnCount = headers.length;
   if (columnCount === 0) {
     throw new Error('dataset has no columns');
@@ -155,15 +123,14 @@ function parseTextTable(
   let rowCount = 0;
   const preview_rows: Record<string, string | number>[] = [];
 
-  for (let r = 1; r < lines.length; r += 1) {
-    const record = splitDelimited(lines[r]!, delimiter);
+  for (const record of rows) {
     rowCount += 1;
     if (preview_rows.length < PREVIEW_ROW_LIMIT) {
       const obj: Record<string, string | number> = {};
       for (let idx = 0; idx < columnCount; idx += 1) {
         const name = headers[idx]!;
         if (!name) continue;
-        obj[name] = coerceCell((record[idx] ?? '').trim());
+        obj[name] = previewCell(name, record[idx] ?? '');
       }
       preview_rows.push(obj);
     }

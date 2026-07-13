@@ -37,12 +37,15 @@ const snapshotProvider: SnapshotProvider = {
 
 describe('every route is registered in the contract harness', () => {
   it('exposes the 13 original API_Contract routes plus the dual-mode additions', () => {
-    // 13 original routes + list_sessions + run_skill + delete_session.
-    expect(ROUTE_CONTRACTS).toHaveLength(16);
+    // 13 original routes + dual-mode/session/protocol + server research gates.
+    expect(ROUTE_CONTRACTS).toHaveLength(19);
     const ids = ROUTE_CONTRACTS.map((r) => r.id);
     expect(ids).toContain('list_sessions');
     expect(ids).toContain('run_skill');
     expect(ids).toContain('delete_session');
+    expect(ids).toContain('patch_research_protocol');
+    expect(ids).toContain('audit_dataset');
+    expect(ids).toContain('approve_analysis_plan');
   });
 
   it('each route id is unique', () => {
@@ -73,10 +76,13 @@ describe('session lifecycle golden', () => {
     expect(Object.keys(body).sort()).toEqual(
       [
         'created_at',
+        'analysis_plan_approvals',
+        'dataset_audits',
         'datasets',
         'id',
         'last_active_at',
         'messages',
+        'research_protocol',
         'settings',
         'skill_runs',
         'status',
@@ -85,6 +91,7 @@ describe('session lifecycle golden', () => {
     );
     expect(body.status).toBe('Active');
     expect(body.settings).toEqual({ decision_assistant: true });
+    expect(body.research_protocol).toBeNull();
     // Validates against the zod contract schema (the runtime harness).
     expect(domain.session.safeParse(body).success).toBe(true);
     await app.close();

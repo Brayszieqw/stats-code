@@ -17,6 +17,11 @@ import type {
   ErrorPayload,
   LlmProvider,
   LlmStatusResponse,
+  ResearchProtocolInput,
+  DatasetAudit,
+  DatasetAuditRequest,
+  AnalysisPlanApproval,
+  AnalysisPlanApprovalRequest,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -146,6 +151,19 @@ export async function patchSettings(
   return handleResponse<Session>(res);
 }
 
+/** PATCH /api/sessions/:sid/protocol — 保存研究协议草稿或审批版本。 */
+export async function patchResearchProtocol(
+  sid: string,
+  protocol: ResearchProtocolInput,
+): Promise<Session> {
+  const res = await fetch(`/api/sessions/${sid}/protocol`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(protocol),
+  });
+  return handleResponse<Session>(res);
+}
+
 // ---------------------------------------------------------------------------
 // Message endpoint (SSE)
 // ---------------------------------------------------------------------------
@@ -237,6 +255,33 @@ export async function getDataset(
 ): Promise<DatasetSummary> {
   const res = await fetch(`/api/sessions/${sid}/datasets/${did}`);
   return handleResponse<DatasetSummary>(res);
+}
+
+/** POST dataset audit — server recomputes integrity and design blockers. */
+export async function auditDataset(
+  sid: string,
+  did: string,
+  body: DatasetAuditRequest,
+): Promise<DatasetAudit> {
+  const res = await fetch(`/api/sessions/${sid}/datasets/${did}/audit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<DatasetAudit>(res);
+}
+
+/** POST analysis-plan approval — returns the only plan id accepted by /run. */
+export async function approveAnalysisPlan(
+  sid: string,
+  body: AnalysisPlanApprovalRequest,
+): Promise<AnalysisPlanApproval> {
+  const res = await fetch(`/api/sessions/${sid}/analysis-plans/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<AnalysisPlanApproval>(res);
 }
 
 /**

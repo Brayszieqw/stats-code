@@ -110,7 +110,7 @@ describe('Property 6: 无结果不挂载代码 (Requirement 7.5)', () => {
     expect(useSidecarSpy).not.toHaveBeenCalled();
   });
 
-  it('uses a compact dataset context and lifts a successful rerun', async () => {
+  it('uses a compact dataset context and lifts a server-approved rerun', async () => {
     const analysis: AnalysisResultMeta = {
       algorithm_id: 'model_linear',
       dataset_id: 'ds-1',
@@ -119,6 +119,7 @@ describe('Property 6: 无结果不挂载代码 (Requirement 7.5)', () => {
       params: {},
       run_id: 'run-1',
       run_status: 'completed',
+      plan_id: 'plan-approved-1',
     };
     const result = { schema_version: '1.0', payload: {}, risk_signals: [] };
     const onRunComplete = vi.fn();

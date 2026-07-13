@@ -1,4 +1,12 @@
 library(survival)
 data <- read.csv("data.csv")
-fit <- survival::coxph(survival::Surv({{column.0.name}}, {{column.1.name}}) ~ 1, data = data)
+fit <- survival::coxph(
+  survival::Surv({{params.time}}, {{params.event}}) ~ {{params.predictors_r}},
+  data = data,
+  ties = "efron",
+  x = TRUE
+)
 print(summary(fit))
+# Independent PH reference diagnostic. Stats Code reports a centered-log1p
+# time-interaction score test and does not label it as cox.zph.
+print(survival::cox.zph(fit, transform = "log"))

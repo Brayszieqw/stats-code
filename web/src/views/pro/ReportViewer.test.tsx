@@ -17,7 +17,7 @@ const skillResult: SkillResult = {
       { term: 'age', beta: 0.12, standard_error: 0.03, ci_lower: 0.06, ci_upper: 0.18, p_value: 0.001 },
     ],
   },
-  risk_signals: ['PValueAboveAlpha'],
+  risk_signals: ['VifTooHigh'],
 };
 
 function agentMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -50,7 +50,7 @@ describe('ReportViewer (Requirements 6.1, 6.2, 6.4)', () => {
     // Regression coefficient table renders the term.
     expect(screen.getByText('age')).toBeInTheDocument();
     // Risk-signal tag.
-    expect(screen.getByText('P > 0.05')).toBeInTheDocument();
+    expect(screen.getByText('VIF > 10')).toBeInTheDocument();
   });
 
   it('renders the AI interpretation card when present (R6.2)', () => {
@@ -105,5 +105,95 @@ describe('ReportViewer (Requirements 6.1, 6.2, 6.4)', () => {
     expect(within(metrics).getByText('0.003')).toBeInTheDocument();
     expect(within(metrics).getByText('0.864')).toBeInTheDocument();
     expect(within(metrics).getByText('[-0.031, 0.037]')).toBeInTheDocument();
+  });
+
+  it('renders per-group event/censor counts and the log-rank result', () => {
+    const survivalResult: SkillResult = {
+      schema_version: '1.0',
+      payload: {
+        groups: ['A', 'B'],
+        steps: [
+          { group: 'A', time: 1, survival: 0.8 },
+          { group: 'B', time: 3, survival: 0.75 },
+        ],
+        group_summaries: [
+          { group: 'A', n: 5, event_n: 3, censored_n: 2, median_survival: 4 },
+          { group: 'B', n: 5, event_n: 2, censored_n: 3, median_survival: 6 },
+        ],
+        log_rank: { status: 'computed', method: 'log_rank', statistic: 1.533379867, degrees_of_freedom: 1, p_value: 0.215605895 },
+      },
+      risk_signals: [],
+    };
+
+    render(<ReportViewer messages={[agentMessage({ skillResult: survivalResult })]} selectedDataset={null} />);
+    const summary = screen.getByLabelText('生存分析分组摘要');
+    expect(within(summary).getByText('n=5 · 事件=3 · 删失=2')).toBeInTheDocument();
+    expect(within(summary).getByText('n=5 · 事件=2 · 删失=3')).toBeInTheDocument();
+    expect(within(summary).getByText('χ²=1.533 · df=1 · p=0.216')).toBeInTheDocument();
+  });
+
+  it('renders the standardized result contract with counts, diagnostics and provenance', () => {
+    const resultWithContract: SkillResult = {
+      ...skillResult,
+      analysis: {
+        algorithm_id: 'linear',
+        dataset_id: dataset.dataset_id,
+        dataset_sha256: null,
+        columns: dataset.columns,
+        params: { outcome: 'bmi', predictors: ['age', 'disease'] },
+        run_id: 'run-contract',
+        run_status: 'completed',
+        result_contract: {
+          schema_version: '1.0',
+          method: { algorithm_id: 'linear', method_version: '1.0' },
+          estimates: [{
+            term: 'age',
+            estimate: 0.12,
+            ci_95: { lower: 0.06, upper: 0.18 },
+            p_value: 0.001,
+            effect_unit: 'Beta',
+            adjustment: 'adjusted',
+          }],
+          counts: {
+            input_n: 100,
+            complete_case_n: 98,
+            missing_n: 2,
+            event_n: null,
+            person_time: null,
+          },
+          analysis_availability: { unadjusted: 'not_computed', adjusted: 'available' },
+          effect_unit: 'Beta',
+          convergence: { status: 'not_applicable' },
+          assumption_diagnostics: [{
+            code: 'linear-residuals',
+            status: 'not_evaluated',
+            message: '残差正态性与同方差性未在当前运行中自动诊断。',
+          }],
+          exclusions: [{ reason: '完整案例损失', n: 2 }],
+          interpretation: {
+            statistical: null,
+            practical_significance: null,
+            unsupported_conclusions: ['不能仅凭观察性统计关联作出因果结论。'],
+          },
+          provenance: {
+            engine_name: '@stats-code/engine',
+            engine_version: '0.5.0',
+            validation_coverage: { R: 'live', SAS: 'recorded' },
+          },
+        },
+      },
+    };
+
+    render(<ReportViewer messages={[agentMessage({ skillResult: resultWithContract })]} selectedDataset={dataset} />);
+
+    const contract = screen.getByLabelText('标准化结果合同');
+    expect(within(contract).getByText('结果合同 v1.0')).toBeInTheDocument();
+    expect(within(contract).getByText('98 / 100')).toBeInTheDocument();
+    expect(within(contract).getByText('2')).toBeInTheDocument();
+    expect(within(contract).getByText('不适用')).toBeInTheDocument();
+    expect(within(contract).getByText('@stats-code/engine 0.5.0')).toBeInTheDocument();
+    expect(within(contract).getByText('R: live')).toBeInTheDocument();
+    expect(within(contract).getByText('残差正态性与同方差性未在当前运行中自动诊断。')).toBeInTheDocument();
+    expect(within(contract).getByText('不能仅凭观察性统计关联作出因果结论。')).toBeInTheDocument();
   });
 });

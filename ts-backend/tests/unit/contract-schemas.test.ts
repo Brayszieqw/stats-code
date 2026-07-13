@@ -5,11 +5,13 @@ const { ROUTE_CONTRACTS, allRouteJsonSchemas, HTTP_STATUS_FOR, domain, sidecar }
 
 describe('route contracts', () => {
   it('declares the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(16);
+    expect(ROUTE_CONTRACTS).toHaveLength(19);
     const ids = ROUTE_CONTRACTS.map((r) => r.id).sort();
     expect(ids).toEqual(
       [
         'create_session',
+        'approve_analysis_plan',
+        'audit_dataset',
         'delete_session',
         'get_coverage_matrix',
         'get_dataset',
@@ -18,6 +20,7 @@ describe('route contracts', () => {
         'health',
         'list_sessions',
         'patch_settings',
+        'patch_research_protocol',
         'post_audio',
         'post_dataset',
         'post_llm_config',
@@ -44,12 +47,16 @@ describe('route contracts', () => {
 
   it('generates JSON Schema for every route with a body or response', () => {
     const schemas = allRouteJsonSchemas();
-    expect(Object.keys(schemas)).toHaveLength(16);
+    expect(Object.keys(schemas)).toHaveLength(19);
     // health has a response schema
     expect(schemas['health']?.response).toBeDefined();
     // patch_settings has both a request and a response
     expect(schemas['patch_settings']?.body).toBeDefined();
     expect(schemas['patch_settings']?.response).toBeDefined();
+    expect(schemas['patch_research_protocol']?.body).toBeDefined();
+    expect(schemas['patch_research_protocol']?.response).toBeDefined();
+    expect(schemas['audit_dataset']?.body).toBeDefined();
+    expect(schemas['approve_analysis_plan']?.response).toBeDefined();
   });
 });
 
@@ -62,7 +69,11 @@ describe('error-code → status mapping', () => {
     expect(HTTP_STATUS_FOR.SkillTimeout).toBe(504);
     expect(HTTP_STATUS_FOR.SkillOom).toBe(507);
     expect(HTTP_STATUS_FOR.LlmUnavailable).toBe(502);
-    expect(Object.keys(HTTP_STATUS_FOR)).toHaveLength(13);
+    expect(HTTP_STATUS_FOR.ResearchProtocolRequired).toBe(428);
+    expect(HTTP_STATUS_FOR.ResearchApprovalRequired).toBe(428);
+    expect(HTTP_STATUS_FOR.ResearchAuditBlocked).toBe(409);
+    expect(HTTP_STATUS_FOR.ResearchVersionConflict).toBe(409);
+    expect(Object.keys(HTTP_STATUS_FOR)).toHaveLength(18);
   });
 });
 

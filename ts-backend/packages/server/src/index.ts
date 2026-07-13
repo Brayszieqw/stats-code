@@ -15,6 +15,10 @@ export {
   type Session,
   type DatasetSummary,
   type SessionSettings,
+  type ResearchProtocol,
+  type DatasetAudit,
+  type DatasetAuditRoles,
+  type AnalysisPlanApproval,
   type SessionSummary,
   type AgentEvent,
   type UserMessageInput,
@@ -25,10 +29,16 @@ export {
   type CoverageMatrixProvider,
   type SidecarProvider,
   type SnapshotProvider,
+  type SnapshotRunRecorder,
+  type SnapshotRunRegistration,
   type SkillRunnerLike,
   type SkillRegistryLike,
   type RunSkillContext,
   type RunSkillDescriptor,
+  type ResearchWorkflowService,
+  type ResearchWorkflowAuditInput,
+  type ResearchWorkflowApproveInput,
+  type ResearchWorkflowExecuteInput,
 } from './state.js';
 export { serializeSseFrame } from './sse.js';
 export {
@@ -48,6 +58,8 @@ export {
   createCoverageMatrixProvider,
   createSidecarProvider,
   createSnapshotProvider,
+  createSnapshotRunRegistry,
+  type SnapshotRunRegistry,
 } from './providers.js';
 export {
   type LlmProvider,
@@ -101,6 +113,16 @@ export {
   createFsDatasetStore,
   defaultDatasetRoot,
   detectRiskSignals,
+  auditDataset,
+  createResearchWorkflowService,
+  ResearchWorkflowError,
+  canonicalJson,
+  sha256Canonical,
+  sha256Bytes,
+  runSpecSha256,
+  protocolContentSha256,
+  protocolStateSha256,
+  findReservedWorkflowKey,
   type SkillDescriptor,
   type SkillInvoker,
   type SkillContext,
@@ -109,6 +131,9 @@ export {
   type DatasetStore,
   type FsDatasetStoreOptions,
   type AnalysisResultMeta,
+  type AuditDatasetInput,
+  type CreateResearchWorkflowServiceOptions,
+  type ResearchWorkflowErrorCode,
 } from './conversation/index.js';
 export {
   createOrchestrator,

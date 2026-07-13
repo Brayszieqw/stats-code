@@ -14,11 +14,13 @@ import {
   createDefaultAssetSource,
   createCoverageMatrixProvider,
   createSidecarProvider,
+  createSnapshotRunRegistry,
   createFileLlmConfigStore,
   createLlmProbe,
   createFsDatasetStore,
   createLlmProvider,
   createOrchestrator,
+  createResearchWorkflowService,
   SkillRegistry,
   SkillRunner,
   createFileSessionStore,
@@ -45,9 +47,8 @@ export interface RunLauncherOptions {
  * Minimal default state: in-memory session store + the trust-credential
  * providers (coverage matrix + sidecar) wired from the engine factories.
  *
- * The snapshot provider is intentionally left absent: the production launcher
- * wires no run-state resolver, so `POST /api/snapshot/export` continues to
- * return HTTP 503 (Requirement 1.5).
+ * Completed deterministic runs are registered for on-demand audit snapshot
+ * export. Dataset bytes remain in the local dataset store until export.
  */
 /**
  * Production application state: in-memory session store + the trust-credential
@@ -58,18 +59,24 @@ export interface RunLauncherOptions {
  * provider factory closure, so a runtime POST /api/llm-config takes effect on
  * the next message without a restart (Requirement 10.2).
  *
- * The snapshot provider is intentionally left absent: the production launcher
- * wires no run-state resolver, so POST /api/snapshot/export returns HTTP 503
- * (Requirement 1.5). OAuth is unavailable (API-key providers only) and the
- * speech-to-text route remains a stub (Requirement 11).
+ * Audit snapshots are wired for completed deterministic runs. OAuth is
+ * unavailable (API-key providers only) and speech-to-text remains a stub.
  */
 export function defaultState(): AppState {
   const sessionStore = createFileSessionStore();
   const datasetStore = createFsDatasetStore();
+  const snapshotRuns = createSnapshotRunRegistry(datasetStore);
   const llmConfigStore = createFileLlmConfigStore();
   const llmProbe = createLlmProbe();
   const registry = SkillRegistry.withDefaults();
   const runner = new SkillRunner(registry);
+  const researchWorkflow = createResearchWorkflowService({
+    sessionStore,
+    datasetStore,
+    registry,
+    runner,
+    snapshotRunRecorder: snapshotRuns.recorder,
+  });
 
   const llmProviderFactory = () => {
     const cfg = llmConfigStore.read();
@@ -85,9 +92,8 @@ export function defaultState(): AppState {
 
   const messageHandler = createOrchestrator({
     sessionStore,
-    datasetStore,
     registry,
-    runner,
+    researchWorkflow,
     llmProviderFactory,
   });
 
@@ -96,8 +102,11 @@ export function defaultState(): AppState {
     datasetStore,
     skillRunner: runner,
     skillRegistry: registry,
+    researchWorkflow,
     coverageMatrixProvider: createCoverageMatrixProvider(),
     sidecarProvider: createSidecarProvider(),
+    snapshotProvider: snapshotRuns.provider,
+    snapshotRunRecorder: snapshotRuns.recorder,
     llmConfigStore,
     llmProbe,
     messageHandler,

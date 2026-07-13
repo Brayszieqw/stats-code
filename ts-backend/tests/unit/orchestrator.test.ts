@@ -12,10 +12,10 @@ import {
   SkillRunner,
   MemSessionStore,
   type AgentEvent,
-  type DatasetStore,
   type DatasetSummary,
   type LlmEvent,
   type LlmProvider,
+  type ResearchWorkflowService,
   type SessionSettings,
 } from '@stats-code/server';
 
@@ -67,10 +67,25 @@ function fixtureSummary(): DatasetSummary {
   };
 }
 
-function mockDatasetStore(): DatasetStore {
+function directResearchWorkflow(
+  registry: SkillRegistry,
+  runner: SkillRunner,
+): ResearchWorkflowService {
   return {
-    saveAndParse: () => Promise.resolve(fixtureSummary()),
-    readRawById: () => Promise.resolve(new TextEncoder().encode(CSV)),
+    now: () => new Date('2026-07-13T00:00:00.000Z'),
+    auditDataset: async () => { throw new Error('not used'); },
+    approveAnalysisPlan: async () => { throw new Error('not used'); },
+    execute: async ({ datasetId, skillId, args }) => {
+      const descriptor = registry.get(skillId);
+      if (!descriptor) throw new Error(`unknown skill: ${skillId}`);
+      const summary = fixtureSummary();
+      if (datasetId !== summary.dataset_id) throw new Error(`unknown dataset: ${datasetId}`);
+      return runner.run(
+        descriptor,
+        { ...args, dataset_id: datasetId },
+        { datasetBytes: new TextEncoder().encode(CSV), datasetSummary: summary },
+      );
+    },
   };
 }
 
@@ -86,12 +101,10 @@ function buildHarness(llm: LlmProvider) {
   const registry = SkillRegistry.withDefaults();
   const runner = new SkillRunner(registry);
   const sessionStore = new MemSessionStore();
-  const datasetStore = mockDatasetStore();
   const orchestrator = createOrchestrator({
     sessionStore,
-    datasetStore,
     registry,
-    runner,
+    researchWorkflow: directResearchWorkflow(registry, runner),
     llmProviderFactory: () => llm,
   });
   return { orchestrator, sessionStore };
@@ -148,9 +161,8 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     const registry = SkillRegistry.withDefaults();
     const orchestrator = createOrchestrator({
       sessionStore: new MemSessionStore(),
-      datasetStore: mockDatasetStore(),
       registry,
-      runner: new SkillRunner(registry),
+      researchWorkflow: directResearchWorkflow(registry, new SkillRunner(registry)),
       llmProviderFactory: () => null,
     });
     const events = await collect(orchestrator.handleMessage('s', { text: 'x', settings: settings() }));
@@ -161,9 +173,8 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     const registry = SkillRegistry.withDefaults();
     const orchestrator = createOrchestrator({
       sessionStore: new MemSessionStore(),
-      datasetStore: mockDatasetStore(),
       registry,
-      runner: new SkillRunner(registry),
+      researchWorkflow: directResearchWorkflow(registry, new SkillRunner(registry)),
       llmProviderFactory: () => null,
     });
     const events = await collect(

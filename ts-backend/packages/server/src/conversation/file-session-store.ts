@@ -13,12 +13,23 @@ import { dirname, join } from 'node:path';
 import {
   StoreError,
   type DatasetSummary,
+  type DatasetAudit,
+  type AnalysisPlanApproval,
   type Message,
   type Session,
   type SessionSettings,
   type SessionStore,
   type SessionSummary,
+  type ResearchProtocol,
+  type SkillRun,
 } from '../state.js';
+import { domain } from '../contract/index.js';
+import {
+  protocolContentSha256,
+  protocolStateSha256,
+  runSpecSha256,
+  sha256Canonical,
+} from './research-integrity.js';
 
 const APP_DIR = 'stats-code';
 const SESSIONS_FILE = 'sessions.json';
@@ -86,7 +97,118 @@ function parseSessions(raw: string): Session[] {
     : isRecord(parsed) && Array.isArray(parsed.sessions)
       ? parsed.sessions
       : [];
-  return sessions.filter(isSession).map(cloneSession);
+  return sessions
+    .filter(isSession)
+    .map((session) => {
+      const rawProtocol: Record<string, unknown> = isRecord(session.research_protocol)
+        ? session.research_protocol
+        : {};
+      const parsedProtocol = domain.researchProtocol.safeParse(session.research_protocol);
+      const {
+        version: _legacyVersion,
+        content_sha256: _legacyContentSha,
+        state_sha256: _legacyStateSha,
+        approval_id: _legacyApprovalId,
+        approved_at: _legacyApprovedAt,
+        updated_at: _legacyUpdatedAt,
+        expected_version: _legacyExpectedVersion,
+        ...legacyInput
+      } = rawProtocol;
+      const legacyProtocol = parsedProtocol.success
+        ? null
+        : domain.researchProtocolInput.safeParse(legacyInput);
+      const migratedProtocol = legacyProtocol?.success
+        ? (() => {
+          const { expected_version: _expectedVersion, ...fields } = legacyProtocol.data;
+          // Legacy "Approved" records predate server approval ids/versioning;
+          // never mint trust for them or reuse their client-origin timestamp.
+          const migratedStatus = fields.status === 'Approved' ? 'Draft' : fields.status;
+          const migratedState = {
+            ...fields,
+            status: migratedStatus,
+            version: typeof rawProtocol.version === 'number'
+              && Number.isInteger(rawProtocol.version)
+              && rawProtocol.version > 0
+              ? rawProtocol.version
+              : 1,
+            content_sha256: protocolContentSha256(fields),
+            approval_id: null,
+            approved_at: null,
+            updated_at: typeof rawProtocol.updated_at === 'string'
+              ? rawProtocol.updated_at
+              : session.last_active_at,
+          };
+          const migrated = domain.researchProtocol.safeParse({
+            ...migratedState,
+            state_sha256: protocolStateSha256(migratedState),
+          });
+          return migrated.success ? migrated.data : null;
+        })()
+        : null;
+      const trustedProtocol = parsedProtocol.success
+        ? (() => {
+          const recomputedHash = protocolContentSha256(parsedProtocol.data);
+          const recomputedStateHash = protocolStateSha256(parsedProtocol.data);
+          if (
+            recomputedHash === parsedProtocol.data.content_sha256
+            && recomputedStateHash === parsedProtocol.data.state_sha256
+            && (parsedProtocol.data.status !== 'Approved' || parsedProtocol.data.approval_id !== null)
+          ) return parsedProtocol.data;
+          const downgraded = {
+            ...parsedProtocol.data,
+            status: 'Draft' as const,
+            content_sha256: recomputedHash,
+            approval_id: null,
+            approved_at: null,
+          };
+          return {
+            ...downgraded,
+            state_sha256: protocolStateSha256(downgraded),
+          };
+        })()
+        : migratedProtocol;
+      const parsedAudits = Array.isArray(session.dataset_audits)
+        ? session.dataset_audits.flatMap((value) => {
+          const parsedAudit = domain.datasetAudit.safeParse(value);
+          if (!parsedAudit.success) return [];
+          const {
+            audit_id: _auditId,
+            audit_sha256: _auditSha256,
+            created_at: _createdAt,
+            ...content
+          } = parsedAudit.data;
+          return sha256Canonical(content) === parsedAudit.data.audit_sha256
+            ? [parsedAudit.data]
+            : [];
+        })
+        : [];
+      const parsedApprovals = Array.isArray(session.analysis_plan_approvals)
+        ? session.analysis_plan_approvals.flatMap((value) => {
+          const parsedApproval = domain.analysisPlanApproval.safeParse(value);
+          if (!parsedApproval.success || !trustedProtocol || trustedProtocol.status !== 'Approved') return [];
+          const approval = parsedApproval.data;
+          const dataset = session.datasets.find((candidate) => candidate.dataset_id === approval.dataset_id);
+          const audit = parsedAudits.find((candidate) => candidate.audit_id === approval.audit_id);
+          const valid = approval.protocol_version === trustedProtocol.version
+            && approval.protocol_sha256 === trustedProtocol.content_sha256
+            && approval.protocol_approval_id === trustedProtocol.approval_id
+            && dataset?.sha256?.toLowerCase() === approval.dataset_sha256
+            && audit?.audit_sha256 === approval.audit_sha256
+            && approval.run_spec_sha256 === runSpecSha256(
+              approval.skill_id,
+              approval.dataset_id,
+              approval.args,
+            );
+          return valid ? [approval] : [];
+        })
+        : [];
+      return cloneSession({
+        ...session,
+        research_protocol: trustedProtocol,
+        dataset_audits: parsedAudits,
+        analysis_plan_approvals: parsedApprovals,
+      });
+    });
 }
 
 export function createFileSessionStore(opts: FileSessionStoreOptions = {}): SessionStore {
@@ -148,7 +270,8 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
             s.status === 'Active' &&
             s.messages.length === 0 &&
             s.datasets.length === 0 &&
-            s.skill_runs.length === 0,
+            s.skill_runs.length === 0 &&
+            s.research_protocol == null,
         )
         .sort((a, b) => b.last_active_at.localeCompare(a.last_active_at));
 
@@ -168,6 +291,9 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
         created_at: timestamp,
         last_active_at: timestamp,
         settings: { decision_assistant: true },
+        research_protocol: null,
+        dataset_audits: [],
+        analysis_plan_approvals: [],
         messages: [],
         datasets: [],
         skill_runs: [],
@@ -185,6 +311,45 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
     async updateSettings(id: string, settings: SessionSettings): Promise<void> {
       const session = mustGet(id);
       session.settings = settings;
+      session.last_active_at = now().toISOString();
+      save();
+    },
+
+    async updateResearchProtocol(id: string, protocol: ResearchProtocol, expectedVersion?: number): Promise<boolean> {
+      const session = mustGet(id);
+      if (session.research_protocol?.version !== expectedVersion) return false;
+      session.research_protocol = JSON.parse(JSON.stringify(protocol)) as ResearchProtocol;
+      session.last_active_at = now().toISOString();
+      save();
+      return true;
+    },
+
+    async appendDatasetAudit(id: string, audit: DatasetAudit): Promise<void> {
+      const session = mustGet(id);
+      (session.dataset_audits ??= []).push(JSON.parse(JSON.stringify(audit)) as DatasetAudit);
+      session.last_active_at = now().toISOString();
+      save();
+    },
+
+    async appendAnalysisPlanApproval(id: string, approval: AnalysisPlanApproval): Promise<boolean> {
+      const session = mustGet(id);
+      const protocol = session.research_protocol;
+      if (
+        session.status !== 'Active'
+        || protocol?.status !== 'Approved'
+        || protocol.version !== approval.protocol_version
+        || protocol.content_sha256 !== approval.protocol_sha256
+        || protocol.approval_id !== approval.protocol_approval_id
+      ) return false;
+      (session.analysis_plan_approvals ??= []).push(JSON.parse(JSON.stringify(approval)) as AnalysisPlanApproval);
+      session.last_active_at = now().toISOString();
+      save();
+      return true;
+    },
+
+    async appendSkillRun(id: string, run: SkillRun): Promise<void> {
+      const session = mustGet(id);
+      session.skill_runs.push(JSON.parse(JSON.stringify(run)) as SkillRun);
       session.last_active_at = now().toISOString();
       save();
     },

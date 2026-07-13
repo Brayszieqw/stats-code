@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DatasetSummary, RunRequest } from '../api/types';
+import type { DatasetSummary, ResearchProtocol, RunRequest } from '../api/types';
 import { buildAnalysisPreflight } from './analysisPreflight';
 
 const dataset: DatasetSummary = {
@@ -72,5 +72,45 @@ describe('buildAnalysisPreflight', () => {
 
     expect(result.missingRates[0]?.rate).toBe(0);
     expect(result.warnings.some((warning) => warning.code === 'small-sample')).toBe(true);
+  });
+
+  it('flags outcome and method mismatches against an approved protocol', () => {
+    const request: RunRequest = {
+      skill_id: 'model_linear',
+      dataset_id: dataset.dataset_id,
+      args: { outcome: 'bmi', predictors: ['age'] },
+    };
+    const protocol: ResearchProtocol = {
+      status: 'Approved',
+      research_question: '吸烟与疾病结局是否相关？',
+      study_design: 'cross_sectional',
+      population: '成人观察性队列',
+      eligibility_criteria: '有基线记录',
+      exposure: 'smoke',
+      comparator: 'never',
+      outcome: 'disease（二分类疾病结局）',
+      time_zero: '基线',
+      follow_up: '不适用',
+      analysis_unit: '参与者',
+      estimand: '吸烟与疾病患病几率的调整后 OR',
+      confounders: 'age, bmi',
+      missing_data_strategy: '完整案例',
+      primary_analysis: '多变量 Logistic 回归',
+      sensitivity_analysis: '',
+      version: 1,
+      content_sha256: 'a'.repeat(64),
+      state_sha256: 'e'.repeat(64),
+      approval_id: '11111111-1111-4111-8111-111111111111',
+      approved_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const result = buildAnalysisPreflight(dataset, request, '对 bmi 建立线性回归', protocol);
+
+    expect(result.warnings.map((warning) => warning.code)).toEqual(expect.arrayContaining([
+      'protocol-outcome-mismatch',
+      'protocol-method-mismatch',
+    ]));
+    expect(result.warnings.find((warning) => warning.code === 'protocol-outcome-mismatch')?.severity).toBe('high');
   });
 });

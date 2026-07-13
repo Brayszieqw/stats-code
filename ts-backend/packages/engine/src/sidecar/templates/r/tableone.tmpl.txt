@@ -1,6 +1,30 @@
 library(tableone)
 data <- read.csv("data.csv")
 vars <- c({{params.continuous_quoted}})
+categorical <- c({{params.categorical_quoted}})
 strata <- {{params.group_quoted}}
-result <- tableone::CreateTableOne(vars = vars, strata = strata, data = data)
-print(result)
+result <- tableone::CreateTableOne(
+  vars = unique(c(vars, categorical)),
+  strata = strata,
+  factorVars = categorical,
+  data = data
+)
+print(result, smd = TRUE, missing = TRUE)
+
+for (variable in categorical) {
+  observed <- table(data[[strata]], data[[variable]], useNA = "no")
+  if (nrow(observed) < 2 || ncol(observed) < 2 || any(rowSums(observed) == 0) || any(colSums(observed) == 0)) {
+    message(variable, ": not computed (insufficient dimensions or zero margin)")
+    next
+  }
+  pearson <- suppressWarnings(stats::chisq.test(observed, correct = FALSE))
+  sparse_2x2 <- all(dim(observed) == c(2, 2)) && (any(pearson$expected < 5) || any(observed == 0))
+  pearson_rule_failed <- any(pearson$expected < 1) || mean(pearson$expected < 5) > 0.20
+  if (sparse_2x2) {
+    print(stats::fisher.test(observed, alternative = "two.sided"))
+  } else if (pearson_rule_failed) {
+    message(variable, ": not computed (sparse non-2x2 table requires an exact test)")
+  } else {
+    print(pearson)
+  }
+}

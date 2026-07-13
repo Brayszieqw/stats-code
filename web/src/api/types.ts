@@ -17,12 +17,130 @@ export interface SessionSettings {
   decision_assistant: boolean;
 }
 
+export type ProtocolStatus = 'Draft' | 'Approved';
+export type StudyDesign =
+  | 'cross_sectional'
+  | 'cohort'
+  | 'case_control'
+  | 'randomized_trial'
+  | 'other';
+
+export interface ResearchProtocolInput {
+  status: ProtocolStatus;
+  /** Compare-and-swap guard required when updating an existing protocol. */
+  expected_version?: number;
+  research_question: string;
+  study_design: StudyDesign;
+  population: string;
+  eligibility_criteria: string;
+  exposure: string;
+  comparator: string;
+  outcome: string;
+  time_zero: string;
+  follow_up: string;
+  analysis_unit: string;
+  estimand: string;
+  confounders: string;
+  missing_data_strategy: string;
+  primary_analysis: string;
+  sensitivity_analysis: string;
+}
+
+export interface ResearchProtocol extends ResearchProtocolInput {
+  version: number;
+  content_sha256: string;
+  state_sha256: string;
+  approval_id: string | null;
+  approved_at: string | null;
+  updated_at: string;
+}
+
+export type DatasetAuditStatus = 'passed' | 'warning' | 'blocked';
+export type DatasetAuditSeverity = 'warning' | 'blocker';
+
+export interface DatasetAuditRoles {
+  primary_key?: string[];
+  time_zero?: string;
+  exposure_time?: string;
+  follow_up_end?: string;
+  event?: string;
+  person_time?: string;
+  weight?: string;
+  psu?: string;
+  cluster?: string;
+  pair_id?: string;
+  repeat_index?: string;
+}
+
+export interface DatasetAuditFinding {
+  code: string;
+  severity: DatasetAuditSeverity;
+  columns: string[];
+  affected_rows: number;
+  sample_row_numbers: number[];
+  message: string;
+}
+
+export interface DatasetAudit {
+  schema_version: '1.0';
+  audit_rules_version: '1.1.0';
+  audit_id: string;
+  dataset_id: DatasetId;
+  dataset_sha256: string;
+  protocol_version: number;
+  skill_id: string;
+  run_spec_sha256: string;
+  roles: DatasetAuditRoles;
+  status: DatasetAuditStatus;
+  findings: DatasetAuditFinding[];
+  audit_sha256: string;
+  created_at: string;
+}
+
+export interface AnalysisPlanApproval {
+  schema_version: '1.0';
+  plan_id: string;
+  approval_id: string;
+  status: 'Approved';
+  protocol_version: number;
+  protocol_sha256: string;
+  protocol_approval_id: string;
+  dataset_id: DatasetId;
+  dataset_sha256: string;
+  skill_id: string;
+  args: Record<string, unknown>;
+  run_spec_sha256: string;
+  audit_id: string;
+  audit_sha256: string;
+  audit_roles: DatasetAuditRoles;
+  approved_at: string;
+}
+
+export interface DatasetAuditRequest {
+  skill_id: string;
+  args: Record<string, unknown>;
+  expected_protocol_version: number;
+  audit_roles?: DatasetAuditRoles;
+}
+
+export interface AnalysisPlanApprovalRequest extends DatasetAuditRequest {
+  dataset_id: DatasetId;
+  expected_audit_id: string;
+  expected_audit_sha256: string;
+}
+
 export interface Session {
   id: SessionId;
   status: SessionStatus;
   created_at: string; // ISO 8601
   last_active_at: string;
   settings: SessionSettings;
+  /** Absent only for sessions saved before protocol support. */
+  research_protocol?: ResearchProtocol | null;
+  /** Server-computed history; absent only on legacy sessions. */
+  dataset_audits?: DatasetAudit[];
+  /** Server-issued approvals; client timestamps are never accepted. */
+  analysis_plan_approvals?: AnalysisPlanApproval[];
   messages: Message[];
   datasets: DatasetSummary[];
   skill_runs: SkillRun[];
@@ -137,6 +255,50 @@ export interface DatasetSummary {
 
 export type RunStatus = 'running' | 'completed' | 'failed';
 
+export interface ResultContractEstimate {
+  term: string;
+  estimate: number;
+  ci_95: { lower: number; upper: number } | null;
+  p_value: number | null;
+  effect_unit: 'Beta' | 'OR' | 'HR' | 'Mean difference' | 'Median survival';
+  adjustment: 'adjusted' | 'unadjusted' | 'descriptive';
+}
+
+export interface StandardResultContract {
+  schema_version: '1.0';
+  method: { algorithm_id: string; method_version: string };
+  estimates: ResultContractEstimate[];
+  counts: {
+    input_n: number;
+    complete_case_n: number;
+    missing_n: number;
+    event_n: number | null;
+    person_time: number | null;
+  };
+  analysis_availability: {
+    unadjusted: 'available' | 'not_computed' | 'not_applicable';
+    adjusted: 'available' | 'not_computed' | 'not_applicable';
+  };
+  effect_unit: ResultContractEstimate['effect_unit'] | null;
+  convergence: { status: 'converged' | 'failed' | 'not_applicable' | 'unknown' };
+  assumption_diagnostics: Array<{
+    code: string;
+    status: 'passed' | 'failed' | 'warning' | 'not_evaluated';
+    message: string;
+  }>;
+  exclusions: Array<{ reason: string; n: number | null }>;
+  interpretation: {
+    statistical: string | null;
+    practical_significance: string | null;
+    unsupported_conclusions: string[];
+  };
+  provenance: {
+    engine_name: '@stats-code/engine';
+    engine_version: string;
+    validation_coverage: Record<string, string>;
+  };
+}
+
 export interface AnalysisResultMeta {
   algorithm_id: string;
   dataset_id: DatasetId;
@@ -145,6 +307,17 @@ export interface AnalysisResultMeta {
   params: unknown;
   run_id: string;
   run_status: RunStatus;
+  plan_id?: string;
+  research_workflow?: {
+    protocol_version: number;
+    protocol_approval_id: string;
+    plan_id: string;
+    plan_approval_id: string;
+    plan_approved_at: string;
+    audit_id: string;
+    audit_sha256: string;
+  };
+  result_contract?: StandardResultContract;
 }
 
 export type SkillRunId = string; // UUID
@@ -171,10 +344,14 @@ export interface SkillResult {
 }
 
 export type RiskSignal =
+  // Legacy wire value retained for historical sessions; hidden by the UI.
   | 'PValueAboveAlpha'
   | 'VifTooHigh'
   | 'LowPower'
-  | 'CoxPhAssumptionViolated';
+  | 'CoxPhAssumptionViolated'
+  | 'ModelConvergenceFailed'
+  | 'SparseData'
+  | 'CollinearityDetected';
 
 export interface SkillError {
   message: string;
@@ -190,6 +367,8 @@ export interface RunRequest {
   skill_id: string;
   dataset_id: DatasetId;
   args: Record<string, unknown>;
+  /** Server-issued plan id. Required by the formal-analysis gate. */
+  plan_id?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +388,12 @@ export type ErrorCode =
   | 'LlmUnavailable'
   | 'SessionNotFound'
   | 'SessionArchived'
-  | 'SessionQuotaExceeded';
+  | 'SessionQuotaExceeded'
+  | 'ResearchProtocolRequired'
+  | 'ResearchApprovalRequired'
+  | 'ResearchApprovalStale'
+  | 'ResearchAuditBlocked'
+  | 'ResearchVersionConflict';
 
 export interface ErrorPayload {
   error_code: ErrorCode;

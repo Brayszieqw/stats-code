@@ -11,38 +11,23 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import {
   domain,
   patchSettingsRequest,
+  patchResearchProtocolRequest,
   base64DatasetRequest,
   postLlmConfigRequest,
   sidecar as sidecarContract,
 } from './contract/index.js';
-import { StoreError, type AgentBlock, type AgentEvent, type AppState, type Message, type RunSkillDescriptor, type SkillRegistryLike } from './state.js';
+import { StoreError, type AgentBlock, type AgentEvent, type AppState, type Message } from './state.js';
 import { serializeSseFrame } from './sse.js';
 import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
 import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOAuth } from './llm.js';
-import { extractPreviewRows } from './conversation/dataset-store.js';
+import { extractPreviewRows, sanitizePreviewRows } from './conversation/dataset-store.js';
 import { SpeechTranscribeError, transcribeAudio } from './conversation/speech-transcribe.js';
+import { ResearchWorkflowError } from './conversation/research-workflow.js';
+import { protocolContentSha256, protocolStateSha256 } from './conversation/research-integrity.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
-
-const ALGORITHM_TO_SKILL_ID: Readonly<Record<string, string>> = {
-  table_one: 'tableone',
-  tableone: 'tableone',
-  t_test: 'ttest',
-  ttest: 'ttest',
-  linear: 'model_linear',
-  logistic: 'model_logistic',
-  cox: 'model_cox',
-  kaplan_meier: 'survival_km',
-};
-
-function resolveRunDescriptor(
-  registry: SkillRegistryLike,
-  requestedId: string,
-): RunSkillDescriptor | undefined {
-  return registry.get(requestedId) ?? registry.get(ALGORITHM_TO_SKILL_ID[requestedId] ?? '');
-}
 
 function userTextMessage(text: string): Message {
   return {
@@ -115,6 +100,17 @@ function storeErrorResponse(err: StoreError): { status: number; body: unknown } 
     default:
       return { status: 500, body: { error_code: 'SkillExecutionFailed', message: err.message } };
   }
+}
+
+function workflowErrorResponse(err: ResearchWorkflowError): { status: number; body: unknown } {
+  return {
+    status: err.status,
+    body: {
+      error_code: err.code,
+      message: err.message,
+      ...(err.details === undefined ? {} : { details: err.details }),
+    },
+  };
 }
 
 /** Structural SkillRunError detail (avoids importing the conversation layer). */
@@ -222,10 +218,14 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   app.get<{ Params: { sid: string } }>('/api/sessions/:sid', async (req, reply) => {
     try {
       const session = await state.sessionStore.get(req.params.sid);
-      // Enrich legacy summaries that lack preview_rows by reading raw bytes once.
-      if (state.datasetStore && Array.isArray(session.datasets)) {
+      // Re-sanitize legacy previews before returning them; enrich only when absent.
+      if (Array.isArray(session.datasets)) {
         for (const ds of session.datasets) {
-          if (ds.preview_rows && ds.preview_rows.length > 0) continue;
+          if (ds.preview_rows && ds.preview_rows.length > 0) {
+            ds.preview_rows = sanitizePreviewRows(ds.preview_rows);
+            continue;
+          }
+          if (!state.datasetStore) continue;
           try {
             const raw = await state.datasetStore.readRawById(ds.dataset_id);
             ds.preview_rows = extractPreviewRows(raw, ds.file_name);
@@ -274,6 +274,86 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       });
       const updated = await state.sessionStore.get(req.params.sid);
       return reply.send(updated);
+    } catch (err) {
+      if (err instanceof StoreError) {
+        const { status, body } = storeErrorResponse(err);
+        return reply.code(status).send(body);
+      }
+      throw err;
+    }
+  });
+
+  // PATCH /api/sessions/:sid/protocol — save a draft or approve a complete protocol.
+  app.patch<{ Params: { sid: string } }>('/api/sessions/:sid/protocol', async (req, reply) => {
+    const parsed = patchResearchProtocolRequest.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({
+        error_code: 'SkillInvalidArgs',
+        message: '研究协议字段不完整，无法保存或审批',
+      });
+    }
+    try {
+      const session = await state.sessionStore.get(req.params.sid);
+      if (session.status === 'Archived') {
+        return reply.code(409).send({ error_code: 'SessionArchived', message: '会话已归档，仅支持只读访问' });
+      }
+      const current = session.research_protocol ?? null;
+      if (current && parsed.data.expected_version === undefined) {
+        return reply.code(409).send({
+          error_code: 'ResearchVersionConflict',
+          message: `更新已有协议必须提供 expected_version（当前为 v${current.version}）。`,
+          details: { current_version: current.version },
+        });
+      }
+      if (current && parsed.data.expected_version !== current.version) {
+        return reply.code(409).send({
+          error_code: 'ResearchVersionConflict',
+          message: `协议版本冲突：当前为 v${current.version}，请求基于 v${parsed.data.expected_version}。`,
+          details: { current_version: current.version, expected_version: parsed.data.expected_version },
+        });
+      }
+      const { status, expected_version: _expectedVersion, ...fields } = parsed.data;
+      const contentSha256 = protocolContentSha256(fields);
+      const sameContent = current?.content_sha256 === contentSha256;
+      const sameState = sameContent && current?.status === status;
+      // `version` is also the compare-and-swap revision. Any semantic state
+      // transition must advance it, even when the protocol text is unchanged,
+      // so a stale request cannot revoke and then resurrect an approval.
+      const version = current ? (sameState ? current.version : current.version + 1) : 1;
+      const timestamp = (state.researchWorkflow?.now() ?? new Date()).toISOString();
+      const preserveApproval = status === 'Approved'
+        && sameContent
+        && current?.status === 'Approved'
+        && current.approval_id !== null;
+      const protocolState = {
+        ...fields,
+        status,
+        version,
+        content_sha256: contentSha256,
+        approval_id: status === 'Approved'
+          ? (preserveApproval ? current.approval_id : randomUUID())
+          : null,
+        approved_at: status === 'Approved'
+          ? (preserveApproval ? current.approved_at : timestamp)
+          : null,
+        updated_at: timestamp,
+      };
+      const updated = await state.sessionStore.updateResearchProtocol(req.params.sid, {
+        ...protocolState,
+        state_sha256: protocolStateSha256(protocolState),
+      }, parsed.data.expected_version);
+      if (!updated) {
+        const latest = await state.sessionStore.get(req.params.sid);
+        return reply.code(409).send({
+          error_code: 'ResearchVersionConflict',
+          message: `协议版本冲突：当前为 v${latest.research_protocol?.version ?? 0}。`,
+          details: {
+            current_version: latest.research_protocol?.version ?? null,
+            expected_version: parsed.data.expected_version ?? null,
+          },
+        });
+      }
+      return reply.send(await state.sessionStore.get(req.params.sid));
     } catch (err) {
       if (err instanceof StoreError) {
         const { status, body } = storeErrorResponse(err);
@@ -511,6 +591,78 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     },
   );
 
+  // POST /api/sessions/:sid/datasets/:did/audit — full server-side preflight.
+  app.post<{ Params: { sid: string; did: string } }>(
+    '/api/sessions/:sid/datasets/:did/audit',
+    async (req, reply) => {
+      const parsed = domain.datasetAuditRequest.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid dataset audit request' });
+      }
+      if (!state.researchWorkflow) {
+        return reply.code(500).send({ error_code: 'SkillExecutionFailed', message: '研究工作流服务尚未初始化' });
+      }
+      try {
+        const audit = await state.researchWorkflow.auditDataset({
+          sessionId: req.params.sid,
+          datasetId: req.params.did,
+          skillId: parsed.data.skill_id,
+          args: parsed.data.args,
+          expectedProtocolVersion: parsed.data.expected_protocol_version,
+          auditRoles: parsed.data.audit_roles,
+        });
+        return reply.send(audit);
+      } catch (err) {
+        if (err instanceof ResearchWorkflowError) {
+          const mapped = workflowErrorResponse(err);
+          return reply.code(mapped.status).send(mapped.body);
+        }
+        if (err instanceof StoreError) {
+          const mapped = storeErrorResponse(err);
+          return reply.code(mapped.status).send(mapped.body);
+        }
+        throw err;
+      }
+    },
+  );
+
+  // POST /api/sessions/:sid/analysis-plans/approve — server timestamp + bound hashes.
+  app.post<{ Params: { sid: string } }>(
+    '/api/sessions/:sid/analysis-plans/approve',
+    async (req, reply) => {
+      const parsed = domain.analysisPlanApprovalRequest.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid analysis plan approval request' });
+      }
+      if (!state.researchWorkflow) {
+        return reply.code(500).send({ error_code: 'SkillExecutionFailed', message: '研究工作流服务尚未初始化' });
+      }
+      try {
+        const approval = await state.researchWorkflow.approveAnalysisPlan({
+          sessionId: req.params.sid,
+          datasetId: parsed.data.dataset_id,
+          skillId: parsed.data.skill_id,
+          args: parsed.data.args,
+          expectedProtocolVersion: parsed.data.expected_protocol_version,
+          expectedAuditId: parsed.data.expected_audit_id,
+          expectedAuditSha256: parsed.data.expected_audit_sha256,
+          auditRoles: parsed.data.audit_roles,
+        });
+        return reply.code(201).send(approval);
+      } catch (err) {
+        if (err instanceof ResearchWorkflowError) {
+          const mapped = workflowErrorResponse(err);
+          return reply.code(mapped.status).send(mapped.body);
+        }
+        if (err instanceof StoreError) {
+          const mapped = storeErrorResponse(err);
+          return reply.code(mapped.status).send(mapped.body);
+        }
+        throw err;
+      }
+    },
+  );
+
   // POST /api/sessions/:sid/run — in-process skill execution (Requirement 12).
   app.post<{ Params: { sid: string } }>('/api/sessions/:sid/run', async (req, reply) => {
     // Resolve the session first: 404 if missing, 409 if archived (R12.6).
@@ -534,49 +686,40 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid run request body' });
     }
 
-    // The runner + registry + dataset store must be wired (Requirement 12.2).
-    if (!state.skillRunner || !state.skillRegistry || !state.datasetStore) {
+    // Every formal analysis enters through the same session-aware gate.
+    if (!state.researchWorkflow) {
       return reply
         .code(500)
-        .send({ error_code: 'SkillExecutionFailed', message: '运行服务尚未初始化' });
-    }
-
-    const descriptor = resolveRunDescriptor(state.skillRegistry, parsed.data.skill_id);
-    if (!descriptor) {
-      return reply
-        .code(422)
-        .send({ error_code: 'SkillInvalidArgs', message: `unknown skill: ${parsed.data.skill_id}` });
-    }
-
-    // Resolve the dataset summary from the session, then load its raw bytes.
-    const summary = session.datasets.find((d) => d.dataset_id === parsed.data.dataset_id);
-    if (!summary) {
-      return reply
-        .code(422)
-        .send({ error_code: 'SkillInvalidArgs', message: `dataset not found in session: ${parsed.data.dataset_id}` });
-    }
-    let datasetBytes: Uint8Array;
-    try {
-      datasetBytes = await state.datasetStore.readRawById(parsed.data.dataset_id);
-    } catch (err) {
-      return reply
-        .code(500)
-        .send({ error_code: 'SkillExecutionFailed', message: (err as Error).message });
+        .send({ error_code: 'SkillExecutionFailed', message: '研究工作流服务尚未初始化' });
     }
 
     try {
-      const runArgs = { ...parsed.data.args, dataset_id: parsed.data.dataset_id };
-      const result = await state.skillRunner.run(descriptor, runArgs, {
-        datasetBytes,
-        datasetSummary: summary,
+      const result = await state.researchWorkflow.execute({
+        sessionId: req.params.sid,
+        datasetId: parsed.data.dataset_id,
+        skillId: parsed.data.skill_id,
+        args: parsed.data.args,
+        planId: parsed.data.plan_id,
       });
-      const runResult = result as { analysis?: { run_id?: unknown } };
+      const runResult = result as {
+        analysis?: {
+          run_id?: unknown;
+        };
+      };
       const runId = typeof runResult.analysis?.run_id === 'string' ? runResult.analysis.run_id : randomUUID();
       await state.sessionStore.appendMessages(req.params.sid, [
         agentMessage([{ SkillResult: { run_id: runId, result } } as AgentBlock]),
       ]);
       return reply.send(result);
     } catch (err) {
+      if (err instanceof ResearchWorkflowError) {
+        const mapped = workflowErrorResponse(err);
+        return reply.code(mapped.status).send(mapped.body);
+      }
+      if (err instanceof StoreError) {
+        const mapped = storeErrorResponse(err);
+        return reply.code(mapped.status).send(mapped.body);
+      }
       return reply.code(runErrorStatus(err)).send(runErrorBody(err));
     }
   });
@@ -662,7 +805,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       return reply.code(400).send({ error_code: 'InvalidRequest', message: 'invalid snapshot request' });
     }
     try {
-      const resp = state.snapshotProvider.export(parsed.data.run_id, parsed.data.destination);
+      const resp = await state.snapshotProvider.export(parsed.data.run_id, parsed.data.destination);
       return reply.send(resp);
     } catch (err) {
       return reply.code(500).send({ error_code: 'InternalError', message: (err as Error).message });

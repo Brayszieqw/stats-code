@@ -153,7 +153,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
       styles={{ body: { padding: '20px' } }}
     >
       <Paragraph style={{ fontSize: '13px', color: '#5a6e85', marginBottom: '16px' }}>
-        选择期望运行的统计学模块，配置对应的自变量与因变量。平台将为您自动编译为符合统计分析规范的 AI 提示词并提交计算引擎。
+        选择统计模块并配置变量。系统会生成结构化分析方案，经您审批后提交本机确定性引擎。
       </Paragraph>
 
       <Form

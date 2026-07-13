@@ -1,7 +1,12 @@
 import pandas as pd
 from lifelines import CoxPHFitter
+from lifelines.statistics import proportional_hazard_test
 
 data = pd.read_csv("data.csv")
+model_data = data[[{{params.time_quoted}}, {{params.event_quoted}}, {{params.predictors_quoted}}]].dropna()
 fitter = CoxPHFitter()
-fitter.fit(data, duration_col="{{column.0.name}}", event_col="{{column.1.name}}")
+fitter.fit(model_data, duration_col={{params.time_quoted}}, event_col={{params.event_quoted}})
 print(fitter.summary)
+# Independent PH reference diagnostic; Stats Code uses a centered-log1p
+# time-interaction score test, so the statistics are not labelled identical.
+print(proportional_hazard_test(fitter, model_data, time_transform="log").summary)

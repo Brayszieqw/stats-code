@@ -1,4 +1,8 @@
 GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
 DATASET NAME data WINDOW=FRONT.
-COXREG {{column.0.name}} /STATUS={{column.1.name}}(1).
-
+COXREG {{params.time}}
+  /STATUS={{params.event}}(1)
+  {{params.cox_spss_method}}
+  /PRINT=CI(95).
+* SPSS base COXREG does not expose the same global time-interaction score test;
+* add explicit covariate-by-log(time) terms for a method-matched diagnostic.

@@ -154,4 +154,13 @@ describe('tableone descriptive summaries', () => {
   it('quantileSorted interpolates', () => {
     expect(tableone.quantileSorted([1, 2, 3, 4], 0.5)).toBeCloseTo(2.5, 12);
   });
+
+  it('computes absolute continuous and categorical standardized differences', () => {
+    const first = tableone.summarizeContinuous('age', [10, 20]);
+    const second = tableone.summarizeContinuous('age', [30, 40]);
+    expect(tableone.standardizedMeanDifference(first, second)).toBeCloseTo(Math.sqrt(8), 12);
+
+    expect(tableone.standardizedProportionDifference(1, 1, 1, 2)).toBeCloseTo(Math.sqrt(2), 12);
+    expect(tableone.standardizedProportionDifference(0, 0, 1, 2)).toBeNull();
+  });
 });

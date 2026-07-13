@@ -99,6 +99,25 @@ function normalizeRenderParams(
     };
   }
 
+  if (algorithmId === 'cox') {
+    const time = params.time ?? columns[0]?.name ?? '';
+    const event = params.event ?? columns[1]?.name ?? '';
+    const predictors = parseNameList(params.predictors) ?? columns.slice(2).map((column) => column.name);
+    return {
+      ...params,
+      time,
+      event,
+      time_quoted: quoteString(time),
+      event_quoted: quoteString(event),
+      predictors_r: predictors.join(' + '),
+      predictors_space: predictors.join(' '),
+      predictors_quoted: predictors.map(quoteString).join(', '),
+      cox_spss_method: predictors.length > 0
+        ? `/METHOD=ENTER ${predictors.join(' ')}`
+        : '/* No predictors selected. */',
+    };
+  }
+
   if (algorithmId === 'tableone') {
     const group =
       params.group ?? params.strata ?? params.by ?? columns[1]?.name ?? columns[0]?.name ?? '';
@@ -106,6 +125,19 @@ function normalizeRenderParams(
       parseNameList(params.continuous) ??
       parseNameList(params.vars) ??
       (columns[0] ? [columns[0].name] : []);
+    const categorical = parseNameList(params.categorical) ?? [];
+    const categoricalSasBlock = categorical.length > 0
+      ? `proc freq data=work.data;\n  tables ${categorical.map((name) => `${group}*${name}`).join(' ')} / chisq expected;\n  exact fisher;\nrun;`
+      : '/* No categorical variables requested. */';
+    const categoricalSpssBlock = categorical.length > 0
+      ? categorical.map((name) => [
+          'CROSSTABS',
+          `  /TABLES=${group} BY ${name}`,
+          '  /STATISTICS=CHISQ',
+          '  /CELLS=COUNT EXPECTED ROW',
+          '  /METHOD=EXACT.',
+        ].join('\n')).join('\n')
+      : '* No categorical variables requested.';
 
     return {
       ...params,
@@ -113,6 +145,39 @@ function normalizeRenderParams(
       group_quoted: quoteString(group),
       continuous_space: continuous.join(' '),
       continuous_quoted: continuous.map(quoteString).join(', '),
+      categorical_space: categorical.join(' '),
+      categorical_quoted: categorical.map(quoteString).join(', '),
+      categorical_sas_block: categoricalSasBlock,
+      categorical_spss_block: categoricalSpssBlock,
+    };
+  }
+
+  if (algorithmId === 'kaplan_meier') {
+    const time = params.time ?? columns[0]?.name ?? '';
+    const event = params.event ?? columns[1]?.name ?? '';
+    const group = params.group?.trim() ?? '';
+    const pythonBlock = group.length > 0
+      ? `for label, frame in data.groupby(${quoteString(group)}):\n    fitter.fit(frame[${quoteString(time)}], event_observed=frame[${quoteString(event)}], label=str(label))\n    print(fitter.survival_function_)\ncomparison = multivariate_logrank_test(data[${quoteString(time)}], data[${quoteString(group)}], data[${quoteString(event)}])\nprint(comparison.summary)`
+      : `fitter.fit(durations=data[${quoteString(time)}], event_observed=data[${quoteString(event)}], label="Overall")\nprint(fitter.survival_function_)`;
+    return {
+      ...params,
+      time,
+      event,
+      group,
+      time_quoted: quoteString(time),
+      event_quoted: quoteString(event),
+      group_quoted: quoteString(group),
+      km_r_formula: group.length > 0 ? group : '1',
+      km_r_logrank_block: group.length > 0
+        ? `comparison <- survival::survdiff(survival::Surv(${time}, ${event}) ~ ${group}, data = data)\nprint(comparison)`
+        : '# No group requested; log-rank comparison is not applicable.',
+      km_python_block: pythonBlock,
+      km_sas_strata_block: group.length > 0
+        ? `   strata ${group} / test=logrank;`
+        : '   /* No group requested; log-rank comparison is not applicable. */',
+      km_spss_block: group.length > 0
+        ? `KM ${time} BY ${group}\n  /STATUS=${event}(1)\n  /COMPARE OVERALL.`
+        : `KM ${time} /STATUS=${event}(1).`,
     };
   }
 

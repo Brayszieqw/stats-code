@@ -94,18 +94,99 @@ function Invoke-ColdStartRound {
         $dataset = Invoke-RestMethod -Method Post -Uri "$baseUri/api/sessions/$($session.id)/datasets" -ContentType 'application/json' -Body $uploadBody -TimeoutSec 20
         if (-not $dataset.dataset_id -or $dataset.row_count -lt 1) { throw 'Dataset upload returned an invalid summary.' }
 
+        $protocolBody = @{
+            status = 'Approved'
+            research_question = 'Are baseline characteristics different between disease groups?'
+            study_design = 'cross_sectional'
+            population = 'De-identified demonstration cohort participants'
+            eligibility_criteria = 'One unique row per participant with complete Table One fields'
+            exposure = 'Baseline demographic and smoking characteristics'
+            comparator = 'Disease status groups'
+            outcome = 'Disease status'
+            time_zero = 'Baseline assessment'
+            follow_up = 'Cross-sectional analysis; no longitudinal follow-up'
+            analysis_unit = 'Participant'
+            estimand = 'Descriptive between-group differences in baseline characteristics'
+            confounders = 'Not applicable to the descriptive Table One analysis'
+            missing_data_strategy = 'Block the demonstration run if selected fields are missing'
+            primary_analysis = 'Table One by disease status'
+            sensitivity_analysis = 'Verify the same approved specification after isolated cold starts'
+        } | ConvertTo-Json -Depth 4 -Compress
+        $protocolSession = Invoke-RestMethod -Method Patch -Uri "$baseUri/api/sessions/$($session.id)/protocol" -ContentType 'application/json' -Body $protocolBody -TimeoutSec 10
+        $protocol = $protocolSession.research_protocol
+        if (
+            $protocol.status -ne 'Approved' -or
+            $protocol.version -lt 1 -or
+            -not $protocol.approval_id -or
+            $protocol.content_sha256 -notmatch '^[0-9a-f]{64}$'
+        ) {
+            throw 'Server did not return a valid approved research protocol.'
+        }
+
+        $analysisArgs = @{
+            group = 'disease'
+            continuous = @('age', 'bmi')
+            categorical = @('sex', 'smoke')
+        }
+        $auditBody = @{
+            skill_id = 'tableone'
+            args = $analysisArgs
+            expected_protocol_version = $protocol.version
+        } | ConvertTo-Json -Depth 6 -Compress
+        $audit = Invoke-RestMethod -Method Post -Uri "$baseUri/api/sessions/$($session.id)/datasets/$($dataset.dataset_id)/audit" -ContentType 'application/json' -Body $auditBody -TimeoutSec 30
+        if (
+            $audit.status -ne 'passed' -or
+            -not $audit.audit_id -or
+            $audit.audit_sha256 -notmatch '^[0-9a-f]{64}$' -or
+            $audit.protocol_version -ne $protocol.version -or
+            $audit.dataset_sha256 -ne $dataset.sha256 -or
+            $audit.skill_id -ne 'tableone' -or
+            $audit.run_spec_sha256 -notmatch '^[0-9a-f]{64}$'
+        ) {
+            $auditSummary = $audit | ConvertTo-Json -Depth 8 -Compress
+            throw "Dataset did not pass the server audit: $auditSummary"
+        }
+
+        $approvalBody = @{
+            skill_id = 'tableone'
+            dataset_id = $dataset.dataset_id
+            args = $analysisArgs
+            expected_protocol_version = $protocol.version
+            expected_audit_id = $audit.audit_id
+            expected_audit_sha256 = $audit.audit_sha256
+            audit_roles = $audit.roles
+        } | ConvertTo-Json -Depth 8 -Compress
+        $plan = Invoke-RestMethod -Method Post -Uri "$baseUri/api/sessions/$($session.id)/analysis-plans/approve" -ContentType 'application/json' -Body $approvalBody -TimeoutSec 30
+        if (
+            $plan.status -ne 'Approved' -or
+            -not $plan.plan_id -or
+            -not $plan.approval_id -or
+            $plan.protocol_version -ne $protocol.version -or
+            $plan.protocol_sha256 -ne $protocol.content_sha256 -or
+            $plan.protocol_approval_id -ne $protocol.approval_id -or
+            $plan.dataset_id -ne $dataset.dataset_id -or
+            $plan.dataset_sha256 -ne $dataset.sha256 -or
+            $plan.skill_id -ne 'tableone' -or
+            $plan.run_spec_sha256 -ne $audit.run_spec_sha256 -or
+            $plan.audit_id -ne $audit.audit_id -or
+            $plan.audit_sha256 -ne $audit.audit_sha256
+        ) {
+            throw 'Server approval did not preserve the reviewed protocol, dataset, and audit bindings.'
+        }
+
         $runBody = @{
             skill_id = 'tableone'
             dataset_id = $dataset.dataset_id
-            args = @{
-                group = 'disease'
-                continuous = @('age', 'bmi')
-                categorical = @('sex', 'smoke')
-            }
-        } | ConvertTo-Json -Depth 5 -Compress
+            args = $analysisArgs
+            plan_id = $plan.plan_id
+        } | ConvertTo-Json -Depth 6 -Compress
         $run = Invoke-RestMethod -Method Post -Uri "$baseUri/api/sessions/$($session.id)/run" -ContentType 'application/json' -Body $runBody -TimeoutSec 30
-        if ($run.analysis.algorithm_id -ne 'tableone' -or $run.analysis.run_status -ne 'completed') {
-            throw 'Table One did not return a completed run.'
+        if (
+            $run.analysis.algorithm_id -ne 'tableone' -or
+            $run.analysis.run_status -ne 'completed' -or
+            $run.analysis.plan_id -ne $plan.plan_id
+        ) {
+            throw 'Table One did not return a completed run bound to the approved plan.'
         }
 
         $elapsed = [math]::Round(([DateTimeOffset]::Now - $startedAt).TotalSeconds, 2)
@@ -114,6 +195,14 @@ function Invoke-ColdStartRound {
             Port = $port
             Rows = $dataset.row_count
             DatasetSha256 = $dataset.sha256
+            ProtocolVersion = $protocol.version
+            ProtocolApprovalId = $protocol.approval_id
+            ProtocolSha256 = $protocol.content_sha256
+            AuditStatus = $audit.status
+            AuditId = $audit.audit_id
+            AuditSha256 = $audit.audit_sha256
+            PlanId = $plan.plan_id
+            PlanApprovalId = $plan.approval_id
             RunId = $run.analysis.run_id
             Seconds = $elapsed
         }
@@ -145,17 +234,30 @@ $record = @(
     '',
     "- Build version: $version",
     "- Verified at: $([DateTimeOffset]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz'))",
-    '- Path: every round used a fresh isolated APPDATA and executed start, health, session creation, CSV upload, Table One, and shutdown.',
-    '- Criteria: every run returned algorithm_id=tableone and run_status=completed; every process was stopped.',
+    '- Path: every round used a fresh isolated APPDATA and executed start, health, session creation, CSV upload, server protocol approval, dataset audit, exact-audit plan approval, plan-bound Table One, and shutdown.',
+    '- Criteria: every audit returned status=passed; every server-issued protocol/audit/plan binding matched; every run returned algorithm_id=tableone, run_status=completed, and the approved plan_id; every process was stopped.',
     '',
-    '| Round | Port | Rows | Dataset SHA-256 | run_id | Seconds |',
-    '|---:|---:|---:|---|---|---:|'
+    '| Round | Port | Rows | Protocol | Audit | Plan | run_id | Seconds |',
+    '|---:|---:|---:|---|---|---|---|---:|'
 )
 foreach ($result in $results) {
-    $record += "| $($result.Round) | $($result.Port) | $($result.Rows) | $($result.DatasetSha256) | $($result.RunId) | $($result.Seconds) |"
+    $record += "| $($result.Round) | $($result.Port) | $($result.Rows) | v$($result.ProtocolVersion) / Approved | $($result.AuditStatus) | Approved | $($result.RunId) | $($result.Seconds) |"
+}
+$record += @('', '## Server-issued bindings')
+foreach ($result in $results) {
+    $record += @(
+        '',
+        "### Round $($result.Round)",
+        '',
+        "- Dataset: sha256=$($result.DatasetSha256)",
+        "- Protocol: version=$($result.ProtocolVersion); approval_id=$($result.ProtocolApprovalId); sha256=$($result.ProtocolSha256)",
+        "- Audit: status=$($result.AuditStatus); audit_id=$($result.AuditId); sha256=$($result.AuditSha256)",
+        "- Plan: plan_id=$($result.PlanId); approval_id=$($result.PlanApprovalId); audit_id=$($result.AuditId)",
+        "- Run: run_id=$($result.RunId); plan_id=$($result.PlanId)"
+    )
 }
 $record += @('', '**Verdict: PASS**')
 [System.IO.File]::WriteAllText($RecordPath, ($record -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
 
-$results | Format-Table Round, Port, Rows, RunId, Seconds -AutoSize
+$results | Format-Table Round, Port, Rows, ProtocolVersion, AuditStatus, PlanId, RunId, Seconds -AutoSize
 Write-Host "[verify-demo-pack] three cold-start runs: PASS -> $RecordPath"

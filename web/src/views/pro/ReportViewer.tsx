@@ -9,7 +9,7 @@
  * Validates: Requirements 6.1, 6.2, 6.3, 6.4
  */
 
-import { Card, Typography, Space, Empty } from 'antd';
+import { Card, Typography, Space, Empty, Tag } from 'antd';
 import { BulbOutlined, FileTextOutlined } from '@ant-design/icons';
 import { ThreeLineTable } from '../../components/ThreeLineTable';
 import { StatsChartRenderer } from '../../components/StatsChartRenderer';
@@ -34,6 +34,25 @@ function isInterceptTerm(term: string): boolean {
   const normalized = term.trim().toLowerCase().replace(/[\s()]/g, '');
   return ['β0', 'b0', 'intercept', 'const', 'constant'].includes(normalized);
 }
+
+const AVAILABILITY_LABEL = {
+  available: '已提供',
+  not_computed: '未计算',
+  not_applicable: '不适用',
+} as const;
+
+const CONVERGENCE_LABEL = {
+  converged: '已收敛',
+  failed: '未收敛',
+  not_applicable: '不适用',
+  unknown: '未知',
+} as const;
+
+const LOG_RANK_REASON_LABEL: Record<string, string> = {
+  insufficient_groups: '至少需要两个非空分组。',
+  no_events: '所有记录均为删失，无法比较事件分布。',
+  degenerate_variance: '风险集方差退化，无法稳定计算检验。',
+};
 
 export function ReportViewer({ messages, selectedDataset, activeView }: ReportViewerProps) {
   const { result, resultMessage } = useLatestAnalysis(messages);
@@ -71,6 +90,7 @@ export function ReportViewer({ messages, selectedDataset, activeView }: ReportVi
   }
 
   const analysis = result.analysis;
+  const resultContract = analysis?.result_contract;
   const payload = result.payload && typeof result.payload === 'object'
     ? result.payload as Record<string, unknown>
     : {};
@@ -88,6 +108,9 @@ export function ReportViewer({ messages, selectedDataset, activeView }: ReportVi
   const logRank = payload.log_rank && typeof payload.log_rank === 'object'
     ? payload.log_rank as Record<string, unknown>
     : null;
+  const survivalGroupSummaries = Array.isArray(payload.group_summaries)
+    ? payload.group_summaries as Array<Record<string, unknown>>
+    : [];
   const pValue = primaryCoefficient?.pValue
     ?? (typeof logRank?.p_value === 'number' ? logRank.p_value : null)
     ?? (typeof payload.p_value === 'number' ? payload.p_value : null);
@@ -166,6 +189,114 @@ export function ReportViewer({ messages, selectedDataset, activeView }: ReportVi
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {survivalGroupSummaries.length > 0 ? (
+          <section className="result-contract" aria-label="生存分析分组摘要">
+            <div className="result-contract__header">
+              <strong>生存分析分组摘要</strong>
+              <span>事件、删失与中位生存时间</span>
+            </div>
+            <div className="result-contract__grid">
+              {survivalGroupSummaries.map((summary) => (
+                <div key={String(summary.group)}>
+                  <span>{String(summary.group)}</span>
+                  <strong>
+                    n={String(summary.n)} · 事件={String(summary.event_n)} · 删失={String(summary.censored_n)}
+                  </strong>
+                  <small>
+                    中位生存 {typeof summary.median_survival === 'number' ? fmtNum(summary.median_survival) : '未达到'}
+                  </small>
+                </div>
+              ))}
+            </div>
+            {logRank ? (
+              <div className="result-contract__details">
+                <strong>Log-rank 组间比较</strong>
+                {typeof logRank.p_value === 'number' ? (
+                  <p>
+                    χ²={fmtNum(typeof logRank.statistic === 'number' ? logRank.statistic : null)}
+                    {' · '}df={String(logRank.degrees_of_freedom)}
+                    {' · '}p={fmtP(logRank.p_value)}
+                  </p>
+                ) : (
+                  <p>未计算：{LOG_RANK_REASON_LABEL[String(logRank.reason)] ?? '当前数据不满足检验条件。'}</p>
+                )}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {resultContract ? (
+          <section className="result-contract" aria-label="标准化结果合同">
+            <div className="result-contract__header">
+              <strong>结果合同 v{resultContract.schema_version}</strong>
+              <span>{resultContract.method.algorithm_id} · 方法版本 {resultContract.method.method_version}</span>
+            </div>
+
+            <div className="result-contract__grid">
+              <div><span>有效记录</span><strong>{resultContract.counts.complete_case_n} / {resultContract.counts.input_n}</strong></div>
+              <div><span>缺失记录</span><strong>{resultContract.counts.missing_n}</strong></div>
+              {resultContract.counts.event_n !== null ? (
+                <div><span>事件数</span><strong>{resultContract.counts.event_n}</strong></div>
+              ) : null}
+              {resultContract.counts.person_time !== null ? (
+                <div><span>总人时</span><strong>{fmtNum(resultContract.counts.person_time)}</strong></div>
+              ) : null}
+              <div><span>模型收敛</span><strong>{CONVERGENCE_LABEL[resultContract.convergence.status]}</strong></div>
+              <div>
+                <span>分析范围</span>
+                <strong>
+                  未调整 {AVAILABILITY_LABEL[resultContract.analysis_availability.unadjusted]}
+                  {' · '}调整后 {AVAILABILITY_LABEL[resultContract.analysis_availability.adjusted]}
+                </strong>
+              </div>
+              <div className="result-contract__engine">
+                <span>确定性引擎</span>
+                <strong>{resultContract.provenance.engine_name} {resultContract.provenance.engine_version}</strong>
+              </div>
+            </div>
+
+            <div className="result-contract__coverage">
+              <span>验证覆盖</span>
+              <Space size={[4, 4]} wrap>
+                {Object.entries(resultContract.provenance.validation_coverage).map(([software, level]) => (
+                  <Tag key={software}>{software}: {level}</Tag>
+                ))}
+              </Space>
+            </div>
+
+            {resultContract.assumption_diagnostics.length > 0 ? (
+              <div className="result-contract__details">
+                <strong>假设诊断</strong>
+                {resultContract.assumption_diagnostics.map((diagnostic) => (
+                  <p key={diagnostic.code}>{diagnostic.message}</p>
+                ))}
+              </div>
+            ) : null}
+
+            {resultContract.exclusions.length > 0 ? (
+              <div className="result-contract__details">
+                <strong>排除记录</strong>
+                {resultContract.exclusions.map((exclusion, index) => (
+                  <p key={`${exclusion.reason}-${index}`}>
+                    {exclusion.reason}{exclusion.n === null ? '' : `（n=${exclusion.n}）`}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="result-contract__details result-contract__limits">
+              <strong>不支持的结论</strong>
+              {resultContract.interpretation.unsupported_conclusions.map((conclusion) => (
+                <p key={conclusion}>{conclusion}</p>
+              ))}
+              {resultContract.interpretation.statistical === null
+                || resultContract.interpretation.practical_significance === null ? (
+                  <p>统计解释与实际/临床意义需由合格研究者结合协议审核。</p>
+                ) : null}
+            </div>
+          </section>
         ) : null}
 
         <ErrorBoundary title="结果表格渲染失败" resetKey={analysis?.run_id ?? 'table'}>

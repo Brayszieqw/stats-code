@@ -66,6 +66,33 @@ describe('POST /api/sessions/:sid/datasets (wired)', () => {
     await app.close();
   });
 
+  it('re-sanitizes preview rows persisted by an older release', async () => {
+    const sessionStore = new MemSessionStore();
+    const app = buildRouter({ state: { sessionStore } });
+    const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;
+    await sessionStore.appendDataset(sid, {
+      dataset_id: '11111111-1111-4111-8111-111111111111',
+      file_name: 'legacy.csv',
+      size_bytes: 10,
+      encoding: 'Utf8',
+      row_count: 1,
+      columns: [
+        { name: 'patient_name', inferred_type: 'String', missing_count: 0 },
+        { name: 'notes', inferred_type: 'String', missing_count: 0 },
+      ],
+      preview_rows: [{ patient_name: 'Alice Smith', notes: 'alice@example.com' }],
+      uploaded_at: '2026-01-01T00:00:00.000Z',
+      sha256: 'a'.repeat(64),
+    });
+
+    const response = await app.inject({ method: 'GET', url: `/api/sessions/${sid}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().datasets[0].preview_rows).toEqual([
+      { patient_name: '[已脱敏]', notes: '[已脱敏]' },
+    ]);
+    await app.close();
+  });
+
   it('rejects an unparseable payload with 422 and does not append', async () => {
     const app = buildRouter({ state: wiredState() });
     const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;

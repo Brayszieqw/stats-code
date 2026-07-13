@@ -7,9 +7,11 @@
 // Validates: Requirements 12.4
 
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
 import fc from 'fast-check';
 import {
   buildRouter,
+  createResearchWorkflowService,
   MemSessionStore,
   SkillRegistry,
   SkillRunner,
@@ -18,7 +20,7 @@ import {
   type DatasetSummary,
 } from '@stats-code/server';
 
-const CSV = 'y,x\n1,1\n2,2\n3,3\n';
+const CSV = 'participant_id,y,x\nP001,1,1\nP002,2,2\nP003,3,3\n';
 const BYTES = new TextEncoder().encode(CSV);
 
 function summary(datasetId: string): DatasetSummary {
@@ -29,11 +31,12 @@ function summary(datasetId: string): DatasetSummary {
     encoding: 'Utf8',
     row_count: 3,
     columns: [
+      { name: 'participant_id', inferred_type: 'String', missing_count: 0 },
       { name: 'y', inferred_type: 'Numeric', missing_count: 0 },
       { name: 'x', inferred_type: 'Numeric', missing_count: 0 },
     ],
     uploaded_at: '2026-01-01T00:00:00Z',
-    sha256: null,
+    sha256: createHash('sha256').update(BYTES).digest('hex'),
   };
 }
 
@@ -52,32 +55,106 @@ const FULL_ARGS: Record<string, unknown> = {
   predictors: ['x'],
 };
 
+const protocol = {
+  status: 'Approved',
+  research_question: 'x 是否与 y 相关？',
+  study_design: 'cross_sectional',
+  population: '属性测试数据',
+  eligibility_criteria: '每人一行',
+  exposure: 'x',
+  comparator: 'x 每增加 1 单位',
+  outcome: 'y',
+  time_zero: '基线',
+  follow_up: '横断面',
+  analysis_unit: '参与者',
+  estimand: '线性回归系数',
+  confounders: '',
+  missing_data_strategy: '完整案例',
+  primary_analysis: '线性回归',
+  sensitivity_analysis: '',
+} as const;
+
+function stateWithWorkflow(): AppState {
+  const sessionStore = new MemSessionStore();
+  const datasetStore = memDatasetStore();
+  const registry = SkillRegistry.withDefaults();
+  const runner = new SkillRunner(registry);
+  return {
+    sessionStore,
+    datasetStore,
+    skillRegistry: registry,
+    skillRunner: runner,
+    researchWorkflow: createResearchWorkflowService({ sessionStore, datasetStore, registry, runner }),
+  };
+}
+
+async function seedApprovedProtocol(app: ReturnType<typeof buildRouter>, sid: string) {
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/api/sessions/${sid}/protocol`,
+    payload: protocol,
+  });
+  expect(response.statusCode).toBe(200);
+}
+
+async function approvePlan(
+  app: ReturnType<typeof buildRouter>,
+  sid: string,
+  datasetId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const auditResponse = await app.inject({
+    method: 'POST',
+    url: `/api/sessions/${sid}/datasets/${datasetId}/audit`,
+    payload: {
+      skill_id: 'model_linear',
+      args,
+      expected_protocol_version: 1,
+    },
+  });
+  expect(auditResponse.statusCode).toBe(200);
+  const audit = auditResponse.json();
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/sessions/${sid}/analysis-plans/approve`,
+    payload: {
+      skill_id: 'model_linear',
+      dataset_id: datasetId,
+      args,
+      expected_protocol_version: 1,
+      expected_audit_id: audit.audit_id,
+      expected_audit_sha256: audit.audit_sha256,
+      audit_roles: audit.roles,
+    },
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json().plan_id as string;
+}
+
 describe('Property 10: run arg validation (Requirement 12.4)', () => {
-  it('any args missing a required key → 422 SkillInvalidArgs, no result', async () => {
+  it('any args missing a required key → plan approval returns 422 and no result', async () => {
     await fc.assert(
       fc.asyncProperty(
         // Choose a non-empty subset of required keys to OMIT.
         fc.subarray([...REQUIRED_ARGS], { minLength: 1 }),
         async (omit) => {
-          const registry = SkillRegistry.withDefaults();
-          const state: AppState = {
-            sessionStore: new MemSessionStore(),
-            datasetStore: memDatasetStore(),
-            skillRegistry: registry,
-            skillRunner: new SkillRunner(registry),
-          };
+          const state = stateWithWorkflow();
           const app = buildRouter({ state });
           const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
           const datasetId = '44444444-4444-4444-8444-444444444444';
           await state.sessionStore.appendDataset(created.id, summary(datasetId));
+          await seedApprovedProtocol(app, created.id);
 
           const args: Record<string, unknown> = { ...FULL_ARGS, dataset_id: datasetId };
           for (const k of omit) delete args[k];
-
           const res = await app.inject({
             method: 'POST',
-            url: `/api/sessions/${created.id}/run`,
-            payload: { skill_id: 'model_linear', dataset_id: datasetId, args },
+            url: `/api/sessions/${created.id}/datasets/${datasetId}/audit`,
+            payload: {
+              skill_id: 'model_linear',
+              args,
+              expected_protocol_version: 1,
+            },
           });
           expect(res.statusCode).toBe(422);
           expect(res.json().error_code).toBe('SkillInvalidArgs');
@@ -91,22 +168,18 @@ describe('Property 10: run arg validation (Requirement 12.4)', () => {
   });
 
   it('top-level dataset_id is enough; args.dataset_id is injected before validation', async () => {
-    const registry = SkillRegistry.withDefaults();
-    const state: AppState = {
-      sessionStore: new MemSessionStore(),
-      datasetStore: memDatasetStore(),
-      skillRegistry: registry,
-      skillRunner: new SkillRunner(registry),
-    };
+    const state = stateWithWorkflow();
     const app = buildRouter({ state });
     const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
     const datasetId = '44444444-4444-4444-8444-444444444444';
     await state.sessionStore.appendDataset(created.id, summary(datasetId));
+    await seedApprovedProtocol(app, created.id);
+    const planId = await approvePlan(app, created.id, datasetId, FULL_ARGS);
 
     const res = await app.inject({
       method: 'POST',
       url: `/api/sessions/${created.id}/run`,
-      payload: { skill_id: 'model_linear', dataset_id: datasetId, args: FULL_ARGS },
+      payload: { skill_id: 'model_linear', dataset_id: datasetId, args: FULL_ARGS, plan_id: planId },
     });
 
     expect(res.statusCode).toBe(200);

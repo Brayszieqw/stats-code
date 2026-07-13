@@ -1,4 +1,4 @@
 proc import datafile="data.csv" out=work.data dbms=csv replace; run;
 
 proc means data=work.data; var {{params.continuous_space}}; class {{params.group}}; run;
-proc freq data=work.data; tables {{params.group}}; run;
+{{params.categorical_sas_block}}

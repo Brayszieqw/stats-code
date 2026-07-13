@@ -1,4 +1,4 @@
-import type { DatasetSummary, RunRequest } from '../api/types';
+import type { DatasetSummary, ResearchProtocol, RunRequest } from '../api/types';
 
 export const ANALYSIS_TRUST_STATEMENT = '本机确定性引擎 · 数值非 LLM 生成 · 可审计';
 
@@ -6,7 +6,9 @@ export type PreflightWarningCode =
   | 'small-sample'
   | 'missing-data'
   | 'causal-language'
-  | 'paired-design';
+  | 'paired-design'
+  | 'protocol-outcome-mismatch'
+  | 'protocol-method-mismatch';
 
 export interface PreflightWarning {
   code: PreflightWarningCode;
@@ -66,10 +68,45 @@ function selectedVariables(request: RunRequest): string[] {
   return [...new Set(orderedKeys.flatMap((key) => collectStrings(args[key])))];
 }
 
+function requestedOutcome(request: RunRequest): string | null {
+  const args = requestArgs(request);
+  const key = request.skill_id === 'ttest'
+    ? 'testVar'
+    : request.skill_id === 'survival_km' || request.skill_id === 'model_cox'
+      ? 'event'
+      : request.skill_id.startsWith('model_')
+        ? 'outcome'
+        : null;
+  if (!key) return null;
+  const value = args[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function protocolMentionsVariable(protocolOutcome: string, variable: string): boolean {
+  const outcome = protocolOutcome.toLocaleLowerCase();
+  const target = variable.toLocaleLowerCase();
+  if (!/^[a-z0-9_]+$/i.test(target)) return outcome.includes(target);
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, 'i').test(outcome);
+}
+
+function protocolMethodConflicts(request: RunRequest, protocol: ResearchProtocol): boolean {
+  const declared = `${protocol.primary_analysis} ${protocol.estimand}`;
+  const conflicts: Partial<Record<RunRequest['skill_id'], RegExp>> = {
+    model_linear: /(?:\bOR\b|odds|比值比|优势比|几率比|\bHR\b|hazard|风险比|logistic|cox|生存)/i,
+    model_logistic: /(?:\bHR\b|hazard|风险比|cox|生存|均值差|mean\s+difference|线性回归)/i,
+    model_cox: /(?:\bOR\b|odds|比值比|优势比|几率比|logistic|均值差|mean\s+difference|线性回归)/i,
+    ttest: /(?:\bOR\b|odds|比值比|优势比|几率比|\bHR\b|hazard|风险比|logistic|cox|生存)/i,
+    survival_km: /(?:\bOR\b|odds|比值比|优势比|几率比|logistic|均值差|mean\s+difference|t[ -]?test|t\s*检验)/i,
+  };
+  return conflicts[request.skill_id]?.test(declared) ?? false;
+}
+
 export function buildAnalysisPreflight(
   dataset: DatasetSummary,
   request: RunRequest,
   promptText: string,
+  protocol: ResearchProtocol | null = null,
 ): AnalysisPreflight {
   const variables = selectedVariables(request);
   const columnsByName = new Map(dataset.columns.map((column) => [column.name, column]));
@@ -114,6 +151,24 @@ export function buildAnalysisPreflight(
       severity: 'high',
       message: '当前方法是独立样本 T 检验，但描述疑似配对或重复测量设计，请确认研究设计。',
     });
+  }
+
+  if (protocol?.status === 'Approved' && request.skill_id !== 'tableone') {
+    const outcome = requestedOutcome(request);
+    if (outcome && !protocolMentionsVariable(protocol.outcome, outcome)) {
+      warnings.push({
+        code: 'protocol-outcome-mismatch',
+        severity: 'high',
+        message: `本次结局变量 ${outcome} 未在已审批协议结局“${protocol.outcome}”中明确出现，请先确认变量映射或修订协议。`,
+      });
+    }
+    if (protocolMethodConflicts(request, protocol)) {
+      warnings.push({
+        code: 'protocol-method-mismatch',
+        severity: 'high',
+        message: `本次${METHOD_LABELS[request.skill_id] ?? request.skill_id}与已审批协议的方法或目标估计量不一致，请修订协议，或确认本次仅为预先声明的次要分析。`,
+      });
+    }
   }
 
   return {

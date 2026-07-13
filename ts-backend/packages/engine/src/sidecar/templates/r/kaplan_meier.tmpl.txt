@@ -1,4 +1,5 @@
 library(survival)
 data <- read.csv("data.csv")
-fit <- survival::survfit(survival::Surv({{column.0.name}}, {{column.1.name}}) ~ 1, data = data)
+fit <- survival::survfit(survival::Surv({{params.time}}, {{params.event}}) ~ {{params.km_r_formula}}, data = data)
 print(summary(fit))
+{{params.km_r_logrank_block}}

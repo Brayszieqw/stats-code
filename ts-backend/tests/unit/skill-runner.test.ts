@@ -39,17 +39,54 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
   const runner = new SkillRunner(reg);
 
   it('runs table one summaries and attaches analysis metadata', async () => {
-    const ctx = ctxFor('age,bmi,arm\n60,21,A\n64,23,A\n70,25,B\n72,29,B\n', [num('age'), num('bmi'), cat('arm')]);
+    const ctx = ctxFor('age,bmi,arm,sex\n60,21,A,M\n64,,A,M\n70,25,B,F\n72,29,B,F\n', [num('age'), num('bmi'), cat('arm'), cat('sex')]);
     const result = await runner.run(reg.get('tableone')!, {
       group: 'arm',
       continuous: ['age', 'bmi'],
-      categorical: ['arm'],
+      categorical: ['arm', 'sex'],
       dataset_id: 'ds-1',
     }, ctx);
-    const payload = result.payload as { groups: { label: string; continuous: unknown[] }[] };
+    const payload = result.payload as {
+      groups: Array<{
+        label: string;
+        continuous: Array<{ variable: string; n: number; missing: number }>;
+      }>;
+      standardized_differences: {
+        comparison: { first: string; second: string };
+        continuous: Array<{ variable: string; smd: number | null }>;
+      };
+      categorical_tests: Array<{
+        variable: string;
+        status: string;
+        method: string | null;
+        observed_zero_cells: number;
+      }>;
+    };
     expect(payload.groups.map((group) => group.label)).toEqual(['A', 'B']);
     expect(payload.groups[0]!.continuous).toHaveLength(2);
+    expect(payload.groups[0]!.continuous.find((summary) => summary.variable === 'bmi')).toMatchObject({ n: 1, missing: 1 });
+    expect(payload.groups[1]!.continuous.find((summary) => summary.variable === 'bmi')).toMatchObject({ n: 2, missing: 0 });
+    expect(payload.standardized_differences.comparison).toEqual({ first: 'A', second: 'B' });
+    expect(payload.standardized_differences.continuous.find((entry) => entry.variable === 'age')?.smd)
+      .toBeCloseTo(9 / Math.sqrt(5), 12);
+    expect(payload.standardized_differences.continuous.find((entry) => entry.variable === 'bmi')?.smd)
+      .toBeCloseTo(3, 12);
+    expect(payload.categorical_tests.find((entry) => entry.variable === 'arm')).toMatchObject({
+      status: 'not_applicable',
+      method: null,
+    });
+    expect(payload.categorical_tests.find((entry) => entry.variable === 'sex')).toMatchObject({
+      status: 'computed',
+      method: 'fisher_exact',
+      observed_zero_cells: 2,
+    });
     expect(result.analysis?.algorithm_id).toBe('tableone');
+    expect(result.analysis?.result_contract).toMatchObject({
+      estimates: [],
+      counts: { input_n: 4, complete_case_n: 3, missing_n: 1 },
+      exclusions: [{ n: 1 }],
+      analysis_availability: { unadjusted: 'not_applicable', adjusted: 'not_applicable' },
+    });
   });
 
   it('runs Welch t-test and attaches analysis metadata', async () => {
@@ -76,13 +113,34 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     const payload = result.payload as {
       r_squared: number;
       coefficients: Array<{ term?: string; index?: number }>;
+      model_diagnostics: { collinearity: { status: string; rank: number; max_vif: number } };
     };
     expect(payload.r_squared).toBeGreaterThan(0.9);
     expect(payload.coefficients.map((c) => c.term)).toEqual(['(Intercept)', 'x']);
+    expect(payload.model_diagnostics.collinearity).toMatchObject({ status: 'passed', rank: 1, max_vif: 1 });
     expect(result.analysis).not.toBeNull();
     expect(result.analysis?.algorithm_id).toBe('linear');
     expect(result.analysis?.dataset_id).toBe('ds-1');
     expect(result.analysis?.dataset_sha256).toBe(ctx.datasetSummary.sha256);
+    expect(result.analysis?.result_contract).toMatchObject({
+      schema_version: '1.0',
+      method: { algorithm_id: 'linear', method_version: '1.0' },
+      counts: {
+        input_n: 5,
+        complete_case_n: 5,
+        missing_n: 0,
+        event_n: null,
+        person_time: null,
+      },
+      analysis_availability: { unadjusted: 'available', adjusted: 'not_computed' },
+      convergence: { status: 'not_applicable' },
+      provenance: { engine_name: '@stats-code/engine' },
+    });
+    expect((result.analysis?.result_contract as { estimates: unknown[] }).estimates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ term: 'x', effect_unit: 'Beta', adjustment: 'unadjusted' }),
+      ]),
+    );
   });
 
   it('runs logistic regression', async () => {
@@ -92,9 +150,35 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       predictors: ['x'],
       dataset_id: 'ds-1',
     }, ctx);
-    const payload = result.payload as { odds_ratios: number[] };
+    const payload = result.payload as {
+      odds_ratios: number[];
+      model_diagnostics: {
+        convergence: { status: string };
+        sparse_data: { status: string; information_per_predictor: number };
+        separation_screen: { status: string };
+      };
+    };
     expect(Array.isArray(payload.odds_ratios)).toBe(true);
+    expect(payload.model_diagnostics).toMatchObject({
+      convergence: { status: 'failed' },
+      sparse_data: { status: 'warning', information_per_predictor: 3 },
+      separation_screen: { status: 'warning' },
+    });
+    expect(result.risk_signals).toEqual(expect.arrayContaining(['ModelConvergenceFailed', 'SparseData']));
     expect(result.analysis?.algorithm_id).toBe('logistic');
+    expect(result.analysis?.result_contract).toMatchObject({
+      counts: { input_n: 6, complete_case_n: 6, event_n: 3 },
+      convergence: { status: 'failed' },
+    });
+    expect((result.analysis?.result_contract as { estimates: Array<{ effect_unit: string }> }).estimates)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ effect_unit: 'OR' })]));
+    expect((result.analysis?.result_contract as { assumption_diagnostics: Array<{ code: string; status: string }> })
+      .assumption_diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'model-convergence', status: 'failed' }),
+        expect.objectContaining({ code: 'model-sparse-data', status: 'warning' }),
+        expect.objectContaining({ code: 'model-collinearity', status: 'passed' }),
+        expect.objectContaining({ code: 'logistic-separation-screen', status: 'warning' }),
+      ]));
   });
 
   it('runs cox regression', async () => {
@@ -105,21 +189,90 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       predictors: ['x'],
       dataset_id: 'ds-1',
     }, ctx);
-    const payload = result.payload as { hazard_ratios: number[] };
+    const payload = result.payload as {
+      hazard_ratios: number[];
+      ph_test: { status: string; p_value: number; violated: boolean; recommendation: string };
+      model_diagnostics: { sparse_data: { status: string; information_per_predictor: number } };
+    };
     expect(Array.isArray(payload.hazard_ratios)).toBe(true);
+    expect(payload.ph_test.status).toBe('computed');
+    expect(payload.ph_test.p_value).toBeGreaterThan(0.05);
+    expect(payload.ph_test.violated).toBe(false);
+    expect(payload.ph_test.recommendation).toContain('仍需结合图形');
+    expect(payload.model_diagnostics.sparse_data).toMatchObject({ status: 'warning', information_per_predictor: 4 });
+    expect(result.risk_signals).toContain('SparseData');
     expect(result.analysis?.algorithm_id).toBe('cox');
+    expect(result.analysis?.result_contract).toMatchObject({
+      counts: { input_n: 6, complete_case_n: 6, event_n: 4, person_time: 38 },
+      convergence: { status: 'converged' },
+    });
+    expect((result.analysis?.result_contract as { assumption_diagnostics: Array<{ code: string }> })
+      .assumption_diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'model-convergence', status: 'passed' }),
+          expect.objectContaining({ code: 'model-sparse-data', status: 'warning' }),
+          expect.objectContaining({ code: 'model-collinearity', status: 'passed' }),
+          expect.objectContaining({ code: 'cox-ph', status: 'passed' }),
+        ]),
+      );
+  });
+
+  it('rejects a rank-deficient regression design before fitting', async () => {
+    const ctx = ctxFor('y,x,twice_x\n1,1,2\n2,2,4\n3,3,6\n4,4,8\n5,5,10\n', [num('y'), num('x'), num('twice_x')]);
+    await expect(runner.run(reg.get('model_linear')!, {
+      outcome: 'y',
+      predictors: ['x', 'twice_x'],
+      dataset_id: 'ds-1',
+    }, ctx)).rejects.toMatchObject({
+      detail: { kind: 'execution_failed', diagnosticExcerpt: expect.stringMatching(/rank deficient/i) },
+    });
+  });
+
+  it('rejects a non-binary Cox event indicator', async () => {
+    const ctx = ctxFor('t,e,x\n1,0,1\n2,2,2\n3,1,3\n4,0,4\n', [num('t'), num('e'), num('x')]);
+    await expect(runner.run(reg.get('model_cox')!, {
+      time: 't',
+      event: 'e',
+      predictors: ['x'],
+      dataset_id: 'ds-1',
+    }, ctx)).rejects.toMatchObject({
+      detail: { kind: 'execution_failed', diagnosticExcerpt: expect.stringMatching(/encoded as 0\/1/) },
+    });
   });
 
   it('runs kaplan-meier survival', async () => {
-    const ctx = ctxFor('t,e\n5,1\n6,0\n7,1\n8,1\n3,1\n', [num('t'), num('e')]);
+    const ctx = ctxFor(
+      't,e,arm\n1,1,A\n2,1,A\n3,0,A\n4,1,A\n5,0,A\n2,0,B\n3,1,B\n4,0,B\n5,0,B\n6,1,B\n',
+      [num('t'), num('e'), cat('arm')],
+    );
     const result = await runner.run(reg.get('survival_km')!, {
       time: 't',
       event: 'e',
+      group: 'arm',
       dataset_id: 'ds-1',
     }, ctx);
-    const payload = result.payload as { survival_table: unknown[] };
+    const payload = result.payload as {
+      survival_table: unknown[];
+      groups: string[];
+      steps: Array<{ group: string; std_error: number }>;
+      group_summaries: Array<{ group: string; n: number; event_n: number; censored_n: number }>;
+      log_rank: { status: string; statistic: number; p_value: number; degrees_of_freedom: number };
+    };
     expect(Array.isArray(payload.survival_table)).toBe(true);
+    expect(payload.groups).toEqual(['A', 'B']);
+    expect(payload.group_summaries).toEqual([
+      { group: 'A', n: 5, event_n: 3, censored_n: 2, median_survival: 4 },
+      { group: 'B', n: 5, event_n: 2, censored_n: 3, median_survival: 6 },
+    ]);
+    expect(payload.log_rank).toMatchObject({ status: 'computed', degrees_of_freedom: 1 });
+    expect(payload.log_rank.statistic).toBeCloseTo(1.5333798671220824, 12);
+    expect(payload.log_rank.p_value).toBeCloseTo(0.21560589487391288, 9);
+    expect(payload.steps.every((step) => Number.isFinite(step.std_error))).toBe(true);
     expect(result.analysis?.algorithm_id).toBe('kaplan_meier');
+    expect(result.analysis?.result_contract).toMatchObject({
+      counts: { input_n: 10, complete_case_n: 10, event_n: 5, person_time: 35 },
+      convergence: { status: 'not_applicable' },
+    });
   });
 
   it('rejects with invalid_args when a required argument is missing', async () => {

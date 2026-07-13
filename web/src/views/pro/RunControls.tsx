@@ -47,6 +47,7 @@ function buildRunRequest(analysis: AnalysisResultMeta): RunRequest {
     skill_id: analysis.algorithm_id,
     dataset_id: analysis.dataset_id,
     args,
+    plan_id: analysis.plan_id ?? analysis.research_workflow?.plan_id,
   };
 }
 
@@ -63,7 +64,8 @@ export function RunControls({
   const { state, run, reset, stop } = useCodeRun();
 
   const isRunning = state.status === 'running';
-  const canRun = !disabled && !!analysis && !isRunning;
+  const hasServerPlan = Boolean(analysis?.plan_id ?? analysis?.research_workflow?.plan_id);
+  const canRun = !disabled && !!analysis && hasServerPlan && !isRunning;
 
   const handleRun = useCallback(() => {
     if (!analysis) return;
@@ -130,6 +132,11 @@ export function RunControls({
           完成一次分析后可运行 / 复制等价代码
         </Text>
       )}
+      {analysis && !hasServerPlan ? (
+        <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.4 }}>
+          该结果没有服务端方案审批记录；请从分析配置器重新审计并审批后运行。
+        </Text>
+      ) : null}
 
       {isRunning && (
         <Text type="secondary" style={{ fontSize: 12 }}>

@@ -34,8 +34,30 @@ export {
   defaultSessionStorePath,
   type FileSessionStoreOptions,
 } from './file-session-store.js';
-export { detectRiskSignals } from './risk-signals.js';
+export {
+  detectRiskSignals,
+  type DetectRiskSignalsOptions,
+} from './risk-signals.js';
 export { SkillRunner, type SkillRunnerOptions } from './skill-runner.js';
+export {
+  auditDataset,
+  type AuditDatasetInput,
+} from './dataset-audit.js';
+export {
+  createResearchWorkflowService,
+  ResearchWorkflowError,
+  type CreateResearchWorkflowServiceOptions,
+  type ResearchWorkflowErrorCode,
+} from './research-workflow.js';
+export {
+  canonicalJson,
+  sha256Canonical,
+  sha256Bytes,
+  runSpecSha256,
+  protocolContentSha256,
+  protocolStateSha256,
+  findReservedWorkflowKey,
+} from './research-integrity.js';
 export {
   createOrchestrator,
   type OrchestratorDeps,

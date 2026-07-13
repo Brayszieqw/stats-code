@@ -1,4 +1,4 @@
 GET DATA /TYPE=TXT /FILE='data.csv' /DELIMITERS=',' /FIRSTCASE=2 /VARIABLES=ALL.
 DATASET NAME data WINDOW=FRONT.
-FREQUENCIES VARIABLES={{params.group}}.
 DESCRIPTIVES VARIABLES={{params.continuous_space}}.
+{{params.categorical_spss_block}}

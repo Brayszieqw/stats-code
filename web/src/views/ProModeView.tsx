@@ -15,6 +15,7 @@ import {
   AreaChartOutlined,
   CloseOutlined,
   DatabaseOutlined,
+  FileProtectOutlined,
   MenuOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -24,6 +25,8 @@ import { AssistantPanel } from './pro/AssistantPanel';
 import { AnalysisWorkspace, type WorkspaceView } from './pro/AnalysisWorkspace';
 import { DatasetUploader } from '../components/DatasetUploader';
 import { AnalysisPreflightModal } from '../components/AnalysisPreflightModal';
+import { ResearchProtocolDrawer } from '../components/ResearchProtocolDrawer';
+import { ResearchWorkflowBar } from '../components/ResearchWorkflowBar';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
 import { runSkill, ApiError } from '../api/client';
@@ -31,7 +34,8 @@ import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
 import type { ViewMode } from '../hooks/useModePreference';
-import type { ChoiceAnswer, DatasetSummary, RunRequest, SkillResult } from '../api/types';
+import type { ChoiceAnswer, DatasetAudit, DatasetSummary, RunRequest, SkillResult } from '../api/types';
+import type { ResearchProtocolInput } from '../api/types';
 import type { ChatMessage } from '../hooks/useSseChat';
 
 const { Sider, Content } = Layout;
@@ -106,10 +110,18 @@ export function ProModeView({
   const [directRunError, setDirectRunError] = useState<string | null>(null);
   const [directRunRunning, setDirectRunRunning] = useState(false);
   const [pendingRun, setPendingRun] = useState<{ request: RunRequest; promptText: string } | null>(null);
+  const [protocolDrawerOpen, setProtocolDrawerOpen] = useState(false);
+  const [protocolSaving, setProtocolSaving] = useState(false);
+  const [protocolError, setProtocolError] = useState<string | null>(null);
+  const [pendingAudit, setPendingAudit] = useState<DatasetAudit | null>(null);
+  const [pendingAuditLoading, setPendingAuditLoading] = useState(false);
+  const [pendingAuditError, setPendingAuditError] = useState<string | null>(null);
+  const [planApprovalRunning, setPlanApprovalRunning] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('report');
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const activeSessionIdRef = useRef(sessionId);
   const directRunRequestRef = useRef(0);
+  const preflightRequestRef = useRef(0);
   const directRunAbortRef = useRef<AbortController | null>(null);
   activeSessionIdRef.current = sessionId;
 
@@ -127,6 +139,13 @@ export function ProModeView({
     setDirectRunError(null);
     setDirectRunRunning(false);
     setPendingRun(null);
+    setProtocolDrawerOpen(false);
+    setProtocolSaving(false);
+    setProtocolError(null);
+    setPendingAudit(null);
+    setPendingAuditLoading(false);
+    setPendingAuditError(null);
+    setPlanApprovalRunning(false);
     setWorkspaceView('report');
     setWorkspaceOpen(false);
   }, [sessionId]);
@@ -198,6 +217,8 @@ export function ProModeView({
     setDirectRunStartedAt(null);
     setDirectRunCompletedAt(null);
     setDirectRunError(null);
+    setPendingAudit(null);
+    setPendingAuditError(null);
     setWorkspaceView('data');
     setWorkspaceOpen(true);
   };
@@ -240,6 +261,81 @@ export function ProModeView({
     setPendingRun({ request, promptText });
   };
 
+  useEffect(() => {
+    const pending = pendingRun;
+    const protocol = controller.researchProtocol;
+    const requestId = ++preflightRequestRef.current;
+    if (!pending || protocol?.status !== 'Approved') {
+      setPendingAudit(null);
+      setPendingAuditLoading(false);
+      setPendingAuditError(null);
+      return;
+    }
+    const targetSessionId = sessionId;
+    setPendingAudit(null);
+    setPendingAuditLoading(true);
+    setPendingAuditError(null);
+    void controller.auditDataset(pending.request.dataset_id, {
+      skill_id: pending.request.skill_id,
+      args: pending.request.args,
+      expected_protocol_version: protocol.version,
+    }).then((audit) => {
+      if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
+      setPendingAudit(audit);
+    }).catch((err) => {
+      if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
+      setPendingAuditError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '服务端审计失败');
+    }).finally(() => {
+      if (requestId === preflightRequestRef.current && activeSessionIdRef.current === targetSessionId) {
+        setPendingAuditLoading(false);
+      }
+    });
+  }, [controller.auditDataset, controller.researchProtocol, pendingRun, sessionId]);
+
+  const handleApproveAndRun = async () => {
+    const confirmed = pendingRun;
+    const protocol = controller.researchProtocol;
+    if (!confirmed || protocol?.status !== 'Approved' || !pendingAudit || pendingAudit.status === 'blocked') return;
+    const targetSessionId = sessionId;
+    const requestId = preflightRequestRef.current;
+    setPlanApprovalRunning(true);
+    setPendingAuditError(null);
+    try {
+      const approval = await controller.approveAnalysisPlan({
+        skill_id: confirmed.request.skill_id,
+        dataset_id: confirmed.request.dataset_id,
+        args: confirmed.request.args,
+        expected_protocol_version: protocol.version,
+        expected_audit_id: pendingAudit.audit_id,
+        expected_audit_sha256: pendingAudit.audit_sha256,
+        audit_roles: pendingAudit.roles,
+      });
+      if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
+      setPendingRun(null);
+      void executeConfiguredRun({ ...confirmed.request, plan_id: approval.plan_id }, confirmed.promptText);
+    } catch (err) {
+      if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
+      setPendingAuditError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '方案审批失败');
+    } finally {
+      if (requestId === preflightRequestRef.current && activeSessionIdRef.current === targetSessionId) {
+        setPlanApprovalRunning(false);
+      }
+    }
+  };
+
+  const handleSaveProtocol = async (input: ResearchProtocolInput) => {
+    setProtocolSaving(true);
+    setProtocolError(null);
+    try {
+      await controller.saveResearchProtocol(input);
+      setProtocolDrawerOpen(false);
+    } catch (err) {
+      setProtocolError(err instanceof Error ? err.message : '研究协议保存失败');
+    } finally {
+      setProtocolSaving(false);
+    }
+  };
+
   const handleInspectorRunComplete = (skillResult: SkillResult, runSessionId: string) => {
     if (activeSessionIdRef.current !== runSessionId) return;
     setDirectRunPrompt('');
@@ -258,6 +354,28 @@ export function ProModeView({
   };
 
   const activeDataset = selectedDataset ?? lastProfiledDataset;
+  const currentAudit = useMemo(() => {
+    const protocol = controller.researchProtocol;
+    if (!activeDataset || !protocol) return null;
+    if (
+      pendingAudit?.dataset_id === activeDataset.dataset_id
+      && pendingAudit.protocol_version === protocol.version
+    ) return pendingAudit;
+    return [...controller.datasetAudits].reverse().find((audit) => (
+      audit.dataset_id === activeDataset.dataset_id
+      && audit.protocol_version === protocol.version
+    )) ?? null;
+  }, [activeDataset, controller.datasetAudits, controller.researchProtocol, pendingAudit]);
+  const currentPlanApproval = useMemo(() => {
+    const protocol = controller.researchProtocol;
+    if (!activeDataset || protocol?.status !== 'Approved' || !protocol.approval_id) return null;
+    return [...controller.analysisPlanApprovals].reverse().find((approval) => (
+      approval.dataset_id === activeDataset.dataset_id
+      && approval.protocol_version === protocol.version
+      && approval.protocol_sha256 === protocol.content_sha256
+      && approval.protocol_approval_id === protocol.approval_id
+    )) ?? null;
+  }, [activeDataset, controller.analysisPlanApprovals, controller.researchProtocol]);
   const artifactDataset = workspaceView === 'data' ? activeDataset : analysisDataset;
   const docTitle = analysisDataset?.file_name ?? activeDataset?.file_name ?? '分析报告';
   const isWorking = directRunRunning || chat.isStreaming;
@@ -380,6 +498,16 @@ export function ProModeView({
               <Button
                 type="text"
                 size="small"
+                icon={<FileProtectOutlined />}
+                onClick={() => setProtocolDrawerOpen(true)}
+                disabled={isArchived}
+                aria-label="打开研究协议"
+              >
+                协议
+              </Button>
+              <Button
+                type="text"
+                size="small"
                 icon={<UploadOutlined />}
                 onClick={() => setUploaderOpen(true)}
                 disabled={isArchived}
@@ -434,6 +562,16 @@ export function ProModeView({
             ) : null}
           </div>
 
+          <ResearchWorkflowBar
+            protocol={controller.researchProtocol}
+            datasetReady={Boolean(activeDataset)}
+            auditStatus={currentAudit?.status ?? null}
+            planApproved={Boolean(currentPlanApproval)}
+            isRunning={isWorking}
+            resultReady={Boolean(analysis)}
+            onOpenProtocol={() => setProtocolDrawerOpen(true)}
+          />
+
           <Layout className="pro-codex-body">
             <Content className="pro-thread-content">
               <main className="pro-thread-conversation" aria-label="研究对话">
@@ -477,6 +615,18 @@ export function ProModeView({
         />
       </Drawer>
 
+      <ResearchProtocolDrawer
+        open={protocolDrawerOpen}
+        protocol={controller.researchProtocol}
+        saving={protocolSaving}
+        readOnly={isArchived}
+        error={protocolError}
+        onClose={() => {
+          if (!protocolSaving) setProtocolDrawerOpen(false);
+        }}
+        onSave={handleSaveProtocol}
+      />
+
       <Drawer title="语音输入" placement="right" width={360} open={voiceDrawerOpen} onClose={() => setVoiceDrawerOpen(false)}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Text type="secondary">
@@ -510,13 +660,14 @@ export function ProModeView({
           dataset={datasets.find((dataset) => dataset.dataset_id === pendingRun.request.dataset_id) ?? selectedDataset!}
           request={pendingRun.request}
           promptText={pendingRun.promptText}
-          confirming={directRunRunning}
+          protocol={controller.researchProtocol}
+          audit={pendingAudit}
+          auditLoading={pendingAuditLoading}
+          auditError={pendingAuditError}
+          confirming={planApprovalRunning}
           onCancel={() => setPendingRun(null)}
-          onConfirm={() => {
-            const confirmed = pendingRun;
-            setPendingRun(null);
-            void executeConfiguredRun(confirmed.request, confirmed.promptText);
-          }}
+          onEditProtocol={() => setProtocolDrawerOpen(true)}
+          onConfirm={() => void handleApproveAndRun()}
         />
       ) : null}
     </Layout>

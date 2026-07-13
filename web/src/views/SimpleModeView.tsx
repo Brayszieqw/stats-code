@@ -163,7 +163,7 @@ export function SimpleModeView({
                 isArchived={isArchived}
                 onSend={onSend}
                 onVoiceTranscript={onVoiceTranscript}
-                footer="结果由 AI 生成，请结合专业判断"
+                footer="AI 仅辅助解释 · 统计数值由本机确定性引擎生成"
                 datasets={datasets}
                 selectedDatasetId={selectedDatasetId}
                 modelLabel={modelLabel}

@@ -111,6 +111,79 @@ describe('analysis parameter column selection', () => {
       expect(pythonSnippet.text).toContain('data[["age", "disease"]]');
     }
   });
+
+  it('renders categorical Table One comparisons in every reference language', () => {
+    const params = { group: 'arm', continuous: '["age"]', categorical: '["sex","stage"]' };
+    const snippets = {
+      R: generateSnippet('tableone', 'R', params, cols, SHA),
+      Python: generateSnippet('tableone', 'Python', params, cols, SHA),
+      SAS: generateSnippet('tableone', 'SAS', params, cols, SHA),
+      SPSS: generateSnippet('tableone', 'SPSS', params, cols, SHA),
+    };
+
+    for (const snippet of Object.values(snippets)) {
+      expect(snippet.kind).toBe('snippet');
+      if (snippet.kind === 'snippet') {
+        expect(snippet.text).toContain('sex');
+        expect(snippet.text).toContain('stage');
+      }
+    }
+    if (snippets.R.kind === 'snippet') {
+      expect(snippets.R.text).toContain('stats::chisq.test');
+      expect(snippets.R.text).toContain('stats::fisher.test');
+    }
+    if (snippets.Python.kind === 'snippet') {
+      expect(snippets.Python.text).toContain('stats.chi2_contingency');
+      expect(snippets.Python.text).toContain('stats.fisher_exact');
+    }
+    if (snippets.SAS.kind === 'snippet') expect(snippets.SAS.text).toContain('exact fisher');
+    if (snippets.SPSS.kind === 'snippet') expect(snippets.SPSS.text).toContain('/METHOD=EXACT');
+  });
+
+  it('renders grouped Kaplan-Meier plus log-rank code using the selected columns', () => {
+    const params = { time: 'follow_up_days', event: 'death', group: 'arm' };
+    const snippets = {
+      R: generateSnippet('kaplan_meier', 'R', params, cols, SHA),
+      Python: generateSnippet('kaplan_meier', 'Python', params, cols, SHA),
+      SAS: generateSnippet('kaplan_meier', 'SAS', params, cols, SHA),
+      SPSS: generateSnippet('kaplan_meier', 'SPSS', params, cols, SHA),
+    };
+    for (const snippet of Object.values(snippets)) {
+      expect(snippet.kind).toBe('snippet');
+      if (snippet.kind === 'snippet') {
+        expect(snippet.text).toContain('follow_up_days');
+        expect(snippet.text).toContain('death');
+        expect(snippet.text).toContain('arm');
+      }
+    }
+    if (snippets.R.kind === 'snippet') expect(snippets.R.text).toContain('survival::survdiff');
+    if (snippets.Python.kind === 'snippet') expect(snippets.Python.text).toContain('multivariate_logrank_test');
+    if (snippets.SAS.kind === 'snippet') expect(snippets.SAS.text).toContain('test=logrank');
+    if (snippets.SPSS.kind === 'snippet') expect(snippets.SPSS.text).toContain('/COMPARE OVERALL');
+  });
+
+  it('renders selected Cox predictors and an explicit PH diagnostic boundary', () => {
+    const params = { time: 'follow_up_days', event: 'death', predictors: '["age","treatment"]' };
+    const snippets = {
+      R: generateSnippet('cox', 'R', params, cols, SHA),
+      Python: generateSnippet('cox', 'Python', params, cols, SHA),
+      SAS: generateSnippet('cox', 'SAS', params, cols, SHA),
+      SPSS: generateSnippet('cox', 'SPSS', params, cols, SHA),
+    };
+    for (const snippet of Object.values(snippets)) {
+      expect(snippet.kind).toBe('snippet');
+      if (snippet.kind === 'snippet') {
+        expect(snippet.text).toContain('follow_up_days');
+        expect(snippet.text).toContain('death');
+        expect(snippet.text).toContain('age');
+        expect(snippet.text).toContain('treatment');
+      }
+    }
+    if (snippets.R.kind === 'snippet') expect(snippets.R.text).toContain('survival::cox.zph');
+    if (snippets.Python.kind === 'snippet') expect(snippets.Python.text).toContain('proportional_hazard_test');
+    if (snippets.SAS.kind === 'snippet') expect(snippets.SAS.text).toContain('assess ph');
+    if (snippets.SPSS.kind === 'snippet') expect(snippets.SPSS.text).toContain('does not expose the same');
+  });
 });
 
 describe('Property 3: host/clock independence (redaction applied)', () => {

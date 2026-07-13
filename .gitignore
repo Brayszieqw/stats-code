@@ -57,3 +57,6 @@ stats-code-artifacts/
 /scratch-artifacts/
 # Built demo/release binaries stay local unless explicitly released
 /ts-backend/build/
+# Local backend audit snapshot exports (runtime artifacts)
+/ts-backend/snapshot-*.zip
+/ts-backend/**/snapshot-*.zip

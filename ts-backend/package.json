@@ -16,6 +16,7 @@
     "clean": "tsc --build --clean",
     "typecheck": "tsc --build --noEmit",
     "lint": "eslint . --ext .ts",
+    "ensure-built": "node scripts/ensure-built.mjs",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
@@ -37,7 +38,7 @@
     "eslint-plugin-import": "^2.31.0",
     "postject": "^1.0.0-alpha.6",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.6"
   },
   "dependencies": {
     "fast-check": "^3.23.1"

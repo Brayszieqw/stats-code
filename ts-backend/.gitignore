@@ -7,4 +7,8 @@ sea/
 *.exe
 /coverage/
 /packages/engine/src/coverage/matrix-data.ts
+/packages/engine/src/sidecar/templates-data.ts
 .vitest/
+# Local audit snapshot exports (runtime artifacts, not source)
+snapshot-*.zip
+*.snapshot.zip

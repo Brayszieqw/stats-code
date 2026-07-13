@@ -1,8 +1,14 @@
 name: ts-backend-ci
 
-# CI skeleton for the TypeScript backend (Phase 0, task 1.1).
-# Phase 8 (task 17.1) wires the full parity gate; this skeleton establishes the
-# stage order: install → typecheck → lint → test → (parity, gated).
+# PACKAGE-LOCAL SKELETON — NOT auto-executed by GitHub Actions.
+# GitHub only loads workflows from the monorepo root:
+#   .github/workflows/ci.yml  (repo root; job "backend")
+# Keep this file as documentation of the intended stage order for the
+# TypeScript backend package. When changing CI behavior, edit the root
+# workflow first; mirror order here only for discoverability.
+#
+# Stage order: install → build → typecheck → lint → test → (parity, gated).
+# Phase 8 (task 17.1) wires the full parity gate.
 
 on:
   push:
@@ -25,8 +31,10 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
+      - run: npm run build
       - run: npm run typecheck
       - run: npm run lint
+      # vitest globalSetup runs ensure-built (skip when dist is fresh after build).
       - run: npm run test:unit
       - run: npm run test:integration
       - run: npm run test:property

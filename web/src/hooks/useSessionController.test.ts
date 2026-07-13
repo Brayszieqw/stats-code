@@ -11,12 +11,14 @@ import type { Session } from '../api/types';
 const {
   approveAnalysisPlanMock,
   auditDatasetMock,
+  compileResearchProtocolMock,
   createSessionMock,
   getSessionMock,
   patchResearchProtocolMock,
 } = vi.hoisted(() => ({
   approveAnalysisPlanMock: vi.fn(),
   auditDatasetMock: vi.fn(),
+  compileResearchProtocolMock: vi.fn(),
   createSessionMock: vi.fn(),
   getSessionMock: vi.fn(),
   patchResearchProtocolMock: vi.fn(),
@@ -25,6 +27,7 @@ const {
 vi.mock('../api/client', () => ({
   approveAnalysisPlan: approveAnalysisPlanMock,
   auditDataset: auditDatasetMock,
+  compileResearchProtocol: compileResearchProtocolMock,
   createSession: createSessionMock,
   getSession: getSessionMock,
   patchResearchProtocol: patchResearchProtocolMock,
@@ -169,5 +172,49 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
 
     expect(patchResearchProtocolMock).toHaveBeenCalledWith('protocol-session', input);
     expect(result.current.researchProtocol).toEqual(saved);
+  });
+
+  it('compiles a protocol proposal without mutating the saved session protocol', async () => {
+    createSessionMock.mockResolvedValue(makeSession({ id: 'compile-session' }));
+    const compiled = {
+      schema_version: '1.0' as const,
+      compiler_version: '1.0.0' as const,
+      proposal: {
+        research_question: '吸烟与结局是否相关？',
+        study_design: 'cohort' as const,
+        population: '成人队列',
+        eligibility_criteria: '',
+        exposure: '吸烟',
+        comparator: '未吸烟',
+        outcome: '疾病结局',
+        time_zero: '基线',
+        follow_up: '一年',
+        analysis_unit: '参与者',
+        estimand: '调整后风险比',
+        confounders: '年龄、性别',
+        missing_data_strategy: '报告缺失率',
+        primary_analysis: '多变量回归',
+        sensitivity_analysis: '',
+      },
+      missing_required_fields: [],
+      warnings: [],
+      brief_sha256: 'a'.repeat(64),
+      approval_required: true as const,
+    };
+    compileResearchProtocolMock.mockResolvedValue(compiled);
+
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.sessionId).toBe('compile-session'));
+    let output;
+    await act(async () => {
+      output = await result.current.compileResearchProtocol('研究成人队列中吸烟与一年疾病结局的关联。');
+    });
+
+    expect(compileResearchProtocolMock).toHaveBeenCalledWith('compile-session', {
+      brief: '研究成人队列中吸烟与一年疾病结局的关联。',
+    });
+    expect(output).toEqual(compiled);
+    expect(result.current.researchProtocol).toBeNull();
+    expect(patchResearchProtocolMock).not.toHaveBeenCalled();
   });
 });

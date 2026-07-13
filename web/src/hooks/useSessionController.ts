@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   approveAnalysisPlan as requestAnalysisPlanApproval,
   auditDataset as requestDatasetAudit,
+  compileResearchProtocol as requestProtocolCompilation,
   createSession,
   getSession,
   patchResearchProtocol,
@@ -23,6 +24,7 @@ import type {
   DatasetAudit,
   DatasetAuditRequest,
   DatasetSummary,
+  ProtocolCompileResult,
   ResearchProtocol,
   ResearchProtocolInput,
   Session,
@@ -41,6 +43,7 @@ export interface SessionController {
   setDecisionAssistant: (v: boolean) => void;
   addDataset: (s: DatasetSummary) => void;
   saveResearchProtocol: (input: ResearchProtocolInput) => Promise<ResearchProtocol>;
+  compileResearchProtocol: (brief: string) => Promise<ProtocolCompileResult>;
   auditDataset: (datasetId: string, input: DatasetAuditRequest) => Promise<DatasetAudit>;
   approveAnalysisPlan: (input: AnalysisPlanApprovalRequest) => Promise<AnalysisPlanApproval>;
   /** Messages mapped from the loaded session; the shell syncs them into useSseChat. */
@@ -162,6 +165,11 @@ export function useSessionController(): SessionController {
     return saved;
   }, [researchProtocol, sessionId]);
 
+  const compileResearchProtocol = useCallback(async (brief: string) => {
+    if (!sessionId) throw new Error('会话尚未就绪');
+    return requestProtocolCompilation(sessionId, { brief });
+  }, [sessionId]);
+
   const auditDataset = useCallback(async (datasetId: string, input: DatasetAuditRequest) => {
     if (!sessionId) throw new Error('会话尚未就绪');
     const targetSessionId = sessionId;
@@ -208,6 +216,7 @@ export function useSessionController(): SessionController {
     setDecisionAssistant,
     addDataset,
     saveResearchProtocol,
+    compileResearchProtocol,
     auditDataset,
     approveAnalysisPlan,
     initialMessages,

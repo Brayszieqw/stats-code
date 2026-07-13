@@ -5,5 +5,6 @@ dist/
 build/
 sea/
 *.exe
-coverage/
+/coverage/
+/packages/engine/src/coverage/matrix-data.ts
 .vitest/

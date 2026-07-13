@@ -18,6 +18,8 @@ import type {
   LlmProvider,
   LlmStatusResponse,
   ResearchProtocolInput,
+  ProtocolCompileRequest,
+  ProtocolCompileResult,
   DatasetAudit,
   DatasetAuditRequest,
   AnalysisPlanApproval,
@@ -162,6 +164,19 @@ export async function patchResearchProtocol(
     body: JSON.stringify(protocol),
   });
   return handleResponse<Session>(res);
+}
+
+/** POST /api/sessions/:sid/protocol/compile — generate a review-only draft proposal. */
+export async function compileResearchProtocol(
+  sid: string,
+  request: ProtocolCompileRequest,
+): Promise<ProtocolCompileResult> {
+  const res = await fetch(`/api/sessions/${sid}/protocol/compile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  return handleResponse<ProtocolCompileResult>(res);
 }
 
 // ---------------------------------------------------------------------------

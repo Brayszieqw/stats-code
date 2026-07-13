@@ -38,12 +38,13 @@ const snapshotProvider: SnapshotProvider = {
 describe('every route is registered in the contract harness', () => {
   it('exposes the 13 original API_Contract routes plus the dual-mode additions', () => {
     // 13 original routes + dual-mode/session/protocol + server research gates.
-    expect(ROUTE_CONTRACTS).toHaveLength(19);
+    expect(ROUTE_CONTRACTS).toHaveLength(20);
     const ids = ROUTE_CONTRACTS.map((r) => r.id);
     expect(ids).toContain('list_sessions');
     expect(ids).toContain('run_skill');
     expect(ids).toContain('delete_session');
     expect(ids).toContain('patch_research_protocol');
+    expect(ids).toContain('compile_research_protocol');
     expect(ids).toContain('audit_dataset');
     expect(ids).toContain('approve_analysis_plan');
   });

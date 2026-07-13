@@ -5,13 +5,14 @@ const { ROUTE_CONTRACTS, allRouteJsonSchemas, HTTP_STATUS_FOR, domain, sidecar }
 
 describe('route contracts', () => {
   it('declares the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(19);
+    expect(ROUTE_CONTRACTS).toHaveLength(20);
     const ids = ROUTE_CONTRACTS.map((r) => r.id).sort();
     expect(ids).toEqual(
       [
         'create_session',
         'approve_analysis_plan',
         'audit_dataset',
+        'compile_research_protocol',
         'delete_session',
         'get_coverage_matrix',
         'get_dataset',
@@ -47,7 +48,7 @@ describe('route contracts', () => {
 
   it('generates JSON Schema for every route with a body or response', () => {
     const schemas = allRouteJsonSchemas();
-    expect(Object.keys(schemas)).toHaveLength(19);
+    expect(Object.keys(schemas)).toHaveLength(20);
     // health has a response schema
     expect(schemas['health']?.response).toBeDefined();
     // patch_settings has both a request and a response
@@ -55,6 +56,8 @@ describe('route contracts', () => {
     expect(schemas['patch_settings']?.response).toBeDefined();
     expect(schemas['patch_research_protocol']?.body).toBeDefined();
     expect(schemas['patch_research_protocol']?.response).toBeDefined();
+    expect(schemas['compile_research_protocol']?.body).toBeDefined();
+    expect(schemas['compile_research_protocol']?.response).toBeDefined();
     expect(schemas['audit_dataset']?.body).toBeDefined();
     expect(schemas['approve_analysis_plan']?.response).toBeDefined();
   });

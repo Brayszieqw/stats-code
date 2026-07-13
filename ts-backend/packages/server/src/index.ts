@@ -16,6 +16,9 @@ export {
   type DatasetSummary,
   type SessionSettings,
   type ResearchProtocol,
+  type ProtocolCompileRequest,
+  type ProtocolCompileResult,
+  type ProtocolCompiler,
   type DatasetAudit,
   type DatasetAuditRoles,
   type AnalysisPlanApproval,
@@ -115,6 +118,8 @@ export {
   detectRiskSignals,
   auditDataset,
   createResearchWorkflowService,
+  createProtocolCompiler,
+  ProtocolCompilerError,
   ResearchWorkflowError,
   canonicalJson,
   sha256Canonical,
@@ -134,6 +139,7 @@ export {
   type AuditDatasetInput,
   type CreateResearchWorkflowServiceOptions,
   type ResearchWorkflowErrorCode,
+  type ProtocolCompilerErrorCode,
 } from './conversation/index.js';
 export {
   createOrchestrator,

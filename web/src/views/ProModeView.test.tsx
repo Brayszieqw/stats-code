@@ -98,6 +98,7 @@ function makeController(overrides: Partial<SessionController> = {}): SessionCont
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
     saveResearchProtocol: vi.fn(async () => approvedProtocol),
+    compileResearchProtocol: vi.fn(async () => { throw new Error('not used'); }),
     auditDataset: vi.fn(async (datasetId, input): Promise<DatasetAudit> => ({
       schema_version: '1.0',
       audit_rules_version: '1.1.0',

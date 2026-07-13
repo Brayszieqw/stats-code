@@ -26,6 +26,7 @@ function makeController(overrides: Partial<SessionController> = {}): SessionCont
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
     saveResearchProtocol: vi.fn(async () => { throw new Error('not used'); }),
+    compileResearchProtocol: vi.fn(async () => { throw new Error('not used'); }),
     auditDataset: vi.fn(async () => { throw new Error('not used'); }),
     approveAnalysisPlan: vi.fn(async () => { throw new Error('not used'); }),
     initialMessages: [],

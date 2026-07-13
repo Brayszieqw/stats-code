@@ -13,6 +13,8 @@ import {
   sessionSummary,
   sessionSettings,
   researchProtocolInput,
+  protocolCompileRequest,
+  protocolCompileResult,
   datasetSummary,
   skillResult,
   runRequest,
@@ -58,6 +60,7 @@ export const patchSettingsRequest = z.object({
 });
 
 export const patchResearchProtocolRequest = researchProtocolInput;
+export { protocolCompileRequest, protocolCompileResult };
 
 // Dataset upload (JSON base64 variant). multipart is also accepted by the
 // handler but the contract schema covers the JSON shape.
@@ -144,6 +147,14 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     path: '/api/sessions/:sid/protocol',
     request: patchResearchProtocolRequest,
     response: session,
+    successStatus: 200,
+  },
+  {
+    id: 'compile_research_protocol',
+    method: 'POST',
+    path: '/api/sessions/:sid/protocol/compile',
+    request: protocolCompileRequest,
+    response: protocolCompileResult,
     successStatus: 200,
   },
   {

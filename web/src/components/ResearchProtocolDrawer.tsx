@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Drawer, Form, Input, Select, Space, Typography } from 'antd';
-import type { ResearchProtocol, ResearchProtocolInput } from '../api/types';
+import type { ProtocolCompileResult, ResearchProtocol, ResearchProtocolInput } from '../api/types';
 
 const { Paragraph, Text } = Typography;
 
@@ -74,6 +74,7 @@ export interface ResearchProtocolDrawerProps {
   readOnly?: boolean;
   error?: string | null;
   onClose: () => void;
+  onCompile?: (brief: string) => Promise<ProtocolCompileResult>;
   onSave: (input: ResearchProtocolInput) => void | Promise<void>;
 }
 
@@ -84,13 +85,41 @@ export function ResearchProtocolDrawer({
   readOnly = false,
   error,
   onClose,
+  onCompile,
   onSave,
 }: ResearchProtocolDrawerProps) {
   const [form] = Form.useForm<ResearchProtocolInput>();
+  const [compilerOpen, setCompilerOpen] = useState(false);
+  const [brief, setBrief] = useState('');
+  const [compiling, setCompiling] = useState(false);
+  const [compileError, setCompileError] = useState<string | null>(null);
+  const [compileResult, setCompileResult] = useState<ProtocolCompileResult | null>(null);
 
   useEffect(() => {
-    if (open) form.setFieldsValue(editableProtocol(protocol));
+    if (open) {
+      form.setFieldsValue(editableProtocol(protocol));
+      setCompilerOpen(false);
+      setBrief('');
+      setCompileError(null);
+      setCompileResult(null);
+    }
   }, [form, open, protocol]);
+
+  const compile = async () => {
+    if (!onCompile) return;
+    setCompiling(true);
+    setCompileError(null);
+    setCompileResult(null);
+    try {
+      const result = await onCompile(brief.trim());
+      form.setFieldsValue({ ...result.proposal, status: 'Draft' });
+      setCompileResult(result);
+    } catch (err) {
+      setCompileError(err instanceof Error ? err.message : '协议草稿编译失败');
+    } finally {
+      setCompiling(false);
+    }
+  };
 
   const save = async (status: ResearchProtocolInput['status']) => {
     if (status === 'Approved') await form.validateFields(REQUIRED_FIELDS);
@@ -108,9 +137,19 @@ export function ResearchProtocolDrawer({
       onClose={onClose}
       destroyOnHidden
       extra={(
-        <Button onClick={() => form.setFieldsValue(DEMO_PROTOCOL_TEMPLATE)} disabled={saving || readOnly}>
-          加载演示协议
-        </Button>
+        <Space>
+          {onCompile ? (
+            <Button
+              onClick={() => setCompilerOpen((current) => !current)}
+              disabled={saving || compiling || readOnly}
+            >
+              AI 编译草稿
+            </Button>
+          ) : null}
+          <Button onClick={() => form.setFieldsValue(DEMO_PROTOCOL_TEMPLATE)} disabled={saving || compiling || readOnly}>
+            加载演示协议
+          </Button>
+        </Space>
       )}
       footer={(
         <div className="research-protocol-drawer__footer">
@@ -136,6 +175,45 @@ export function ResearchProtocolDrawer({
         <Alert type="success" showIcon message={`协议 v${protocol.version} 已由服务端审批 · ${protocol.approved_at ?? ''}`} />
       ) : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} /> : null}
+      {compilerOpen ? (
+        <div style={{ margin: '12px 0 16px' }}>
+          <Text strong>研究摘要</Text>
+          <Input.TextArea
+            aria-label="研究摘要"
+            value={brief}
+            onChange={(event) => setBrief(event.target.value)}
+            placeholder="描述研究问题、设计、人群、暴露/干预、结局、时间零点和预期分析。"
+            autoSize={{ minRows: 4, maxRows: 8 }}
+            maxLength={8000}
+            disabled={compiling || readOnly}
+            style={{ marginTop: 8 }}
+          />
+          <Button
+            type="primary"
+            onClick={() => void compile()}
+            loading={compiling}
+            disabled={brief.trim().length < 20 || readOnly}
+            style={{ marginTop: 8 }}
+          >
+            编译为草稿
+          </Button>
+          {compileError ? <Alert type="error" showIcon message={compileError} style={{ marginTop: 8 }} /> : null}
+          {compileResult ? (
+            <Alert
+              type={compileResult.missing_required_fields.length > 0 ? 'warning' : 'success'}
+              showIcon
+              message="AI 草稿已回填，尚未保存或审批。"
+              description={[
+                compileResult.missing_required_fields.length > 0
+                  ? `待补字段：${compileResult.missing_required_fields.join('、')}`
+                  : '',
+                ...compileResult.warnings,
+              ].filter(Boolean).join('；') || '请逐字段人工核对后，再决定保存草稿或审批。'}
+              style={{ marginTop: 8 }}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       <Form form={form} layout="vertical" className="research-protocol-form" disabled={readOnly}>
         <Form.Item name="research_question" label="1. 研究问题" rules={requiredRule}>

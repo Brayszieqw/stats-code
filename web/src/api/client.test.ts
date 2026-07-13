@@ -9,6 +9,7 @@ import {
   ApiError,
   approveAnalysisPlan,
   auditDataset,
+  compileResearchProtocol,
   deleteSession,
   listSessions,
   postDataset,
@@ -18,6 +19,7 @@ import type {
   AnalysisPlanApproval,
   DatasetAudit,
   DatasetSummary,
+  ProtocolCompileResult,
   SessionSummary,
   SkillResult,
 } from './types';
@@ -173,6 +175,49 @@ describe('research workflow gates', () => {
       expected_audit_sha256: audit.audit_sha256,
     });
     expect(sent).not.toHaveProperty('approved_at');
+  });
+});
+
+describe('compileResearchProtocol', () => {
+  it('POSTs only the research brief and returns a review-only proposal', async () => {
+    const result: ProtocolCompileResult = {
+      schema_version: '1.0',
+      compiler_version: '1.0.0',
+      proposal: {
+        research_question: '吸烟与结局是否相关？',
+        study_design: 'cohort',
+        population: '成人队列',
+        eligibility_criteria: '',
+        exposure: '吸烟',
+        comparator: '未吸烟',
+        outcome: '疾病结局',
+        time_zero: '基线',
+        follow_up: '一年',
+        analysis_unit: '参与者',
+        estimand: '调整后风险比',
+        confounders: '年龄、性别',
+        missing_data_strategy: '报告缺失率',
+        primary_analysis: '多变量回归',
+        sensitivity_analysis: '',
+      },
+      missing_required_fields: [],
+      warnings: [],
+      brief_sha256: 'a'.repeat(64),
+      approval_required: true,
+    };
+    const fetchFn = mockFetchOnce(200, result);
+    const body = { brief: '研究成人队列中吸烟与一年疾病结局的关联，并生成协议草稿。' };
+
+    await expect(compileResearchProtocol('sid-1', body)).resolves.toEqual(result);
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/sessions/sid-1/protocol/compile',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(JSON.parse(fetchFn.mock.calls[0]![1].body)).toEqual(body);
   });
 });
 

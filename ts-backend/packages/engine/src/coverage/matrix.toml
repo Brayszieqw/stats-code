@@ -1,0 +1,327 @@
+### Algorithm Coverage Matrix
+###
+### Single source of truth for which Output-Level Algorithms have parity
+### coverage in which Reference Software, and which designated Reference
+### Implementation is the parity ground truth for each cell.
+###
+### Transcribed verbatim from crates/stats-code/src/coverage_matrix/matrix.toml.
+### `release_version` is a placeholder replaced at load time with the engine
+### package version (mirrors the Rust build.rs CARGO_PKG_VERSION injection).
+###
+### Coverage values (Requirement 5.4):
+###   live          -- Live Reference Suite executes the Reference
+###                    Implementation in process and asserts parity.
+###   recorded      -- Recorded Reference Suite asserts parity against a
+###                    Known-Values Table.
+###   sidecar_only  -- Sidecar Code Generator emits a snippet but no
+###                    automated parity assertion exists.
+###   none          -- No Sidecar snippet, no parity assertion.
+
+schema_version = 1
+release_version = "0.0.0-build-injected"
+
+# ---------------------------------------------------------------------------
+# Table One
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "tableone"
+display_name = "Table One"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "tableone::CreateTableOne", pkg = "tableone", version = "0.13.2" }
+SAS    = { proc = "PROC FREQ;PROC MEANS", version = "9.4M8" }
+Python = { fn = "scipy.stats.ttest_ind",   pkg = "scipy",    version = "1.13.0" }
+SPSS   = { proc = "FREQUENCIES;DESCRIPTIVES", version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# t-test (independent / paired / one-sample)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "ttest"
+display_name = "t-test"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::t.test",         pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC TTEST",          version = "9.4M8" }
+Python = { fn = "scipy.stats.ttest_ind", pkg = "scipy", version = "1.13.0" }
+SPSS   = { proc = "T-TEST",              version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# One-way / RBD / Repeated-measures ANOVA
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "anova"
+display_name = "ANOVA"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::aov",       pkg = "stats",      version = "4.4.1" }
+SAS    = { proc = "PROC GLM",       version = "9.4M8" }
+Python = { fn = "statsmodels.stats.anova.anova_lm", pkg = "statsmodels", version = "0.14.2" }
+SPSS   = { proc = "UNIANOVA",       version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Non-parametric tests (Wilcoxon / Mann-Whitney / Kruskal-Wallis / McNemar)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "nonparametric"
+display_name = "Non-parametric Tests"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::wilcox.test",      pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC NPAR1WAY",         version = "9.4M8" }
+Python = { fn = "scipy.stats.mannwhitneyu", pkg = "scipy", version = "1.13.0" }
+SPSS   = { proc = "NPAR TESTS",            version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Correlation (Pearson / Spearman / Kendall)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "correlation"
+display_name = "Correlation"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::cor.test",   pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC CORR",       version = "9.4M8" }
+Python = { fn = "scipy.stats.pearsonr", pkg = "scipy", version = "1.13.0" }
+SPSS   = { proc = "CORRELATIONS",    version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Standardization (direct / indirect)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "standardization"
+display_name = "Standardization"
+iterative = false
+[algorithm.coverage]
+R = "sidecar_only"
+SAS = "recorded"
+Python = "sidecar_only"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "epitools::ageadjust.direct", pkg = "epitools", version = "0.5-10.1" }
+SAS    = { proc = "PROC STDRATE",             version = "9.4M8" }
+Python = { fn = "manual",                     pkg = "numpy",    version = "2.0.0" }
+SPSS   = { proc = "n/a",                      version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Odds Ratio / Relative Risk (with Mantel-Haenszel stratification)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "or_rr"
+display_name = "OR / RR"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "epitools::oddsratio",      pkg = "epitools", version = "0.5-10.1" }
+SAS    = { proc = "PROC FREQ /CMH",         version = "9.4M8" }
+Python = { fn = "scipy.stats.contingency.odds_ratio", pkg = "scipy", version = "1.13.0" }
+SPSS   = { proc = "CROSSTABS /STATISTICS=RISK CMH", version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Attributable Risk
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "attributable_risk"
+display_name = "Attributable Risk"
+iterative = false
+[algorithm.coverage]
+R = "sidecar_only"
+SAS = "recorded"
+Python = "sidecar_only"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "epiR::epi.2by2",  pkg = "epiR",  version = "2.0.71" }
+SAS    = { proc = "PROC FREQ /RISKDIFF", version = "9.4M8" }
+Python = { fn = "manual",          pkg = "numpy", version = "2.0.0" }
+SPSS   = { proc = "n/a",           version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Kaplan-Meier Survival
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "kaplan_meier"
+display_name = "Kaplan-Meier Survival"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "survival::survfit", pkg = "survival",  version = "3.7-0" }
+SAS    = { proc = "PROC LIFETEST",   version = "9.4M8" }
+Python = { fn = "lifelines.KaplanMeierFitter", pkg = "lifelines", version = "0.28.0" }
+SPSS   = { proc = "KM",              version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Cox Proportional Hazards (Iterative Algorithm)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "cox"
+display_name = "Cox Proportional Hazards"
+iterative = true
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "survival::coxph",   pkg = "survival",  version = "3.7-0" }
+SAS    = { proc = "PROC PHREG",      version = "9.4M8" }
+Python = { fn = "lifelines.CoxPHFitter", pkg = "lifelines", version = "0.28.0" }
+SPSS   = { proc = "COXREG",          version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Life Table
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "life_table"
+display_name = "Life Table"
+iterative = false
+[algorithm.coverage]
+R = "sidecar_only"
+SAS = "recorded"
+Python = "sidecar_only"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "KMsurv::lifetab", pkg = "KMsurv",   version = "0.1-5" }
+SAS    = { proc = "PROC LIFETEST METHOD=LIFE", version = "9.4M8" }
+Python = { fn = "lifelines.utils.survival_table_from_events", pkg = "lifelines", version = "0.28.0" }
+SPSS   = { proc = "SURVIVAL",      version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Linear Regression
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "linear"
+display_name = "Linear Regression"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::lm",         pkg = "stats",       version = "4.4.1" }
+SAS    = { proc = "PROC REG",        version = "9.4M8" }
+Python = { fn = "statsmodels.regression.linear_model.OLS", pkg = "statsmodels", version = "0.14.2" }
+SPSS   = { proc = "REGRESSION",      version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Logistic Regression (Iterative Algorithm)
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "logistic"
+display_name = "Logistic Regression"
+iterative = true
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "stats::glm",        pkg = "stats",       version = "4.4.1" }
+SAS    = { proc = "PROC LOGISTIC",   version = "9.4M8" }
+Python = { fn = "statsmodels.discrete.discrete_model.Logit", pkg = "statsmodels", version = "0.14.2" }
+SPSS   = { proc = "LOGISTIC REGRESSION", version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Power / Sample Size — Single-Arm
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "power_single_arm"
+display_name = "Power / Sample Size (Single-Arm)"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "stats::power.prop.test", pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC POWER",           version = "9.4M8" }
+Python = { fn = "statsmodels.stats.proportion.proportions_ztest", pkg = "statsmodels", version = "0.14.2" }
+SPSS   = { proc = "n/a",                  version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Power / Sample Size — Phase 2
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "power_phase2"
+display_name = "Power / Sample Size (Phase 2)"
+iterative = false
+[algorithm.coverage]
+R = "sidecar_only"
+SAS = "recorded"
+Python = "sidecar_only"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "clinfun::ph2simon", pkg = "clinfun", version = "1.2.4" }
+SAS    = { proc = "PROC POWER",      version = "9.4M8" }
+Python = { fn = "manual",            pkg = "scipy",   version = "1.13.0" }
+SPSS   = { proc = "n/a",             version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Power / Sample Size — Phase 3
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "power_phase3"
+display_name = "Power / Sample Size (Phase 3)"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "none"
+[algorithm.reference]
+R      = { fn = "stats::power.t.test", pkg = "stats", version = "4.4.1" }
+SAS    = { proc = "PROC POWER",        version = "9.4M8" }
+Python = { fn = "statsmodels.stats.power.TTestIndPower", pkg = "statsmodels", version = "0.14.2" }
+SPSS   = { proc = "n/a",               version = "29.0.1" }
+
+# ---------------------------------------------------------------------------
+# Diagnostic-test ROC
+# ---------------------------------------------------------------------------
+[[algorithm]]
+id = "diagnostic_roc"
+display_name = "Diagnostic-test ROC"
+iterative = false
+[algorithm.coverage]
+R = "live"
+SAS = "recorded"
+Python = "live"
+SPSS = "recorded"
+[algorithm.reference]
+R      = { fn = "pROC::roc",        pkg = "pROC",        version = "1.18.5" }
+SAS    = { proc = "PROC LOGISTIC /ROC", version = "9.4M8" }
+Python = { fn = "sklearn.metrics.roc_curve", pkg = "scikit-learn", version = "1.5.0" }
+SPSS   = { proc = "ROC",            version = "29.0.1" }

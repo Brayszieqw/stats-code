@@ -9,6 +9,8 @@ export {
   healthResponse,
   patchSettingsRequest,
   patchResearchProtocolRequest,
+  protocolCompileRequest,
+  protocolCompileResult,
   base64DatasetRequest,
   postAudioResponse,
   llmStatusResponse,

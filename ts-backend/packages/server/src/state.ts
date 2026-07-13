@@ -12,6 +12,8 @@ export type DatasetSummary = z.infer<typeof domain.datasetSummary>;
 export type ColumnSummary = z.infer<typeof domain.columnSummary>;
 export type SessionSettings = z.infer<typeof domain.sessionSettings>;
 export type ResearchProtocol = z.infer<typeof domain.researchProtocol>;
+export type ProtocolCompileRequest = z.infer<typeof domain.protocolCompileRequest>;
+export type ProtocolCompileResult = z.infer<typeof domain.protocolCompileResult>;
 export type DatasetAudit = z.infer<typeof domain.datasetAudit>;
 export type DatasetAuditFinding = z.infer<typeof domain.datasetAuditFinding>;
 export type DatasetAuditRoles = z.infer<typeof domain.datasetAuditRoles>;
@@ -75,6 +77,11 @@ export interface LlmConfigStore {
 
 export interface LlmProbe {
   probe(provider: 'deepseek' | 'openai', apiKey: string, baseUrl?: string, model?: string): Promise<void>;
+}
+
+/** Review-only natural-language → protocol proposal service. */
+export interface ProtocolCompiler {
+  compile(input: ProtocolCompileRequest): Promise<ProtocolCompileResult>;
 }
 
 export interface CoverageMatrixProvider {
@@ -227,6 +234,7 @@ export interface AppState {
   researchWorkflow?: ResearchWorkflowService;
   llmConfigStore?: LlmConfigStore;
   llmProbe?: LlmProbe;
+  protocolCompiler?: ProtocolCompiler;
   /** Whether the backend can drive an OAuth flow (Requirement 13.4/13.5). */
   oauthCapability?: { available: boolean };
   coverageMatrixProvider?: CoverageMatrixProvider;

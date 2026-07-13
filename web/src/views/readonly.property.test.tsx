@@ -44,6 +44,7 @@ function makeController(isArchived: boolean): SessionController {
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
     saveResearchProtocol: vi.fn(async () => { throw new Error('read only'); }),
+    compileResearchProtocol: vi.fn(async () => { throw new Error('read only'); }),
     auditDataset: vi.fn(async () => { throw new Error('read only'); }),
     approveAnalysisPlan: vi.fn(async () => { throw new Error('read only'); }),
     initialMessages: [],

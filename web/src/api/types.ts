@@ -46,6 +46,23 @@ export interface ResearchProtocolInput {
   sensitivity_analysis: string;
 }
 
+export type ResearchProtocolProposal = Omit<ResearchProtocolInput, 'status' | 'expected_version'>;
+
+export interface ProtocolCompileRequest {
+  brief: string;
+}
+
+export interface ProtocolCompileResult {
+  schema_version: '1.0';
+  compiler_version: '1.0.0';
+  proposal: ResearchProtocolProposal;
+  missing_required_fields: Array<keyof ResearchProtocolProposal>;
+  warnings: string[];
+  brief_sha256: string;
+  /** Always true: compilation never saves or approves a protocol. */
+  approval_required: true;
+}
+
 export interface ResearchProtocol extends ResearchProtocolInput {
   version: number;
   content_sha256: string;

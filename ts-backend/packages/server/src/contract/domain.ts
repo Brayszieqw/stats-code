@@ -212,7 +212,7 @@ export const researchProtocolFields = z.object({
   sensitivity_analysis: protocolText,
 });
 
-const APPROVAL_REQUIRED_FIELDS = [
+export const APPROVAL_REQUIRED_FIELDS = [
   'research_question',
   'population',
   'outcome',
@@ -221,6 +221,8 @@ const APPROVAL_REQUIRED_FIELDS = [
   'estimand',
   'primary_analysis',
 ] as const;
+
+export const approvalRequiredProtocolField = z.enum(APPROVAL_REQUIRED_FIELDS);
 
 export const researchProtocolInput = researchProtocolFields
   .extend({
@@ -254,6 +256,27 @@ export const researchProtocol = researchProtocolFields.extend({
   updated_at: dateTime,
 });
 export type ResearchProtocol = z.infer<typeof researchProtocol>;
+
+/** Natural-language input accepted by the review-only protocol compiler. */
+export const protocolCompileRequest = z.object({
+  brief: z.string().trim().min(20).max(8000),
+}).strict();
+export type ProtocolCompileRequest = z.infer<typeof protocolCompileRequest>;
+
+/** Strict proposal shape: model output may never smuggle approval metadata. */
+export const protocolCompileProposal = researchProtocolFields.strict();
+
+export const protocolCompileResult = z.object({
+  schema_version: z.literal('1.0'),
+  compiler_version: z.literal('1.0.0'),
+  proposal: protocolCompileProposal,
+  missing_required_fields: z.array(approvalRequiredProtocolField),
+  warnings: z.array(z.string().max(500)).max(8),
+  brief_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** A compiler result is always a proposal and never an approval. */
+  approval_required: z.literal(true),
+}).strict();
+export type ProtocolCompileResult = z.infer<typeof protocolCompileResult>;
 
 export const datasetAuditStatus = z.enum(['passed', 'warning', 'blocked']);
 export type DatasetAuditStatus = z.infer<typeof datasetAuditStatus>;

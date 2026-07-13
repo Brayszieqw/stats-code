@@ -19,6 +19,7 @@ import {
   createLlmProbe,
   createFsDatasetStore,
   createLlmProvider,
+  createProtocolCompiler,
   createOrchestrator,
   createResearchWorkflowService,
   SkillRegistry,
@@ -96,6 +97,7 @@ export function defaultState(): AppState {
     researchWorkflow,
     llmProviderFactory,
   });
+  const protocolCompiler = createProtocolCompiler(llmProviderFactory);
 
   return {
     sessionStore,
@@ -109,6 +111,7 @@ export function defaultState(): AppState {
     snapshotRunRecorder: snapshotRuns.recorder,
     llmConfigStore,
     llmProbe,
+    protocolCompiler,
     messageHandler,
     oauthCapability: { available: false },
   };

@@ -16,6 +16,11 @@ export {
   type FileLlmConfigStoreOptions,
 } from './llm-config-store.js';
 export { createLlmProbe, type CreateLlmProbeOptions } from './llm-probe.js';
+export {
+  createProtocolCompiler,
+  ProtocolCompilerError,
+  type ProtocolCompilerErrorCode,
+} from './protocol-compiler.js';
 export { skillToAlgorithm } from './skill-algorithm-map.js';
 export {
   SkillRegistry,

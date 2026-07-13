@@ -24,6 +24,7 @@ import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOA
 import { extractPreviewRows, sanitizePreviewRows } from './conversation/dataset-store.js';
 import { SpeechTranscribeError, transcribeAudio } from './conversation/speech-transcribe.js';
 import { ResearchWorkflowError } from './conversation/research-workflow.js';
+import { ProtocolCompilerError } from './conversation/protocol-compiler.js';
 import { protocolContentSha256, protocolStateSha256 } from './conversation/research-integrity.js';
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
@@ -278,6 +279,39 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       if (err instanceof StoreError) {
         const { status, body } = storeErrorResponse(err);
         return reply.code(status).send(body);
+      }
+      throw err;
+    }
+  });
+
+  // POST /api/sessions/:sid/protocol/compile — review-only LLM proposal; never persists.
+  app.post<{ Params: { sid: string } }>('/api/sessions/:sid/protocol/compile', async (req, reply) => {
+    const parsed = domain.protocolCompileRequest.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({
+        error_code: 'SkillInvalidArgs',
+        message: '研究摘要需为 20–8000 个字符，且不能包含服务端审批字段。',
+      });
+    }
+    try {
+      const session = await state.sessionStore.get(req.params.sid);
+      if (session.status === 'Archived') {
+        return reply.code(409).send({ error_code: 'SessionArchived', message: '会话已归档，仅支持只读访问' });
+      }
+      if (!state.protocolCompiler) {
+        return reply.code(502).send({ error_code: 'LlmUnavailable', message: 'LLM 未配置；可继续使用手工协议表单。' });
+      }
+      return reply.send(await state.protocolCompiler.compile(parsed.data));
+    } catch (err) {
+      if (err instanceof StoreError) {
+        const { status, body } = storeErrorResponse(err);
+        return reply.code(status).send(body);
+      }
+      if (err instanceof ProtocolCompilerError) {
+        return reply.code(err.code === 'SkillInvalidArgs' ? 422 : 502).send({
+          error_code: err.code,
+          message: err.message,
+        });
       }
       throw err;
     }

@@ -624,6 +624,7 @@ export function ProModeView({
         onClose={() => {
           if (!protocolSaving) setProtocolDrawerOpen(false);
         }}
+        onCompile={controller.compileResearchProtocol}
         onSave={handleSaveProtocol}
       />
 

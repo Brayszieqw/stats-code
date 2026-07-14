@@ -16,12 +16,6 @@ export interface ReplayPlan {
   installedReferenceSoftware: ReadonlyArray<readonly [string, string]>;
   /** Optional external trust anchor for manifest.json. */
   expectedManifestSha256?: string;
-  /** Backward-compatible test probe; production replay itself never performs these actions. */
-  sideEffects?: {
-    portBound?: boolean;
-    browserOpened?: boolean;
-    lockCreated?: boolean;
-  };
 }
 
 export interface ReplayOutcome {
@@ -39,8 +33,7 @@ export class ReplayError extends Error {
       | 'dataset_sha256_mismatch'
       | 'reference_software_unavailable'
       | 'input_artifact_sha256_mismatch'
-      | 'output_artifact_sha256_mismatch'
-      | 'forbidden_side_effect',
+      | 'output_artifact_sha256_mismatch',
     message: string,
     public readonly detail?: {
       path?: string;
@@ -218,11 +211,6 @@ function parseWorkflowMember(dir: string): Workflow {
 
 /** Verify a safely extracted snapshot without executing statistics or performing external side effects. */
 export function executeReplay(plan: ReplayPlan): ReplayOutcome {
-  const se = plan.sideEffects ?? {};
-  if (se.portBound || se.browserOpened || se.lockCreated) {
-    throw new ReplayError('forbidden_side_effect', 'replay performed a forbidden side effect');
-  }
-
   const manifestBytes = readMember(plan.extractedDir, 'manifest.json');
   const manifest = parseManifest(manifestBytes);
   if (plan.expectedManifestSha256 !== undefined) {

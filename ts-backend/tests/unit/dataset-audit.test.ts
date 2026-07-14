@@ -179,4 +179,41 @@ describe('auditDataset', () => {
     expect(result.status).toBe('blocked');
     expect(codes(result)).toContain('ANALYSIS_VALUE_MISSING');
   });
+
+  it('blocks empty or malformed table structure and missing analysis columns', () => {
+    const empty = audit('participant_id,fu_pt,death,age\n');
+    expect(codes(empty)).toEqual(expect.arrayContaining(['DATASET_NO_ROWS', 'EVENT_NO_VARIATION']));
+
+    const malformed = audit('participant_id,,age,age\nP001,1,2');
+    expect(codes(malformed)).toEqual(expect.arrayContaining([
+      'HEADER_INVALID',
+      'ROW_WIDTH_MISMATCH',
+      'ANALYSIS_COLUMN_MISSING',
+    ]));
+  });
+
+  it('blocks missing and unresolved primary keys', () => {
+    const missing = audit([
+      'participant_id,fu_pt,death,age',
+      ',1,0,50',
+      'P002,2,1,51',
+    ].join('\n'));
+    expect(codes(missing)).toContain('PRIMARY_KEY_MISSING');
+
+    const unresolved = audit([
+      'row_label,fu_pt,death,age',
+      'A,1,0,50',
+      'B,2,1,51',
+    ].join('\n'));
+    expect(codes(unresolved)).toContain('PRIMARY_KEY_UNBOUND');
+  });
+
+  it('blocks a binary event column with no variation', () => {
+    const result = audit([
+      'participant_id,fu_pt,death,age',
+      'P001,1,0,50',
+      'P002,2,0,51',
+    ].join('\n'));
+    expect(codes(result)).toContain('EVENT_NO_VARIATION');
+  });
 });

@@ -125,6 +125,30 @@ describe('POST /api/sidecar/:id (wired)', () => {
     expect(body.text).toBeUndefined();
     await app.close();
   });
+
+  it('rejects non-portable identifiers as a client error before code generation', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sidecar/linear',
+      payload: {
+        software: 'R',
+        dataset_sha256: '0'.repeat(64),
+        columns: [
+          { name: 'outcome; system("calc")', dtype: 'numeric' },
+          { name: 'age', dtype: 'numeric' },
+        ],
+        params: {},
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error_code: 'InvalidRequest',
+      message: 'sidecar request contains a non-portable identifier',
+    });
+    await app.close();
+  });
 });
 
 describe('POST /api/snapshot/export (wired)', () => {

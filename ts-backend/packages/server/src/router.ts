@@ -8,6 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { sidecar as engineSidecar } from '@stats-code/engine';
 import {
   domain,
   patchSettingsRequest,
@@ -825,6 +826,12 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       const dto = state.sidecarProvider.generate(req.params.algorithm_id, parsed.data);
       return reply.send(dto);
     } catch (err) {
+      if (err instanceof engineSidecar.GenerateError && err.kind === 'unsafe_identifier') {
+        return reply.code(400).send({
+          error_code: 'InvalidRequest',
+          message: 'sidecar request contains a non-portable identifier',
+        });
+      }
       return reply.code(500).send({ error_code: 'InternalError', message: (err as Error).message });
     }
   });

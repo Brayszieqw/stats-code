@@ -3,6 +3,9 @@
 
 /** Assign average ranks for ties; returns ranks in the original order. */
 export function rankWithTies(values: readonly number[]): number[] {
+  if (values.some((value) => !Number.isFinite(value))) {
+    throw new Error('Ranking requires finite values.');
+  }
   const indexed = values.map((v, i) => ({ v, i }));
   indexed.sort((a, b) => a.v - b.v);
   const ranks = new Array<number>(values.length).fill(0);

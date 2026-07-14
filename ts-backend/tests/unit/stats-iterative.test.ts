@@ -73,6 +73,61 @@ describe('logistic regression (IRLS)', () => {
     expect(result.regularized).toBe(true);
     expect(result.ridgeValue).toBeGreaterThan(0);
   });
+
+  it('marks zero-standard-error logistic coefficients as degenerate with directional p-values', () => {
+    const scale = 1e5;
+    const epsilon = 1e-9;
+    const x = Array.from({ length: 8 }, (_, index) => {
+      const value = (index - 3.5) * scale;
+      const perturbation = (index % 2 === 0 ? -epsilon : epsilon) * scale;
+      return [1, value, value * (1 + epsilon) + perturbation];
+    });
+    const result = logistic.logisticRegression(x, [0, 0, 0, 1, 0, 1, 1, 1]);
+    const degenerate = result.coefficients.filter((coefficient) => coefficient.degenerate);
+
+    expect(result.degenerate).toBe(true);
+    expect(degenerate).toHaveLength(2);
+    for (const coefficient of degenerate) {
+      expect(coefficient.stdError).toBe(0);
+      expect(Math.abs(coefficient.z)).toBe(Number.POSITIVE_INFINITY);
+      expect(coefficient.pValue).toBe(0);
+      expect(coefficient.ciLower).toBe(coefficient.oddsRatio);
+      expect(coefficient.ciUpper).toBe(coefficient.oddsRatio);
+    }
+  });
+
+  it('marks a beta=0 logistic coefficient degenerate with a non-directional p-value', () => {
+    // An antisymmetric huge-scale column: each pair shares the same intercept,
+    // signal, and outcome, but flips between +BIG and -BIG. Since the column's
+    // own beta stays at exactly 0 (its gradient telescopes to 0 every IRLS
+    // iteration by exact cancellation), its contribution to the linear
+    // predictor is BIG * 0 = 0, so it never perturbs the fit. Its Fisher
+    // information diagonal entry is a sum of BIG^2 terms, which overflows to
+    // Infinity, so the inverse-variance is 1/Infinity = 0 exactly — hitting
+    // the beta===0 branch (z=0, not the beta!==0 branch that gives z=Infinity).
+    const BIG = 1e160;
+    const signal = [-2, -1, 0, 1, 2, -1, 0, 1];
+    const outcome = [0, 0, 0, 1, 1, 1, 1, 0];
+    const x: number[][] = [];
+    const y: number[] = [];
+    for (let index = 0; index < signal.length; index += 1) {
+      x.push([1, signal[index]!, BIG], [1, signal[index]!, -BIG]);
+      y.push(outcome[index]!, outcome[index]!);
+    }
+    const result = logistic.logisticRegression(x, y);
+    const zeroBeta = result.coefficients.find((coefficient) => coefficient.beta === 0);
+
+    expect(result.degenerate).toBe(true);
+    expect(zeroBeta).toBeDefined();
+    expect(zeroBeta!.stdError).toBe(0);
+    expect(zeroBeta!.z).toBe(0);
+    // normalCdf(0) is ~5.25e-10 off exact 0.5 in this implementation's
+    // approximation, so pValue lands at ~0.9999999989503827, not exactly 1.
+    expect(zeroBeta!.pValue).toBeCloseTo(1, 8);
+    expect(zeroBeta!.degenerate).toBe(true);
+    expect(zeroBeta!.ciLower).toBe(zeroBeta!.ciUpper);
+    expect(zeroBeta!.ciLower).toBe(zeroBeta!.oddsRatio);
+  });
 });
 
 describe('Cox proportional hazards (Efron ties)', () => {
@@ -207,5 +262,62 @@ describe('Cox proportional hazards (Efron ties)', () => {
     const result = cox.coxRegression(observations);
     expect(result.regularized).toBe(true);
     expect(result.ridgeValue).toBeGreaterThan(0);
+  });
+
+  it('marks zero-standard-error Cox coefficients as degenerate with directional p-values', () => {
+    const epsilon = 1e-15;
+    const observations = Array.from({ length: 10 }, (_, index) => {
+      const value = index - 4.5;
+      const perturbation = index % 2 === 0 ? -epsilon : epsilon;
+      return obs(
+        index + 1,
+        index % 3 !== 1,
+        [value, value * (1 + epsilon) + perturbation],
+      );
+    });
+    const result = cox.coxRegression(observations);
+
+    expect(result.degenerate).toBe(true);
+    expect(result.coefficients).toHaveLength(2);
+    for (const coefficient of result.coefficients) {
+      expect(coefficient).toMatchObject({ stdError: 0, pValue: 0, degenerate: true });
+      expect(Math.abs(coefficient.z)).toBe(Number.POSITIVE_INFINITY);
+      expect(coefficient.ciLower).toBe(coefficient.hazardRatio);
+      expect(coefficient.ciUpper).toBe(coefficient.hazardRatio);
+    }
+  });
+
+  it('marks a beta=0 Cox coefficient degenerate with a non-directional p-value', () => {
+    // Same antisymmetric-huge-scale-column technique as the logistic case
+    // above, adapted to Cox: two censored observations share an identical
+    // time (so they are always in the same risk sets together) and identical
+    // "real" covariate (0), but flip the target column between +BIG and
+    // -BIG. With that column's beta pinned at exactly 0, it never affects
+    // the linear predictor, so its risk-set first-moment sums cancel to 0
+    // exactly while its second-moment (variance) sum overflows to Infinity,
+    // giving inverse-variance 1/Infinity = 0 — the beta===0 branch (z=0).
+    const BIG = 1e160;
+    const observations = [
+      obs(1, true, [-2, 0]),
+      obs(2, false, [-1, 0]),
+      obs(3, true, [1, 0]),
+      obs(4, true, [2, 0]),
+      obs(5, false, [0, 0]),
+      obs(10, false, [0, BIG]),
+      obs(10, false, [0, -BIG]),
+    ];
+    const result = cox.coxRegression(observations);
+    const zeroBeta = result.coefficients.find((coefficient) => coefficient.beta === 0);
+
+    expect(result.degenerate).toBe(true);
+    expect(zeroBeta).toBeDefined();
+    expect(zeroBeta!.stdError).toBe(0);
+    expect(zeroBeta!.z).toBe(0);
+    // Same normalCdf(0) precision artifact as the logistic case: ~1.05e-9
+    // off exact 1, not exactly 1.
+    expect(zeroBeta!.pValue).toBeCloseTo(1, 8);
+    expect(zeroBeta!.degenerate).toBe(true);
+    expect(zeroBeta!.ciLower).toBe(zeroBeta!.ciUpper);
+    expect(zeroBeta!.ciLower).toBe(zeroBeta!.hazardRatio);
   });
 });

@@ -3,6 +3,7 @@
 
 import {
   regularizedLowerGamma,
+  regularizedUpperGammaCf,
   regularizedBetaIncomplete,
   regularizedIncompleteBeta,
   logGamma,
@@ -100,26 +101,45 @@ export function inverseNormal(p: number): number {
 
   const plow = 0.02425;
   const phigh = 1 - plow;
+  let approximation: number;
   if (p < plow) {
     const q = Math.sqrt(-2 * Math.log(p));
-    return (
+    approximation = (
       (((((C[0]! * q + C[1]!) * q + C[2]!) * q + C[3]!) * q + C[4]!) * q + C[5]!) /
       ((((D[0]! * q + D[1]!) * q + D[2]!) * q + D[3]!) * q + 1)
     );
-  }
-  if (p > phigh) {
+  } else if (p > phigh) {
     const q = Math.sqrt(-2 * Math.log(1 - p));
-    return (
+    approximation = (
       -(((((C[0]! * q + C[1]!) * q + C[2]!) * q + C[3]!) * q + C[4]!) * q + C[5]!) /
       ((((D[0]! * q + D[1]!) * q + D[2]!) * q + D[3]!) * q + 1)
     );
+  } else {
+    const q = p - 0.5;
+    const r = q * q;
+    approximation = (
+      ((((((A[0]! * r + A[1]!) * r + A[2]!) * r + A[3]!) * r + A[4]!) * r + A[5]!) * q) /
+      (((((B[0]! * r + B[1]!) * r + B[2]!) * r + B[3]!) * r + B[4]!) * r + 1)
+    );
   }
-  const q = p - 0.5;
-  const r = q * q;
-  return (
-    ((((((A[0]! * r + A[1]!) * r + A[2]!) * r + A[3]!) * r + A[4]!) * r + A[5]!) * q) /
-    (((((B[0]! * r + B[1]!) * r + B[2]!) * r + B[3]!) * r + B[4]!) * r + 1)
-  );
+
+  // Acklam's approximation is accurate to about 1e-9. One Halley step,
+  // using the incomplete-gamma identity for Phi(x), reaches double precision.
+  const gammaArgument = (approximation * approximation) / 2;
+  let cdfError: number;
+  if (gammaArgument > 1.5) {
+    const tail = regularizedUpperGammaCf(0.5, gammaArgument) / 2;
+    cdfError = approximation < 0 ? tail - p : (1 - p) - tail;
+  } else {
+    const gamma = regularizedLowerGamma(0.5, gammaArgument);
+    const cdf = approximation >= 0 ? 0.5 + gamma / 2 : 0.5 - gamma / 2;
+    cdfError = cdf - p;
+  }
+  const density = Math.exp((-approximation * approximation) / 2) / SQRT_2PI;
+  const correction = cdfError / density;
+  return Number.isFinite(correction)
+    ? approximation - correction / (1 + (approximation * correction) / 2)
+    : approximation;
 }
 
 /** Two-sided upper-tail p-value for Student's t (named helper). */

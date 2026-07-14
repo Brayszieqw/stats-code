@@ -6,12 +6,13 @@
 //
 // _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { ChildProcess, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { Server } from 'node:net';
 import { snapshot } from '@stats-code/engine';
 
 const {
@@ -33,6 +34,20 @@ function freshTmp(): string {
   const d = mkdtempSync(join(tmpdir(), 'sc-replay-'));
   tmpDirs.push(d);
   return d;
+}
+
+function directoryFingerprint(root: string): string {
+  const records: string[] = [];
+  const walk = (dir: string, relative: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(dir, entry.name);
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path, childRelative);
+      else records.push(`${childRelative}:${createHash('sha256').update(readFileSync(path)).digest('hex')}`);
+    }
+  };
+  walk(root, '');
+  return createHash('sha256').update(records.join('\n')).digest('hex');
 }
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -228,15 +243,24 @@ describe('executeReplay — integrity gates', () => {
 });
 
 describe('executeReplay — side-effect prohibition (Req 7.5, 7.6)', () => {
-  it('fails fatally if a port bind / browser / lock was attempted', () => {
+  it('probes real process/port surfaces and leaves the extracted snapshot byte-identical', () => {
     const ex = exportAndExtract(runWithStep());
-    for (const se of [{ portBound: true }, { browserOpened: true }, { lockCreated: true }]) {
-      try {
-        executeReplay({ extractedDir: ex, installedReferenceSoftware: [], sideEffects: se });
-        expect.unreachable();
-      } catch (e) {
-        expect((e as InstanceType<typeof ReplayError>).kind).toBe('forbidden_side_effect');
-      }
+    const replayWorkspace = dirname(ex);
+    const before = directoryFingerprint(replayWorkspace);
+    const listenSpy = vi.spyOn(Server.prototype, 'listen').mockImplementation(() => {
+      throw new Error('replay attempted to bind a port');
+    });
+    const spawnSpy = vi.spyOn(ChildProcess.prototype, 'spawn').mockImplementation(() => {
+      throw new Error('replay attempted to spawn a process or browser');
+    });
+    try {
+      expect(executeReplay({ extractedDir: ex, installedReferenceSoftware: [] })).toEqual({ stepsReplayed: 1 });
+      expect(listenSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).not.toHaveBeenCalled();
+      expect(directoryFingerprint(replayWorkspace)).toBe(before);
+    } finally {
+      listenSpy.mockRestore();
+      spawnSpy.mockRestore();
     }
   });
 });

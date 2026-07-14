@@ -47,6 +47,12 @@ describe('render engine', () => {
     expect(h).not.toContain('\r');
     expect(h.endsWith('\n')).toBe(true);
   });
+
+  it('keeps hostile column text inside a single comment line', () => {
+    const h = formatHeader([{ name: 'age\nprint("injected")', dtype: 'numeric' }], SHA, '0.5.0');
+    expect(h).toContain('# column.0.name: age\\nprint("injected")\n');
+    expect(h).not.toContain('\nprint("injected")\n');
+  });
 });
 
 describe('Property 2: coverage-driven variant selection', () => {
@@ -214,5 +220,18 @@ describe('error handling', () => {
 
   it('case-sensitive lookup rejects wrong casing', () => {
     expect(() => generateSnippet('TableOne', 'R', {}, cols, SHA)).toThrow(GenerateError);
+  });
+
+  it('fails closed on non-portable identifiers before emitting executable code', () => {
+    const hostileColumns: sidecar.Column[] = [
+      { name: 'outcome; system("calc")', dtype: 'numeric' },
+      { name: 'age', dtype: 'numeric' },
+    ];
+    expect(() => generateSnippet('linear', 'R', {}, hostileColumns, SHA))
+      .toThrow(/portable identifiers/);
+    expect(() => generateSnippet('linear', 'Python', {
+      outcome: 'outcome',
+      predictors: '["age\\nprint(1)"]',
+    }, cols, SHA)).toThrow(/portable identifiers/);
   });
 });

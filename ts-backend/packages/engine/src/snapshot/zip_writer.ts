@@ -34,6 +34,11 @@ const GENERAL_PURPOSE_FLAG = 0;
 const LFH_SIG = 0x04034b50;
 const CDFH_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
+const ZIP32_MAX_ENTRY_COUNT = 0xffff;
+const ZIP32_MAX_SIZE = 0xffffffff;
+const LOCAL_FILE_HEADER_SIZE = 30;
+const CENTRAL_DIRECTORY_HEADER_SIZE = 46;
+const END_OF_CENTRAL_DIRECTORY_SIZE = 22;
 
 export function validateEntryName(name: string): void {
   const invalid = (reason: string): never => {
@@ -155,13 +160,36 @@ export function encodeArchive(entries: readonly ZipEntry[]): Uint8Array {
 
 /** Sort entries by raw name bytes and encode the deterministic archive. */
 export function buildZipBytes(entries: readonly ZipEntry[]): Uint8Array {
+  const zip64Required = (reason: string): never => {
+    throw new ZipWriteError('invalid_entry', `ZIP64 is required but unsupported: ${reason}`);
+  };
+  if (entries.length > ZIP32_MAX_ENTRY_COUNT) {
+    zip64Required(`entry count ${entries.length} exceeds ${ZIP32_MAX_ENTRY_COUNT}`);
+  }
+
   const names = new Set<string>();
+  let localSize = 0;
+  let centralSize = 0;
   for (const e of entries) {
     validateEntryName(e.name);
     if (names.has(e.name)) {
       throw new ZipWriteError('invalid_entry', `duplicate entry name ${JSON.stringify(e.name)}`);
     }
     names.add(e.name);
+    const nameSize = Buffer.byteLength(e.name, 'utf8');
+    const payloadSize = e.bytes.length;
+    if (!Number.isSafeInteger(payloadSize) || payloadSize < 0 || payloadSize > ZIP32_MAX_SIZE) {
+      zip64Required(`entry ${JSON.stringify(e.name)} is ${payloadSize} bytes`);
+    }
+    localSize += LOCAL_FILE_HEADER_SIZE + nameSize + payloadSize;
+    centralSize += CENTRAL_DIRECTORY_HEADER_SIZE + nameSize;
+    if (
+      localSize > ZIP32_MAX_SIZE
+      || centralSize > ZIP32_MAX_SIZE
+      || localSize + centralSize + END_OF_CENTRAL_DIRECTORY_SIZE > ZIP32_MAX_SIZE
+    ) {
+      zip64Required('archive size exceeds the 32-bit ZIP limit');
+    }
   }
   const sorted = [...entries].sort((a, b) => {
     const an = new TextEncoder().encode(a.name);

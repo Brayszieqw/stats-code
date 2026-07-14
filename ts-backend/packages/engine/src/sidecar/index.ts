@@ -38,7 +38,7 @@ export type SidecarSnippet =
 
 export class GenerateError extends Error {
   constructor(
-    public readonly kind: 'unknown_algorithm' | 'missing_template',
+    public readonly kind: 'unknown_algorithm' | 'missing_template' | 'unsafe_identifier',
     message: string,
   ) {
     super(message);
@@ -79,6 +79,18 @@ function quoteString(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+const PORTABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+
+function assertPortableIdentifiers(values: readonly string[], context: string): void {
+  const invalid = values.find((value) => !PORTABLE_IDENTIFIER.test(value));
+  if (invalid !== undefined) {
+    throw new GenerateError(
+      'unsafe_identifier',
+      `${context} must use portable identifiers matching ${PORTABLE_IDENTIFIER}; got ${JSON.stringify(invalid)}`,
+    );
+  }
+}
+
 function normalizeRenderParams(
   algorithmId: string,
   params: RenderParams,
@@ -88,6 +100,7 @@ function normalizeRenderParams(
     const outcome = params.outcome ?? columns[0]?.name ?? '';
     const predictors =
       parseNameList(params.predictors) ?? (columns[1] ? [columns[1].name] : []);
+    assertPortableIdentifiers([outcome, ...predictors], `${algorithmId} variables`);
 
     return {
       ...params,
@@ -103,6 +116,7 @@ function normalizeRenderParams(
     const time = params.time ?? columns[0]?.name ?? '';
     const event = params.event ?? columns[1]?.name ?? '';
     const predictors = parseNameList(params.predictors) ?? columns.slice(2).map((column) => column.name);
+    assertPortableIdentifiers([time, event, ...predictors], 'cox variables');
     return {
       ...params,
       time,
@@ -126,6 +140,7 @@ function normalizeRenderParams(
       parseNameList(params.vars) ??
       (columns[0] ? [columns[0].name] : []);
     const categorical = parseNameList(params.categorical) ?? [];
+    assertPortableIdentifiers([group, ...continuous, ...categorical], 'tableone variables');
     const categoricalSasBlock = categorical.length > 0
       ? `proc freq data=work.data;\n  tables ${categorical.map((name) => `${group}*${name}`).join(' ')} / chisq expected;\n  exact fisher;\nrun;`
       : '/* No categorical variables requested. */';
@@ -156,6 +171,7 @@ function normalizeRenderParams(
     const time = params.time ?? columns[0]?.name ?? '';
     const event = params.event ?? columns[1]?.name ?? '';
     const group = params.group?.trim() ?? '';
+    assertPortableIdentifiers([time, event, ...(group.length > 0 ? [group] : [])], 'kaplan_meier variables');
     const pythonBlock = group.length > 0
       ? `for label, frame in data.groupby(${quoteString(group)}):\n    fitter.fit(frame[${quoteString(time)}], event_observed=frame[${quoteString(event)}], label=str(label))\n    print(fitter.survival_function_)\ncomparison = multivariate_logrank_test(data[${quoteString(time)}], data[${quoteString(group)}], data[${quoteString(event)}])\nprint(comparison.summary)`
       : `fitter.fit(durations=data[${quoteString(time)}], event_observed=data[${quoteString(event)}], label="Overall")\nprint(fitter.survival_function_)`;
@@ -223,6 +239,7 @@ export function generateSnippet(
     }
 
     const releaseVersion = matrix.release_version;
+    assertPortableIdentifiers(columns.map((column) => column.name), 'dataset columns');
     const renderParams = normalizeRenderParams(algorithmId, params, columns);
     const body = renderPure(template, renderParams, columns, datasetSha256, releaseVersion);
 

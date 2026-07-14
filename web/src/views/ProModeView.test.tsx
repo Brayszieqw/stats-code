@@ -194,6 +194,23 @@ function renderView(options: {
 }
 
 describe('ProModeView (Requirements 4.1, 4.3)', () => {
+  it('surfaces non-empty session integrity warnings as a visible alert', () => {
+    renderView({
+      controller: {
+        integrityWarnings: [{
+          event: 'file_session_integrity_warning',
+          action: 'discarded',
+          record_type: 'analysis_plan_approval',
+          session_id: '11111111-1111-4111-8111-111111111111',
+          reason: 'protocol_not_approved',
+        }],
+      },
+    });
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-testid', 'session-integrity-warning');
+    expect(screen.getByText('会话完整性检查阻止了不可信审批数据')).toBeInTheDocument();
+  });
+
   it('orders direct-run artifacts by time so newer chat results stay current', () => {
     const oldDirect: ChatMessage = {
       id: 'direct-old',

@@ -100,7 +100,12 @@ export function extractPreviewRows(
     for (let i = 0; i < headers.length; i += 1) {
       const key = headers[i]!;
       if (!key) continue;
-      obj[key] = previewCell(key, record[i] ?? '');
+      Object.defineProperty(obj, key, {
+        value: previewCell(key, record[i] ?? ''),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
     }
     rows.push(obj);
   }
@@ -130,7 +135,12 @@ function parseTextTable(
       for (let idx = 0; idx < columnCount; idx += 1) {
         const name = headers[idx]!;
         if (!name) continue;
-        obj[name] = previewCell(name, record[idx] ?? '');
+        Object.defineProperty(obj, name, {
+          value: previewCell(name, record[idx] ?? ''),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       }
       preview_rows.push(obj);
     }

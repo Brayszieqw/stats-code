@@ -78,6 +78,20 @@ describe('Batch A parity vs recorded Reference_Software (1e-6/1e-9)', () => {
         }
       });
 
+      it('ttest: Welch mean difference, statistic and p-value', () => {
+        const base = loadBaseline(software, 'ttest');
+        expect(base, `missing required ${software}/ttest baseline`).not.toBeNull();
+        if (!base) return;
+        const csv = parseCsv(base.input.dataset_csv);
+        const groups = groupedColumn(csv, base.input.spec.value_col!, base.input.spec.group_col!);
+        const result = stats.ttest.welchTtest(groups.get('A')!, groups.get('B')!);
+        const exp = base.expected_outputs;
+
+        assertMetric(software, 'ttest', 'mean_diff', result.meanDiff, exp.mean_diff!);
+        assertMetric(software, 'ttest', 'ttest_welch_statistic', result.tStatistic, exp.ttest_welch_statistic!);
+        assertMetric(software, 'ttest', 'ttest_welch_p_value', result.pValue, exp.ttest_welch_p_value!);
+      });
+
       it('anova: ss_between/ss_within/df/f', () => {
         const base = loadBaseline(software, 'anova');
         expect(base, `missing required ${software}/anova baseline`).not.toBeNull();

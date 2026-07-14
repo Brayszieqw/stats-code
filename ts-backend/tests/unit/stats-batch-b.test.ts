@@ -180,6 +180,13 @@ describe('diagnostic ROC / AUC', () => {
     const a2 = diagnostic.aucFromRanks(scores, labels);
     expect(close(a1, a2, 1e-9)).toBe(true);
   });
+
+  it('rejects non-finite or misaligned scores instead of relying on NaN sort order', () => {
+    expect(() => diagnostic.rocCurve([0.1, Number.NaN], [false, true])).toThrow(/finite scores/);
+    expect(() => diagnostic.aucFromRanks([0.1, Number.POSITIVE_INFINITY], [false, true]))
+      .toThrow(/finite scores/);
+    expect(() => diagnostic.aucFromRanks([0.1], [false, true])).toThrow(/aligned/);
+  });
 });
 
 describe('standardization', () => {

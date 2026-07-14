@@ -22,6 +22,9 @@ export function rocCurve(scores: readonly number[], labels: readonly boolean[]):
   if (scores.length !== labels.length) {
     throw new Error('ROC requires aligned scores and labels.');
   }
+  if (scores.some((score) => !Number.isFinite(score))) {
+    throw new Error('ROC requires finite scores.');
+  }
   const nPos = labels.filter((l) => l).length;
   const nNeg = labels.length - nPos;
   if (nPos === 0 || nNeg === 0) {
@@ -67,6 +70,12 @@ export function rocCurve(scores: readonly number[], labels: readonly boolean[]):
 
 /** AUC equivalently computed from the Mann-Whitney U statistic (tie-aware). */
 export function aucFromRanks(scores: readonly number[], labels: readonly boolean[]): number {
+  if (scores.length !== labels.length) {
+    throw new Error('AUC requires aligned scores and labels.');
+  }
+  if (scores.some((score) => !Number.isFinite(score))) {
+    throw new Error('AUC requires finite scores.');
+  }
   const nPos = labels.filter((l) => l).length;
   const nNeg = labels.length - nPos;
   if (nPos === 0 || nNeg === 0) {

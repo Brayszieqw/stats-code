@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildRouter,
+  createOrchestrator,
   createResearchWorkflowService,
   MemSessionStore,
   SkillRegistry,
@@ -9,6 +10,7 @@ import {
   type AppState,
   type DatasetStore,
   type DatasetSummary,
+  type LlmProvider,
 } from '@stats-code/server';
 
 const CLEAN_CSV = 'participant_id,y,x\nP001,1,1\nP002,2,2\nP003,3,3.1\nP004,4,3.9\nP005,5,5\n';
@@ -78,6 +80,21 @@ const runSpec = {
   args: { outcome: 'y', predictors: ['x'] },
 };
 
+function linearIntentLlm(): LlmProvider {
+  return {
+    providerId: 'openai',
+    redactedConfig: () => ({ provider: 'openai', baseUrl: 'x', model: 'm' }),
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async *chatStream() {
+      yield {
+        type: 'text_delta',
+        text: '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"]},"has_query_intent":true,"text_response":null}',
+      };
+      yield { type: 'done' };
+    },
+  };
+}
+
 async function seed(state: AppState) {
   const app = buildRouter({ state });
   const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;
@@ -130,6 +147,46 @@ async function approvePlan(
 }
 
 describe('server-enforced research workflow gate', () => {
+  it('maps a real conversation gate rejection to a structured SSE error without running the skill', async () => {
+    const state = makeState();
+    state.messageHandler = createOrchestrator({
+      sessionStore: state.sessionStore,
+      registry: SkillRegistry.withDefaults(),
+      researchWorkflow: state.researchWorkflow!,
+      llmProviderFactory: () => linearIntentLlm(),
+    });
+    const { app, sid } = await seed(state);
+    const protocolResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/sessions/${sid}/protocol`,
+      payload: protocol,
+    });
+    expect(protocolResponse.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/messages`,
+      payload: { text: '对 y 做线性回归' },
+    });
+    const frames = response.body.trim().split('\n\n').map((frame) => {
+      const [eventLine, dataLine] = frame.split('\n');
+      return {
+        event: eventLine!.slice('event: '.length),
+        data: JSON.parse(dataLine!.slice('data: '.length)) as Record<string, unknown>,
+      };
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(frames.map((frame) => frame.event)).toEqual(['skill_call', 'error', 'done']);
+    expect(frames[1]!.data).toEqual({
+      error_code: 'ResearchApprovalRequired',
+      message: expect.any(String),
+    });
+    expect(state.runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('rejects unapproved runs and client-reported approval timestamps before invoking the runner', async () => {
     const state = makeState();
     const { app, sid } = await seed(state);

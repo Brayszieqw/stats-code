@@ -104,6 +104,23 @@ describe('SimpleModeView (Requirements 2.3, 3.1, 9.3, 9.4)', () => {
     expect(screen.getByLabelText('界面模式切换')).toBeInTheDocument();
   });
 
+  it('surfaces non-empty session integrity warnings as a visible alert', () => {
+    renderView({
+      controller: makeController({
+        integrityWarnings: [{
+          event: 'file_session_integrity_warning',
+          action: 'downgraded',
+          record_type: 'research_protocol',
+          session_id: '11111111-1111-4111-8111-111111111111',
+          reason: 'state_hash_mismatch',
+        }],
+      }),
+    });
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-testid', 'session-integrity-warning');
+    expect(screen.getByText('会话完整性检查阻止了不可信审批数据')).toBeInTheDocument();
+  });
+
   it('wires the welcome dataset and voice controls to real drawers', () => {
     renderView({ chat: makeChat([]), onOpenSettings: vi.fn() });
 

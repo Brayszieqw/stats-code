@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createFsDatasetStore } from '@stats-code/server';
+import { extractPreviewRows } from '../../packages/server/src/conversation/dataset-store.js';
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -51,6 +52,30 @@ describe('createFsDatasetStore (Requirements 6.1, 6.2, 6.7, 6.8)', () => {
       { participant_id: 'P001', notes: '[已脱敏]' },
       { participant_id: 'P002', notes: 'ordinary' },
     ]);
+  });
+
+  it('preserves markup as data without allowing special headers to mutate the preview object', async () => {
+    const store = createFsDatasetStore({ root: freshRoot() });
+    const sid = randomUUID();
+    const bytes = enc('__proto__,label\nkept,"<img src=x onerror=""alert(1)"">"\n');
+    const summary = await store.saveAndParse(sid, 'data.csv', bytes);
+    const row = summary.preview_rows[0]!;
+
+    expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+    expect(Object.hasOwn(row, '__proto__')).toBe(true);
+    expect(row.__proto__).toBe('kept');
+    expect(row.label).toBe('<img src=x onerror="alert(1)">');
+  });
+
+  it('extractPreviewRows also guards against special headers mutating the preview object', () => {
+    const bytes = enc('__proto__,label\nkept,"<img src=x onerror=""alert(1)"">"\n');
+    const rows = extractPreviewRows(bytes, 'data.csv');
+    const row = rows[0]!;
+
+    expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+    expect(Object.hasOwn(row, '__proto__')).toBe(true);
+    expect(row.__proto__).toBe('kept');
+    expect(row.label).toBe('<img src=x onerror="alert(1)">');
   });
 
   it('parses TSV using a tab delimiter', async () => {

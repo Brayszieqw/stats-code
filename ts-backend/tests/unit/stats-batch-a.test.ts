@@ -129,6 +129,23 @@ describe('correlation', () => {
     expect(r.pValue).toBeGreaterThan(0);
     expect(r.pValue).toBeLessThan(1);
   });
+
+  it('uses the shared high-precision inverse normal for Fisher-z confidence intervals', () => {
+    const x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const y = [2, 1, 5, 3, 8, 4, 9, 6, 10, 7];
+    const result = correlation.pearsonCorrelation(x, y);
+    const z975 = 1.959963984540054;
+    const se = 1 / Math.sqrt(result.n - 3);
+    const fisher = Math.atanh(result.r);
+
+    expect(result.ciLower).toBeCloseTo(Math.tanh(fisher - z975 * se), 12);
+    expect(result.ciUpper).toBeCloseTo(Math.tanh(fisher + z975 * se), 12);
+  });
+
+  it('rejects NaN before rank sorting', () => {
+    expect(() => correlation.spearmanCorrelation([1, Number.NaN, 3], [1, 2, 3]))
+      .toThrow(/finite values/);
+  });
 });
 
 describe('nonparametric', () => {

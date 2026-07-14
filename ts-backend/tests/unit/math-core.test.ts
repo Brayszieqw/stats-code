@@ -44,6 +44,12 @@ describe('log-gamma (known values)', () => {
 
 describe('inverse normal', () => {
   it('Φ⁻¹(0.5) = 0', () => expect(close(inverseNormal(0.5), 0, 1e-9)).toBe(true));
+  it('matches high-precision reference quantiles', () => {
+    expect(inverseNormal(1e-12)).toBeCloseTo(-7.034483825301131, 13);
+    expect(inverseNormal(0.025)).toBeCloseTo(-1.959963984540054, 13);
+    expect(inverseNormal(0.975)).toBeCloseTo(1.959963984540054, 13);
+    expect(inverseNormal(1 - 1e-12)).toBeCloseTo(7.034486910047836, 13);
+  });
   it('round-trips Φ(Φ⁻¹(0.975)) ≈ 0.975', () =>
     expect(close(normalCdf(inverseNormal(0.975)), 0.975, 1e-6)).toBe(true));
 });

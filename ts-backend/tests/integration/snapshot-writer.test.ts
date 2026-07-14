@@ -98,6 +98,23 @@ describe('Property 17: snapshot determinism (byte-identical)', () => {
       { name: 'same.txt', bytes: enc('b') },
     ])).toThrow(/duplicate entry name/);
   });
+
+  it('fails loudly when ZIP64 would be required instead of truncating ZIP32 fields', () => {
+    const oversized = { length: 0x1_0000_0000 } as unknown as Uint8Array;
+    expect(() => buildZipBytes([{ name: 'oversized.bin', bytes: oversized }])).toThrow(/ZIP64 is required/);
+
+    const halfLimit = { length: 0x8000_0000 } as unknown as Uint8Array;
+    expect(() => buildZipBytes([
+      { name: 'first.bin', bytes: halfLimit },
+      { name: 'second.bin', bytes: halfLimit },
+    ])).toThrow(/ZIP64 is required/);
+
+    const tooMany = Array.from({ length: 0x1_0000 }, (_, index) => ({
+      name: `entry-${index}`,
+      bytes: new Uint8Array(0),
+    }));
+    expect(() => buildZipBytes(tooMany)).toThrow(/ZIP64 is required/);
+  });
 });
 
 describe('exportSnapshot assembles the full Audit_Snapshot', () => {

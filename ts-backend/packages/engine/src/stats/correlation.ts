@@ -1,7 +1,7 @@
 // stats/correlation.ts — Pearson & Spearman correlation (Phase 2, task 5.3).
 // Transcribed from crates/stats-code/src/stats/correlation.rs.
 
-import { tDistributionPValue } from '../math/distributions.js';
+import { inverseNormal, tDistributionPValue } from '../math/distributions.js';
 import { rankWithTies } from './rank.js';
 
 export interface CorrelationResult {
@@ -38,29 +38,11 @@ export function pearsonR(x: readonly number[], y: readonly number[]): number {
   return Math.max(-1, Math.min(1, cov / denom));
 }
 
-/** Inverse normal CDF (A&S 26.2.23) used for Fisher-z CI back-transform. */
-function normQuantile(p: number): number {
-  if (p <= 0) return Number.NEGATIVE_INFINITY;
-  if (p >= 1) return Number.POSITIVE_INFINITY;
-  const lower = p > 0.5 ? 1 - p : p;
-  const t = Math.sqrt(-2 * Math.log(lower));
-  const c0 = 2.515517;
-  const c1 = 0.802853;
-  const c2 = 0.010328;
-  const d1 = 1.432788;
-  const d2 = 0.189269;
-  const d3 = 0.001308;
-  const num = c0 + c1 * t + c2 * t * t;
-  const den = 1 + d1 * t + d2 * t * t + d3 * t * t * t;
-  const z = t - num / den;
-  return p < 0.5 ? -z : z;
-}
-
 function fisherZCi(r: number, n: number, alpha: number): { ciLower: number; ciUpper: number } {
   if (n <= 3 || Math.abs(r) >= 1) {
     return Math.abs(r) >= 1 ? { ciLower: r, ciUpper: r } : { ciLower: -1, ciUpper: 1 };
   }
-  const zCrit = normQuantile(1 - alpha / 2);
+  const zCrit = inverseNormal(1 - alpha / 2);
   const se = 1 / Math.sqrt(n - 3);
   const zr = 0.5 * Math.log((1 + r) / (1 - r));
   const lo = zr - zCrit * se;

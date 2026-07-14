@@ -109,7 +109,8 @@ export function formatHeader(columns: readonly Column[], datasetSha256: string, 
   out += `# dataset_sha256: ${datasetSha256}\n`;
   out += '# data: data.csv\n';
   columns.forEach((column, i) => {
-    out += `# column.${i}.name: ${column.name}\n`;
+    const name = column.name.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+    out += `# column.${i}.name: ${name}\n`;
     out += `# column.${i}.dtype: ${column.dtype}\n`;
   });
   return out;

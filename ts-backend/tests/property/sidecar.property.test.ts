@@ -56,6 +56,31 @@ describe('Property 1: sidecar determinism (Requirements 3.1, 3.2)', () => {
       { numRuns: 300 },
     );
   });
+
+  it('never emits executable code for non-portable column identifiers', () => {
+    const unsafeNameArb = fc.constantFrom(
+      'has space',
+      '1starts_with_digit',
+      'x; system("calc")',
+      'x\nprint("injected")',
+      'a'.repeat(33),
+    );
+    fc.assert(
+      fc.property(algoArb, softwareArb, unsafeNameArb, shaArb, (algo, sw, unsafeName, sha) => {
+        const columns: sidecar.Column[] = [
+          { name: unsafeName, dtype: 'numeric' },
+          { name: 'safe_name', dtype: 'numeric' },
+        ];
+        const coverageState = matrix.algorithms.find((entry) => entry.id === algo)!.coverage[sw];
+        if (coverageState === 'none') {
+          expect(generateSnippet(algo, sw, {}, columns, sha).kind).toBe('uncovered');
+        } else {
+          expect(() => generateSnippet(algo, sw, {}, columns, sha)).toThrow(/portable identifiers/);
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
 });
 
 describe('Property 3: host/clock independence + redaction (Requirement 3.3)', () => {

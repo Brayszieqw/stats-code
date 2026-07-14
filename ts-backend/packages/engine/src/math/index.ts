@@ -28,6 +28,7 @@ export {
 
 export {
   type Matrix,
+  type MatrixInverseResult,
   dot,
   matrixVectorMul,
   matrixMultiply,

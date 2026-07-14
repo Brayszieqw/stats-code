@@ -143,6 +143,30 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     );
   });
 
+  it('surfaces degenerate exact-fit coefficients in the linear API contract', async () => {
+    const ctx = ctxFor('y,x\n-1,-1\n0,0\n1,1\n', [num('y'), num('x')]);
+    const result = await runner.run(reg.get('model_linear')!, {
+      outcome: 'y',
+      predictors: ['x'],
+      dataset_id: 'ds-1',
+    }, ctx);
+    const payload = result.payload as {
+      degenerate: boolean;
+      coefficients: Array<{ term: string; degenerate: boolean }>;
+      model_diagnostics: { numerical_degeneracy: { status: string; coefficient_indexes: number[] } };
+    };
+    expect(payload.degenerate).toBe(true);
+    expect(payload.coefficients.find((coefficient) => coefficient.term === 'x')?.degenerate).toBe(true);
+    expect(payload.model_diagnostics.numerical_degeneracy).toMatchObject({
+      status: 'warning',
+      coefficient_indexes: [0, 1],
+    });
+    expect((result.analysis?.result_contract as { assumption_diagnostics: Array<{ code: string; status: string }> })
+      .assumption_diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'model-numerical-degeneracy', status: 'warning' }),
+      ]));
+  });
+
   it('runs logistic regression', async () => {
     const ctx = ctxFor('y,x\n0,1\n0,2\n1,5\n1,6\n0,2\n1,7\n', [num('y'), num('x')]);
     const result = await runner.run(reg.get('model_logistic')!, {
@@ -152,17 +176,25 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     }, ctx);
     const payload = result.payload as {
       odds_ratios: number[];
+      regularized: boolean;
+      ridge_value: number;
       model_diagnostics: {
         convergence: { status: string };
         sparse_data: { status: string; information_per_predictor: number };
         separation_screen: { status: string };
+        numerical_degeneracy: { status: string };
+        regularization: { status: string; ridge_value: number };
       };
     };
     expect(Array.isArray(payload.odds_ratios)).toBe(true);
+    expect(payload.regularized).toBe(false);
+    expect(payload.ridge_value).toBe(0);
     expect(payload.model_diagnostics).toMatchObject({
       convergence: { status: 'failed' },
       sparse_data: { status: 'warning', information_per_predictor: 3 },
       separation_screen: { status: 'warning' },
+      numerical_degeneracy: { status: 'passed' },
+      regularization: { status: 'passed', ridge_value: 0 },
     });
     expect(result.risk_signals).toEqual(expect.arrayContaining(['ModelConvergenceFailed', 'SparseData']));
     expect(result.analysis?.algorithm_id).toBe('logistic');
@@ -191,15 +223,23 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     }, ctx);
     const payload = result.payload as {
       hazard_ratios: number[];
+      regularized: boolean;
+      ridge_value: number;
       ph_test: { status: string; p_value: number; violated: boolean; recommendation: string };
-      model_diagnostics: { sparse_data: { status: string; information_per_predictor: number } };
+      model_diagnostics: {
+        sparse_data: { status: string; information_per_predictor: number };
+        regularization: { status: string; ridge_value: number };
+      };
     };
     expect(Array.isArray(payload.hazard_ratios)).toBe(true);
+    expect(payload.regularized).toBe(false);
+    expect(payload.ridge_value).toBe(0);
     expect(payload.ph_test.status).toBe('computed');
     expect(payload.ph_test.p_value).toBeGreaterThan(0.05);
     expect(payload.ph_test.violated).toBe(false);
     expect(payload.ph_test.recommendation).toContain('仍需结合图形');
     expect(payload.model_diagnostics.sparse_data).toMatchObject({ status: 'warning', information_per_predictor: 4 });
+    expect(payload.model_diagnostics.regularization).toMatchObject({ status: 'passed', ridge_value: 0 });
     expect(result.risk_signals).toContain('SparseData');
     expect(result.analysis?.algorithm_id).toBe('cox');
     expect(result.analysis?.result_contract).toMatchObject({
@@ -308,5 +348,19 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     const payload = result.payload as { row_count: number };
     expect(payload.row_count).toBe(1);
     expect(result.analysis).toBeNull();
+  });
+
+  it('exposes the bounded-search convergence state for native power results', async () => {
+    const ctx = ctxFor('a\n1\n', [num('a')]);
+    const result = await runner.run(reg.get('power')!, {
+      test_type: 'means',
+      effect_size: 0.5,
+      alpha: 0.05,
+      power: 0.8,
+    }, ctx);
+    expect(result.payload).toMatchObject({
+      required_n: 64,
+      converged: true,
+    });
   });
 });

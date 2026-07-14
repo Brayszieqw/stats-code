@@ -44,6 +44,8 @@ export interface PowerResult {
   achievedPower: number;
   /** Standardized effect size used by the design. */
   effectSize: number;
+  /** Whether the reported sample size reached the requested power. */
+  converged: boolean;
 }
 
 /**
@@ -79,6 +81,7 @@ export function powerSingleArm(p0: number, p1: number, alpha = 0.05, power = 0.8
     totalN: requiredN,
     achievedPower,
     effectSize,
+    converged: true,
   };
 }
 
@@ -111,6 +114,7 @@ export function powerPhase2(p0: number, p1: number, alpha = 0.05, power = 0.8): 
     totalN: 2 * requiredN,
     achievedPower,
     effectSize,
+    converged: true,
   };
 }
 
@@ -119,7 +123,13 @@ export function powerPhase2(p0: number, p1: number, alpha = 0.05, power = 0.8): 
  * difference d = |Δ|/σ; required n per arm = ⌈((z_α+z_β)/d)²⌉; achieved power
  * from the NONCENTRAL t distribution (PROC POWER's t-test method).
  */
-export function powerPhase3(meanDiff: number, std: number, alpha = 0.05, power = 0.8): PowerResult {
+export function powerPhase3(
+  meanDiff: number,
+  std: number,
+  alpha = 0.05,
+  power = 0.8,
+  maxSearchSteps = 100,
+): PowerResult {
   if (!Number.isFinite(meanDiff)) {
     throw new Error('meanDiff must be finite.');
   }
@@ -128,6 +138,9 @@ export function powerPhase3(meanDiff: number, std: number, alpha = 0.05, power =
   }
   validateProbabilityExclusive(alpha, 'alpha');
   validateProbabilityExclusive(power, 'power');
+  if (!Number.isInteger(maxSearchSteps) || maxSearchSteps < 0) {
+    throw new Error('maxSearchSteps must be a non-negative integer.');
+  }
   const diff = Math.abs(meanDiff);
   if (diff <= Number.EPSILON) {
     throw new Error('meanDiff must be non-zero to compute a two-mean sample size.');
@@ -140,13 +153,18 @@ export function powerPhase3(meanDiff: number, std: number, alpha = 0.05, power =
   const seed = Math.max(2, Math.floor(2 * ((zAlpha + zPower) / effectSize) ** 2) - 2);
   let requiredN = seed;
   let achievedPower = 0;
-  for (let n = seed; n <= seed + 100; n += 1) {
+  let converged = false;
+  for (let n = seed; n <= seed + maxSearchSteps; n += 1) {
     const dfN = 2 * n - 2;
     const ncpN = effectSize * Math.sqrt(n / 2);
     const tCritN = tDistributionCriticalValue(alpha, dfN);
     achievedPower = 1 - noncentralTCdf(tCritN, dfN, ncpN);
+    if (!Number.isFinite(achievedPower)) {
+      throw new Error('Power calculation produced a non-finite result.');
+    }
+    requiredN = n;
     if (achievedPower >= power) {
-      requiredN = n;
+      converged = true;
       break;
     }
   }
@@ -158,5 +176,6 @@ export function powerPhase3(meanDiff: number, std: number, alpha = 0.05, power =
     totalN: 2 * requiredN,
     achievedPower,
     effectSize,
+    converged,
   };
 }

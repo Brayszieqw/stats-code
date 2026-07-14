@@ -42,6 +42,14 @@ describe('power_phase3 (two means, noncentral t)', () => {
     expect(r.requiredN).toBe(64);
     expect(r.totalN).toBe(128);
     expect(close(r.achievedPower, 0.801459557929, 1e-3)).toBe(true);
+    expect(r.converged).toBe(true);
+  });
+
+  it('keeps sample size and achieved power paired when the bounded search does not converge', () => {
+    const r = power.powerPhase3(1.0, 2.0, 0.05, 0.8, 0);
+    expect(r.converged).toBe(false);
+    expect(r.achievedPower).toBeLessThan(r.power);
+    expect(r.totalN).toBe(2 * r.requiredN);
   });
 
   it('rejects a non-positive sd', () => {

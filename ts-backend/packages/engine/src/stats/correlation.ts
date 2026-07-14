@@ -72,7 +72,9 @@ function correlationFrom(method: 'pearson' | 'spearman', r: number, n: number, a
   const df = n - 2;
   // t = r * sqrt(df / (1 - r^2))
   const denom = 1 - r * r;
-  const tStatistic = denom > 0 ? r * Math.sqrt(df / denom) : Number.POSITIVE_INFINITY;
+  const tStatistic = denom > 0
+    ? r * Math.sqrt(df / denom)
+    : Math.sign(r) * Number.POSITIVE_INFINITY;
   const pValue = tDistributionPValue(tStatistic, df);
   const { ciLower, ciUpper } = fisherZCi(r, n, alpha);
   return { method, n, r, tStatistic, df, pValue, ciLower, ciUpper, alpha };

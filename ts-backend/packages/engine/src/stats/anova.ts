@@ -17,6 +17,7 @@ export interface AnovaResult {
   fStatistic: number;
   pValue: number;
   etaSquared: number;
+  degenerate: boolean;
 }
 
 /** One-way ANOVA across k groups. */
@@ -50,7 +51,12 @@ export function oneWayAnova(groups: readonly (readonly number[])[]): AnovaResult
   const dfWithin = nTotal - k;
   const msBetween = ssBetween / dfBetween;
   const msWithin = ssWithin / dfWithin;
-  const fStatistic = msWithin > 0 ? msBetween / msWithin : Number.POSITIVE_INFINITY;
+  const degenerate = msWithin === 0;
+  const fStatistic = msWithin > 0
+    ? msBetween / msWithin
+    : msBetween > 0
+      ? Number.POSITIVE_INFINITY
+      : 0;
   const pValue = fDistributionPValue(fStatistic, dfBetween, dfWithin);
   const etaSquared = ssTotal > 0 ? ssBetween / ssTotal : 0;
 
@@ -68,5 +74,6 @@ export function oneWayAnova(groups: readonly (readonly number[])[]): AnovaResult
     fStatistic,
     pValue,
     etaSquared,
+    degenerate,
   };
 }

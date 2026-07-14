@@ -38,7 +38,9 @@ export function chiSquareP(x: number, df: number): number {
 
 /** Upper-tail F-distribution p-value via the incomplete beta relationship. */
 export function fDistributionPValue(f: number, df1: number, df2: number): number {
-  if (f <= 0 || !Number.isFinite(f)) return 1;
+  if (Number.isNaN(f)) return Number.NaN;
+  if (f === Number.POSITIVE_INFINITY) return 0;
+  if (f <= 0 || f === Number.NEGATIVE_INFINITY) return 1;
   const x = (df1 * f) / (df1 * f + df2);
   const p = regularizedBetaIncomplete(x, df1 / 2, df2 / 2);
   return clamp01(1 - p);
@@ -46,7 +48,9 @@ export function fDistributionPValue(f: number, df1: number, df2: number): number
 
 /** Two-sided Student's t p-value via the incomplete beta function. */
 export function tDistributionPValue(t: number, df: number): number {
-  if (df <= 0 || !Number.isFinite(t)) return 1;
+  if (df <= 0) return 1;
+  if (Number.isNaN(t)) return Number.NaN;
+  if (!Number.isFinite(t)) return 0;
   const x = df / (df + t * t);
   const p = regularizedBetaIncomplete(x, df / 2, 0.5);
   return clamp01(p);

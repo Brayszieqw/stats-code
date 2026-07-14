@@ -101,10 +101,16 @@ export function invertMatrix(matrix: Matrix): Matrix {
   return aug.map((row) => row.slice(n));
 }
 
-/** Matrix inversion with progressive ridge regularization fallback. */
-export function invertMatrixWithRidge(matrix: Matrix): Matrix {
+export interface MatrixInverseResult {
+  inverse: Matrix;
+  ridgeApplied: boolean;
+  ridgeValue: number;
+}
+
+/** Matrix inversion with progressive ridge regularization fallback and diagnostics. */
+export function invertMatrixWithRidge(matrix: Matrix): MatrixInverseResult {
   try {
-    return invertMatrix(matrix);
+    return { inverse: invertMatrix(matrix), ridgeApplied: false, ridgeValue: 0 };
   } catch {
     const n = matrix.length;
     let ridge = 1e-8;
@@ -114,7 +120,7 @@ export function invertMatrixWithRidge(matrix: Matrix): Matrix {
         reg[i]![i]! += ridge;
       }
       try {
-        return invertMatrix(reg);
+        return { inverse: invertMatrix(reg), ridgeApplied: true, ridgeValue: ridge };
       } catch {
         ridge *= 10;
       }

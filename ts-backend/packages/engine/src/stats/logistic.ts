@@ -20,6 +20,8 @@ export interface LogisticFit {
   beta: number[];
   iterations: number;
   converged: boolean;
+  regularized: boolean;
+  ridgeValue: number;
 }
 
 /** Weighted Fisher information XᵀWX with W = w·p·(1-p). */
@@ -64,6 +66,7 @@ export function fitLogistic(x: Matrix, y: readonly number[], weights?: readonly 
   const beta = new Array<number>(p).fill(0);
   let converged = false;
   let iterations = 0;
+  let ridgeValue = 0;
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter += 1) {
     const probabilities = x.map((row) => clampProb(sigmoid(dot(row, beta))));
@@ -85,7 +88,8 @@ export function fitLogistic(x: Matrix, y: readonly number[], weights?: readonly 
     }
 
     const fisherInverse = invertMatrixWithRidge(fisher);
-    const step = matrixVectorMul(fisherInverse, gradient);
+    ridgeValue = Math.max(ridgeValue, fisherInverse.ridgeValue);
+    const step = matrixVectorMul(fisherInverse.inverse, gradient);
     let maxStep = 0;
     for (let idx = 0; idx < p; idx += 1) {
       maxStep = Math.max(maxStep, Math.abs(step[idx]!));
@@ -98,7 +102,7 @@ export function fitLogistic(x: Matrix, y: readonly number[], weights?: readonly 
     }
   }
 
-  return { beta, iterations, converged };
+  return { beta, iterations, converged, regularized: ridgeValue > 0, ridgeValue };
 }
 
 export interface LogisticCoefficient {
@@ -110,6 +114,7 @@ export interface LogisticCoefficient {
   oddsRatio: number;
   ciLower: number;
   ciUpper: number;
+  degenerate: boolean;
 }
 
 export interface LogisticResult {
@@ -117,6 +122,9 @@ export interface LogisticResult {
   logLikelihood: number;
   iterations: number;
   converged: boolean;
+  regularized: boolean;
+  ridgeValue: number;
+  degenerate: boolean;
 }
 
 const Z_95 = 1.959963984540054;
@@ -124,6 +132,9 @@ const Z_95 = 1.959963984540054;
 /** Full logistic regression: fit, standard errors, Wald tests, odds ratios. */
 export function logisticRegression(x: Matrix, y: readonly number[], weights?: readonly number[]): LogisticResult {
   const n = x.length;
+  if (n === 0) {
+    throw new Error('Empty design matrix.');
+  }
   const p = x[0]!.length;
   const w = weights ?? new Array(n).fill(1);
   const fit = fitLogistic(x, y, w);
@@ -133,18 +144,28 @@ export function logisticRegression(x: Matrix, y: readonly number[], weights?: re
   const covariance = invertMatrixWithRidge(fisher);
   const coefficients: LogisticCoefficient[] = [];
   for (let j = 0; j < p; j += 1) {
-    const stdError = Math.sqrt(Math.max(covariance[j]![j]!, 0));
-    const z = stdError > 0 ? fit.beta[j]! / stdError : Number.POSITIVE_INFINITY;
-    const pValue = 2 * (1 - normalCdf(Math.abs(z)));
+    const stdError = Math.sqrt(Math.max(covariance.inverse[j]![j]!, 0));
+    if (!Number.isFinite(stdError)) {
+      throw new Error(`Logistic regression produced a non-finite standard error for coefficient ${j}.`);
+    }
+    const beta = fit.beta[j]!;
+    const degenerate = stdError === 0;
+    const z = degenerate
+      ? beta === 0
+        ? 0
+        : Math.sign(beta) * Number.POSITIVE_INFINITY
+      : beta / stdError;
+    const pValue = Math.min(1, Math.max(0, 2 * (1 - normalCdf(Math.abs(z)))));
     coefficients.push({
       index: j,
-      beta: fit.beta[j]!,
+      beta,
       stdError,
       z,
       pValue,
       oddsRatio: Math.exp(fit.beta[j]!),
       ciLower: Math.exp(fit.beta[j]! - Z_95 * stdError),
       ciUpper: Math.exp(fit.beta[j]! + Z_95 * stdError),
+      degenerate,
     });
   }
 
@@ -154,5 +175,14 @@ export function logisticRegression(x: Matrix, y: readonly number[], weights?: re
     logLikelihood += w[i]! * (y[i]! * Math.log(prob) + (1 - y[i]!) * Math.log(1 - prob));
   }
 
-  return { coefficients, logLikelihood, iterations: fit.iterations, converged: fit.converged };
+  const ridgeValue = Math.max(fit.ridgeValue, covariance.ridgeValue);
+  return {
+    coefficients,
+    logLikelihood,
+    iterations: fit.iterations,
+    converged: fit.converged,
+    regularized: ridgeValue > 0,
+    ridgeValue,
+    degenerate: coefficients.some((coefficient) => coefficient.degenerate),
+  };
 }

@@ -11,6 +11,7 @@ const {
   regularizedIncompleteBeta,
   matrixMultiply,
   invertMatrix,
+  invertMatrixWithRidge,
   matrixDeterminant,
   cholesky,
   qr,
@@ -58,6 +59,13 @@ describe('t and F p-values', () => {
     expect(p).toBeGreaterThan(0);
     expect(p).toBeLessThan(1);
   });
+  it('maps infinite test statistics to the significant tail without hiding NaN', () => {
+    expect(tDistributionPValue(Number.POSITIVE_INFINITY, 20)).toBe(0);
+    expect(tDistributionPValue(Number.NEGATIVE_INFINITY, 20)).toBe(0);
+    expect(fDistributionPValue(Number.POSITIVE_INFINITY, 2, 20)).toBe(0);
+    expect(Number.isNaN(tDistributionPValue(Number.NaN, 20))).toBe(true);
+    expect(Number.isNaN(fDistributionPValue(Number.NaN, 2, 20))).toBe(true);
+  });
   it('regularized incomplete beta is monotone in x', () => {
     expect(regularizedIncompleteBeta(2, 3, 0.2)).toBeLessThan(regularizedIncompleteBeta(2, 3, 0.8));
     expect(regularizedIncompleteBeta(2, 3, 0)).toBe(0);
@@ -100,6 +108,16 @@ describe('linear algebra', () => {
         [2, 4],
       ]),
     ).toThrow();
+  });
+
+  it('reports the ridge used to invert a singular matrix', () => {
+    const result = invertMatrixWithRidge([
+      [1, 1],
+      [1, 1],
+    ]);
+    expect(result.ridgeApplied).toBe(true);
+    expect(result.ridgeValue).toBeGreaterThan(0);
+    expect(result.inverse.flat().every(Number.isFinite)).toBe(true);
   });
 
   it('determinant of [[4,7],[2,6]] = 10', () => {

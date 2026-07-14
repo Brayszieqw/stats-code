@@ -3,7 +3,7 @@
 // nonparametric handler. Uses the normal approximation with tie correction for
 // Mann-Whitney, matching the Rust behavior.
 
-import { normalCdf, chiSquareCdf } from '../math/distributions.js';
+import { normalCdf, chiSquareP } from '../math/distributions.js';
 import { rankWithTies } from './rank.js';
 
 export interface MannWhitneyResult {
@@ -67,6 +67,9 @@ export function kruskalWallis(groups: readonly (readonly number[])[]): KruskalWa
   if (k < 2) {
     throw new Error('Kruskal-Wallis requires at least 2 groups.');
   }
+  if (groups.some((group) => group.length === 0)) {
+    throw new Error('Kruskal-Wallis groups must be non-empty.');
+  }
   const pooled: { value: number; group: number }[] = [];
   groups.forEach((g, gi) => {
     for (const v of g) pooled.push({ value: v, group: gi });
@@ -91,7 +94,18 @@ export function kruskalWallis(groups: readonly (readonly number[])[]): KruskalWa
     }
   }
   h *= 12 / (n * (n + 1));
+  const tieGroups = new Map<number, number>();
+  for (const { value } of pooled) {
+    tieGroups.set(value, (tieGroups.get(value) ?? 0) + 1);
+  }
+  let tieSum = 0;
+  for (const tieSize of tieGroups.values()) {
+    tieSum += tieSize ** 3 - tieSize;
+  }
+  const tieCorrection = 1 - tieSum / (n ** 3 - n);
+  h = tieCorrection > 0 ? h / tieCorrection : 0;
+  h = Math.max(0, h);
   const df = k - 1;
-  const pValue = 1 - chiSquareCdf(h, df);
+  const pValue = chiSquareP(h, df);
   return { method: 'Kruskal-Wallis', k, n, h, df, pValue };
 }

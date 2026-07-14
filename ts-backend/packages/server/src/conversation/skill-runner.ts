@@ -210,6 +210,33 @@ function convergenceDiagnostic(converged: boolean | null, iterations?: number): 
   };
 }
 
+function numericalDegeneracyDiagnostic(
+  coefficients: readonly { degenerate?: boolean }[],
+): Record<string, unknown> {
+  const coefficientIndexes = coefficients
+    .map((coefficient, index) => coefficient.degenerate === true ? index : -1)
+    .filter((index) => index >= 0);
+  const warning = coefficientIndexes.length > 0;
+  return {
+    status: warning ? 'warning' : 'passed',
+    coefficient_indexes: coefficientIndexes,
+    message: warning
+      ? `系数 ${coefficientIndexes.join(', ')} 的标准误或检验统计量退化；p 值仅作为边界结果，解释时必须结合该标记。`
+      : '未检测到标准误为零或非有限检验统计量。',
+  };
+}
+
+function ridgeRegularizationDiagnostic(regularized: boolean, ridgeValue: number): Record<string, unknown> {
+  return {
+    status: regularized ? 'warning' : 'passed',
+    regularized,
+    ridge_value: regularized ? ridgeValue : 0,
+    message: regularized
+      ? `信息矩阵求逆使用 ridge=${ridgeValue.toExponential(3)}；标准误和区间受正则化影响。`
+      : '信息矩阵求逆未使用 ridge 正则化。',
+  };
+}
+
 function logisticSeparationDiagnostic(
   coefficients: readonly { beta: number; stdError: number }[],
   converged: boolean,
@@ -407,6 +434,8 @@ function assumptionDiagnostics(
   appendModelDiagnostic('convergence', 'model-convergence');
   appendModelDiagnostic('sparse_data', 'model-sparse-data');
   appendModelDiagnostic('collinearity', 'model-collinearity');
+  appendModelDiagnostic('numerical_degeneracy', 'model-numerical-degeneracy');
+  appendModelDiagnostic('regularization', 'model-regularization');
   if (algorithmId === 'logistic') appendModelDiagnostic('separation_screen', 'logistic-separation-screen');
 
   if (algorithmId === 'cox') {
@@ -847,10 +876,12 @@ export class SkillRunner {
           p_value: res.fPValue,
           residual_std_error: res.residualStdError,
           n: res.n,
+          degenerate: res.degenerate,
           model_diagnostics: {
             convergence: convergenceDiagnostic(null),
             sparse_data: sparseInformationDiagnostic('not_applicable', null, predictors.length),
             collinearity,
+            numerical_degeneracy: numericalDegeneracyDiagnostic(res.coefficients),
           },
         };
       }
@@ -870,6 +901,9 @@ export class SkillRunner {
           log_likelihood: res.logLikelihood,
           converged: res.converged,
           iterations: res.iterations,
+          regularized: res.regularized,
+          ridge_value: res.ridgeValue,
+          degenerate: res.degenerate,
           event_n: eventN,
           non_event_n: nonEventN,
           model_diagnostics: {
@@ -877,6 +911,8 @@ export class SkillRunner {
             sparse_data: sparseInformationDiagnostic('rarer_outcome_class', Math.min(eventN, nonEventN), predictors.length),
             collinearity,
             separation_screen: logisticSeparationDiagnostic(res.coefficients, res.converged),
+            numerical_degeneracy: numericalDegeneracyDiagnostic(res.coefficients),
+            regularization: ridgeRegularizationDiagnostic(res.regularized, res.ridgeValue),
           },
         };
       }
@@ -948,6 +984,9 @@ export class SkillRunner {
           log_partial_likelihood: res.logPartialLikelihood,
           converged: res.converged,
           iterations: res.iterations,
+          regularized: res.regularized,
+          ridge_value: res.ridgeValue,
+          degenerate: res.degenerate,
           event_n: eventN,
           ph_test: phPayload,
           cox_ph_violated: phPayload.violated,
@@ -955,6 +994,8 @@ export class SkillRunner {
             convergence: convergenceDiagnostic(res.converged, res.iterations),
             sparse_data: sparseInformationDiagnostic('events', eventN, predictors.length),
             collinearity,
+            numerical_degeneracy: numericalDegeneracyDiagnostic(res.coefficients),
+            regularization: ridgeRegularizationDiagnostic(res.regularized, res.ridgeValue),
           },
         };
       }
@@ -1058,6 +1099,7 @@ export class SkillRunner {
         effect_size: res.effectSize,
         alpha: res.alpha,
         method: res.method,
+        converged: res.converged,
       };
     }
     throw new Error(`unknown native skill: ${skillId}`);

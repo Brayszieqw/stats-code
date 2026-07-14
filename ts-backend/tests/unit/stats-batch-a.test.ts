@@ -86,17 +86,35 @@ describe('one-way ANOVA', () => {
     expect(close(r.fStatistic, 0, 1e-9)).toBe(true);
     expect(close(r.pValue, 1.0, 1e-9)).toBe(true);
   });
+
+  it('constant but different groups produce infinite F and p=0', () => {
+    const r = anova.oneWayAnova([[5, 5, 5], [7, 7, 7]]);
+    expect(r.fStatistic).toBe(Number.POSITIVE_INFINITY);
+    expect(r.pValue).toBe(0);
+    expect(r.degenerate).toBe(true);
+  });
+
+  it('all observations equal produce F=0 and p=1', () => {
+    const r = anova.oneWayAnova([[5, 5], [5, 5]]);
+    expect(r.fStatistic).toBe(0);
+    expect(r.pValue).toBe(1);
+    expect(r.degenerate).toBe(true);
+  });
 });
 
 describe('correlation', () => {
   it('perfect positive Pearson r=1', () => {
     const r = correlation.pearsonCorrelation([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
     expect(close(r.r, 1.0, 1e-12)).toBe(true);
+    expect(r.tStatistic).toBe(Number.POSITIVE_INFINITY);
+    expect(r.pValue).toBe(0);
   });
 
   it('perfect negative Pearson r=-1', () => {
     const r = correlation.pearsonCorrelation([1, 2, 3, 4, 5], [10, 8, 6, 4, 2]);
     expect(close(r.r, -1.0, 1e-12)).toBe(true);
+    expect(r.tStatistic).toBe(Number.NEGATIVE_INFINITY);
+    expect(r.pValue).toBe(0);
   });
 
   it('Spearman handles a monotone non-linear relation as r=1', () => {
@@ -128,6 +146,18 @@ describe('nonparametric', () => {
     ]);
     expect(r.df).toBe(2);
     expect(r.pValue).toBeLessThan(0.05);
+  });
+
+  it('applies the Kruskal-Wallis tie correction', () => {
+    const r = nonparametric.kruskalWallis([[1, 1, 2], [2, 3, 3]]);
+    expect(r.h).toBeCloseTo(10 / 3, 12);
+    expect(r.pValue).toBeCloseTo(0.06788915486182899, 10);
+  });
+
+  it('returns the neutral result when every Kruskal-Wallis value is tied', () => {
+    const r = nonparametric.kruskalWallis([[1, 1], [1, 1]]);
+    expect(r.h).toBe(0);
+    expect(r.pValue).toBe(1);
   });
 });
 

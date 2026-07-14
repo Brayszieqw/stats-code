@@ -36,6 +36,19 @@ describe('linear regression (OLS)', () => {
     expect(close(r.coefficients[1]!.estimate, 0.6, 1e-9)).toBe(true);
     expect(close(r.rSquared, 0.6, 1e-9)).toBe(true);
   });
+
+  it('marks zero-residual OLS statistics and preserves their p-value direction', () => {
+    const r = linear.ols([
+      [1, -1],
+      [1, 0],
+      [1, 1],
+    ], [-1, 0, 1]);
+    expect(r.coefficients[0]).toMatchObject({ estimate: 0, tStatistic: 0, pValue: 1, degenerate: true });
+    expect(r.coefficients[1]).toMatchObject({ estimate: 1, pValue: 0, degenerate: true });
+    expect(r.fStatistic).toBe(Number.POSITIVE_INFINITY);
+    expect(r.fPValue).toBe(0);
+    expect(r.degenerate).toBe(true);
+  });
 });
 
 describe('OR / RR', () => {
@@ -48,6 +61,16 @@ describe('OR / RR', () => {
     expect(r.orCiLower).toBeLessThan(r.oddsRatio);
     expect(r.orCiUpper).toBeGreaterThan(r.oddsRatio);
   });
+
+  it('uses a visible 0.5 correction for zero cells and never returns NaN/Infinity', () => {
+    const r = epi.orRr(0, 10, 5, 10);
+    expect(r.continuityCorrected).toBe(true);
+    expect(Object.values(r).filter((value): value is number => typeof value === 'number').every(Number.isFinite)).toBe(true);
+  });
+
+  it('rejects an empty 2x2 margin', () => {
+    expect(() => epi.orRr(0, 0, 5, 10)).toThrow(/non-empty exposed and unexposed groups/);
+  });
 });
 
 describe('attributable risk', () => {
@@ -58,6 +81,12 @@ describe('attributable risk', () => {
     expect(close(r.riskDifference, 10 / 30, 1e-12)).toBe(true);
     // RR=2 → AR% = (2-1)/2 = 50%
     expect(close(r.attributableRiskPercent, 50, 1e-9)).toBe(true);
+  });
+
+  it('keeps attributable-risk outputs finite when a cell is zero', () => {
+    const r = epi.attributableRisk(0, 10, 5, 10);
+    expect(r.continuityCorrected).toBe(true);
+    expect(Object.values(r).filter((value): value is number => typeof value === 'number').every(Number.isFinite)).toBe(true);
   });
 });
 

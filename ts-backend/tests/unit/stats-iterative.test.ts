@@ -45,12 +45,33 @@ describe('logistic regression (IRLS)', () => {
     expect(fit.iterations).toBeGreaterThan(0);
     expect(fit.iterations).toBeLessThanOrEqual(50);
     expect(fit.beta).toHaveLength(2);
+    expect(fit.regularized).toBe(false);
   });
 
   it('rejects non-binary and single-class outcomes before fitting', () => {
     const x = [[1, 0], [1, 1], [1, 2]];
     expect(() => logistic.logisticRegression(x, [0, 2, 1])).toThrow(/encoded as 0\/1/);
     expect(() => logistic.logisticRegression(x, [0, 0, 0])).toThrow(/both outcome classes/);
+  });
+
+  it('rejects an empty design matrix with the stable contract error', () => {
+    expect(() => logistic.logisticRegression([], [])).toThrow(/^Empty design matrix\.$/);
+  });
+
+  it('reports ridge regularization for a collinear logistic design', () => {
+    const x = [
+      [1, -2, -2],
+      [1, -1, -1],
+      [1, 0, 0],
+      [1, 1, 1],
+      [1, 2, 2],
+      [1, -1, -1],
+      [1, 0, 0],
+      [1, 1, 1],
+    ];
+    const result = logistic.logisticRegression(x, [0, 0, 0, 1, 1, 1, 1, 0]);
+    expect(result.regularized).toBe(true);
+    expect(result.ridgeValue).toBeGreaterThan(0);
   });
 });
 
@@ -172,5 +193,19 @@ describe('Cox proportional hazards (Efron ties)', () => {
   it('rejects an all-censored Cox fit before returning meaningless coefficients', () => {
     expect(() => cox.coxRegression([obs(1, false, [0]), obs(2, false, [1])]))
       .toThrow(/at least one observed event/);
+  });
+
+  it('reports ridge regularization for a collinear Cox design', () => {
+    const observations = [
+      obs(1, true, [1, 1]),
+      obs(2, false, [0, 0]),
+      obs(3, true, [1, 1]),
+      obs(4, true, [0, 0]),
+      obs(5, false, [1, 1]),
+      obs(6, true, [0, 0]),
+    ];
+    const result = cox.coxRegression(observations);
+    expect(result.regularized).toBe(true);
+    expect(result.ridgeValue).toBeGreaterThan(0);
   });
 });

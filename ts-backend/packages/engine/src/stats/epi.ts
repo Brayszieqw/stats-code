@@ -20,26 +20,50 @@ export interface OrRrResult {
   riskRatio: number;
   rrCiLower: number;
   rrCiUpper: number;
+  continuityCorrected: boolean;
+}
+
+function correctedTable(a: number, b: number, c: number, d: number): {
+  cells: [number, number, number, number];
+  continuityCorrected: boolean;
+} {
+  if ([a, b, c, d].some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new Error('2x2 cell counts must be finite and non-negative.');
+  }
+  if (a + b === 0 || c + d === 0) {
+    throw new Error('2x2 table requires non-empty exposed and unexposed groups.');
+  }
+  const continuityCorrected = [a, b, c, d].some((value) => value === 0);
+  const correction = continuityCorrected ? 0.5 : 0;
+  return {
+    cells: [a + correction, b + correction, c + correction, d + correction],
+    continuityCorrected,
+  };
 }
 
 /** Odds ratio and risk ratio with 95% log-based CIs. */
 export function orRr(a: number, b: number, c: number, d: number, z = Z_95): OrRrResult {
-  if ([a, b, c, d].some((v) => v < 0)) {
-    throw new Error('2x2 cell counts must be non-negative.');
+  if (!Number.isFinite(z) || z <= 0) {
+    throw new Error('Confidence interval critical value must be positive and finite.');
   }
-  const oddsRatio = (a * d) / (b * c);
-  const seLogOr = Math.sqrt(1 / a + 1 / b + 1 / c + 1 / d);
+  const { cells: [aa, bb, cc, dd], continuityCorrected } = correctedTable(a, b, c, d);
+  const oddsRatio = (aa * dd) / (bb * cc);
+  const seLogOr = Math.sqrt(1 / aa + 1 / bb + 1 / cc + 1 / dd);
   const lnOr = Math.log(oddsRatio);
   const orCiLower = Math.exp(lnOr - z * seLogOr);
   const orCiUpper = Math.exp(lnOr + z * seLogOr);
 
-  const riskExposed = a / (a + b);
-  const riskUnexposed = c / (c + d);
+  const riskExposed = aa / (aa + bb);
+  const riskUnexposed = cc / (cc + dd);
   const riskRatio = riskExposed / riskUnexposed;
-  const seLogRr = Math.sqrt(1 / a - 1 / (a + b) + 1 / c - 1 / (c + d));
+  const seLogRr = Math.sqrt(1 / aa - 1 / (aa + bb) + 1 / cc - 1 / (cc + dd));
   const lnRr = Math.log(riskRatio);
   const rrCiLower = Math.exp(lnRr - z * seLogRr);
   const rrCiUpper = Math.exp(lnRr + z * seLogRr);
+  if ([oddsRatio, orCiLower, orCiUpper, riskRatio, rrCiLower, rrCiUpper]
+    .some((value) => !Number.isFinite(value))) {
+    throw new Error('2x2 effect estimates are not finite for the supplied counts.');
+  }
 
   return {
     a,
@@ -52,6 +76,7 @@ export function orRr(a: number, b: number, c: number, d: number, z = Z_95): OrRr
     riskRatio,
     rrCiLower,
     rrCiUpper,
+    continuityCorrected,
   };
 }
 
@@ -61,6 +86,7 @@ export interface AttributableRiskResult {
   riskDifference: number;
   attributableRiskPercent: number;
   populationAttributableRisk: number;
+  continuityCorrected: boolean;
 }
 
 /**
@@ -70,22 +96,25 @@ export interface AttributableRiskResult {
  * - PAR (population attributable risk) = risk_total - risk_unexposed
  */
 export function attributableRisk(a: number, b: number, c: number, d: number): AttributableRiskResult {
-  if ([a, b, c, d].some((v) => v < 0)) {
-    throw new Error('2x2 cell counts must be non-negative.');
-  }
-  const riskExposed = a / (a + b);
-  const riskUnexposed = c / (c + d);
+  const { cells: [aa, bb, cc, dd], continuityCorrected } = correctedTable(a, b, c, d);
+  const riskExposed = aa / (aa + bb);
+  const riskUnexposed = cc / (cc + dd);
   const riskDifference = riskExposed - riskUnexposed;
   const rr = riskExposed / riskUnexposed;
-  const attributableRiskPercent = rr > 0 ? ((rr - 1) / rr) * 100 : 0;
-  const total = a + b + c + d;
-  const riskTotal = (a + c) / total;
+  const attributableRiskPercent = ((rr - 1) / rr) * 100;
+  const total = aa + bb + cc + dd;
+  const riskTotal = (aa + cc) / total;
   const populationAttributableRisk = riskTotal - riskUnexposed;
+  if ([riskExposed, riskUnexposed, riskDifference, attributableRiskPercent, populationAttributableRisk]
+    .some((value) => !Number.isFinite(value))) {
+    throw new Error('Attributable-risk estimates are not finite for the supplied counts.');
+  }
   return {
     riskExposed,
     riskUnexposed,
     riskDifference,
     attributableRiskPercent,
     populationAttributableRisk,
+    continuityCorrected,
   };
 }

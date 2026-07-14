@@ -40,6 +40,8 @@ export interface CoxFit {
   iterations: number;
   converged: boolean;
   logPartialLikelihood: number;
+  regularized: boolean;
+  ridgeValue: number;
 }
 
 export interface CoxCoefficient {
@@ -51,6 +53,7 @@ export interface CoxCoefficient {
   pValue: number;
   ciLower: number;
   ciUpper: number;
+  degenerate: boolean;
 }
 
 export interface CoxResult {
@@ -59,6 +62,9 @@ export interface CoxResult {
   iterations: number;
   converged: boolean;
   tiedEventTimes: number;
+  regularized: boolean;
+  ridgeValue: number;
+  degenerate: boolean;
 }
 
 export type CoxPhUnavailableReason = 'no_events' | 'singular_information' | 'invalid_fit';
@@ -261,11 +267,13 @@ export function fitCoxNewton(observations: readonly CoxObservation[]): CoxFit {
   const beta = new Array<number>(p).fill(0);
   let converged = false;
   let iterations = 0;
+  let ridgeValue = 0;
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter += 1) {
     const { gradient, information } = coxPartialStats(observations, beta);
     const informationInverse = invertMatrixWithRidge(information);
-    const step = matrixVectorMul(informationInverse, gradient);
+    ridgeValue = Math.max(ridgeValue, informationInverse.ridgeValue);
+    const step = matrixVectorMul(informationInverse.inverse, gradient);
     let maxStep = 0;
     for (let index = 0; index < p; index += 1) {
       maxStep = Math.max(maxStep, Math.abs(step[index]!));
@@ -280,8 +288,9 @@ export function fitCoxNewton(observations: readonly CoxObservation[]): CoxFit {
 
   const final = coxPartialStats(observations, beta);
   const covariance = invertMatrixWithRidge(final.information);
+  ridgeValue = Math.max(ridgeValue, covariance.ridgeValue);
   const standardErrors = Array.from({ length: p }, (_, index) =>
-    Math.sqrt(Math.max(covariance[index]![index]!, 0)),
+    Math.sqrt(Math.max(covariance.inverse[index]![index]!, 0)),
   );
 
   return {
@@ -290,6 +299,8 @@ export function fitCoxNewton(observations: readonly CoxObservation[]): CoxFit {
     iterations,
     converged,
     logPartialLikelihood: final.logPartialLikelihood,
+    regularized: ridgeValue > 0,
+    ridgeValue,
   };
 }
 
@@ -444,8 +455,16 @@ export function coxRegression(observations: readonly CoxObservation[]): CoxResul
   const fit = fitCoxNewton(observations);
   const coefficients: CoxCoefficient[] = fit.beta.map((beta, index) => {
     const stdError = fit.standardErrors[index]!;
-    const z = stdError > 0 ? beta / stdError : Number.POSITIVE_INFINITY;
-    const pValue = 2 * (1 - normalCdfAbramowitz(Math.abs(z)));
+    if (!Number.isFinite(stdError)) {
+      throw new Error(`Cox regression produced a non-finite standard error for coefficient ${index}.`);
+    }
+    const degenerate = stdError === 0;
+    const z = degenerate
+      ? beta === 0
+        ? 0
+        : Math.sign(beta) * Number.POSITIVE_INFINITY
+      : beta / stdError;
+    const pValue = Math.min(1, Math.max(0, 2 * (1 - normalCdfAbramowitz(Math.abs(z)))));
     return {
       index,
       beta,
@@ -455,6 +474,7 @@ export function coxRegression(observations: readonly CoxObservation[]): CoxResul
       pValue,
       ciLower: Math.exp(beta - Z_95 * stdError),
       ciUpper: Math.exp(beta + Z_95 * stdError),
+      degenerate,
     };
   });
   return {
@@ -463,5 +483,8 @@ export function coxRegression(observations: readonly CoxObservation[]): CoxResul
     iterations: fit.iterations,
     converged: fit.converged,
     tiedEventTimes: countTiedEventTimes(observations),
+    regularized: fit.regularized,
+    ridgeValue: fit.ridgeValue,
+    degenerate: coefficients.some((coefficient) => coefficient.degenerate),
   };
 }

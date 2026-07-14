@@ -7,6 +7,19 @@ import { fmtNum, fmtP, normalizeCoefficients, termHintsFromAnalysis } from '../l
 
 const { Text } = Typography;
 
+const HTML_ESCAPE_PATTERN = /[&<>"']/g;
+const HTML_ENTITIES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+export function escapeHtml(value: unknown): string {
+  return String(value).replace(HTML_ESCAPE_PATTERN, (character) => HTML_ENTITIES[character]!);
+}
+
 export interface StatsChartRendererProps {
   skillResult: SkillResult | null;
 }
@@ -75,7 +88,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
           formatter: (params: any) => {
             let res = `随访时间: ${params[0].value[0]} 天<br/>`;
             params.forEach((p: any) => {
-              res += `${p.marker} ${p.seriesName}: ${(p.value[1] * 100).toFixed(1)}% 生存率<br/>`;
+              res += `${p.marker} ${escapeHtml(p.seriesName)}: ${(p.value[1] * 100).toFixed(1)}% 生存率<br/>`;
             });
             return res;
           },
@@ -169,7 +182,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
             const coeff = plotCoeffs[plotCoeffs.length - 1 - idx];
             if (!coeff) return '';
             const est = isLogistic ? coeff.oddsRatio : isCox ? coeff.hazardRatio : coeff.beta;
-            return `<b>${coeff.term}</b><br/>
+            return `<b>${escapeHtml(coeff.term)}</b><br/>
                     效应值: ${fmtNum(est)}<br/>
                     95% 置信区间: [${fmtNum(coeff.ciLower)}, ${fmtNum(coeff.ciUpper)}]<br/>
                     p 值: ${fmtP(coeff.pValue, 4)}`;
@@ -301,7 +314,7 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
             const param = params.find((p: any) => p.seriesName === '组均值');
             if (!param) return '';
             const idx = param.dataIndex;
-            return `<b>${names[idx]}</b><br/>
+            return `<b>${escapeHtml(names[idx])}</b><br/>
                     均值 (Mean): ${means[idx].toFixed(3)}<br/>
                     标准差 (SD): ±${sds[idx].toFixed(3)}`;
           },

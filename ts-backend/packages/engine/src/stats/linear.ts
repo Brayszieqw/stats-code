@@ -16,6 +16,7 @@ export interface LinearCoefficient {
   pValue: number;
   ciLower: number;
   ciUpper: number;
+  degenerate: boolean;
 }
 
 export interface LinearResult {
@@ -29,6 +30,7 @@ export interface LinearResult {
   fPValue: number;
   dfModel: number;
   dfResidual: number;
+  degenerate: boolean;
 }
 
 /**
@@ -67,7 +69,16 @@ export function ols(x: readonly (readonly number[])[], y: readonly number[], alp
   for (let j = 0; j < p; j += 1) {
     const variance = sigma2 * xtxInv[j]![j]!;
     const stdError = Math.sqrt(Math.max(variance, 0));
-    const tStatistic = stdError > 0 ? beta[j]! / stdError : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(stdError)) {
+      throw new Error(`OLS produced a non-finite standard error for coefficient ${j}.`);
+    }
+    const estimate = beta[j]!;
+    const degenerate = stdError === 0;
+    const tStatistic = degenerate
+      ? estimate === 0
+        ? 0
+        : Math.sign(estimate) * Number.POSITIVE_INFINITY
+      : estimate / stdError;
     const pValue = tDistributionPValue(tStatistic, dfResidual);
     // 95%-style CI uses the t critical value at the requested alpha.
     const tCrit = criticalT(alpha, dfResidual);
@@ -79,6 +90,7 @@ export function ols(x: readonly (readonly number[])[], y: readonly number[], alp
       pValue,
       ciLower: beta[j]! - tCrit * stdError,
       ciUpper: beta[j]! + tCrit * stdError,
+      degenerate,
     });
   }
 
@@ -86,8 +98,13 @@ export function ols(x: readonly (readonly number[])[], y: readonly number[], alp
   const adjRSquared = 1 - (1 - rSquared) * ((n - 1) / dfResidual);
   const msModel = (ssTot - ssRes) / dfModel;
   const msRes = sigma2;
-  const fStatistic = msRes > 0 ? msModel / msRes : Number.POSITIVE_INFINITY;
+  const fStatistic = msRes > 0
+    ? msModel / msRes
+    : msModel > 0
+      ? Number.POSITIVE_INFINITY
+      : 0;
   const fPValue = fDistributionPValue(fStatistic, dfModel, dfResidual);
+  const degenerate = coefficients.some((coefficient) => coefficient.degenerate) || !Number.isFinite(fStatistic);
 
   return {
     n,
@@ -100,6 +117,7 @@ export function ols(x: readonly (readonly number[])[], y: readonly number[], alp
     fPValue,
     dfModel,
     dfResidual,
+    degenerate,
   };
 }
 

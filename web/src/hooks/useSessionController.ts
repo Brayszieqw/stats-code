@@ -28,6 +28,7 @@ import type {
   ResearchProtocol,
   ResearchProtocolInput,
   Session,
+  SessionIntegrityWarning,
 } from '../api/types';
 
 export interface SessionController {
@@ -40,6 +41,7 @@ export interface SessionController {
   researchProtocol: ResearchProtocol | null;
   datasetAudits: DatasetAudit[];
   analysisPlanApprovals: AnalysisPlanApproval[];
+  integrityWarnings: SessionIntegrityWarning[];
   setDecisionAssistant: (v: boolean) => void;
   addDataset: (s: DatasetSummary) => void;
   saveResearchProtocol: (input: ResearchProtocolInput) => Promise<ResearchProtocol>;
@@ -81,6 +83,7 @@ export function useSessionController(): SessionController {
   const [researchProtocol, setResearchProtocol] = useState<ResearchProtocol | null>(null);
   const [datasetAudits, setDatasetAudits] = useState<DatasetAudit[]>([]);
   const [analysisPlanApprovals, setAnalysisPlanApprovals] = useState<AnalysisPlanApproval[]>([]);
+  const [integrityWarnings, setIntegrityWarnings] = useState<SessionIntegrityWarning[]>([]);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
 
   const applySession = useCallback((session: Session) => {
@@ -90,6 +93,7 @@ export function useSessionController(): SessionController {
     setResearchProtocol(session.research_protocol ?? null);
     setDatasetAudits(session.dataset_audits ?? []);
     setAnalysisPlanApprovals(session.analysis_plan_approvals ?? []);
+    setIntegrityWarnings(session.integrity_warnings ?? []);
     setDatasets(session.datasets ?? []);
     setIsArchived(session.status === 'Archived');
     setInitialMessages(mapSessionMessages(session.messages ?? []));
@@ -213,6 +217,7 @@ export function useSessionController(): SessionController {
     researchProtocol,
     datasetAudits,
     analysisPlanApprovals,
+    integrityWarnings,
     setDecisionAssistant,
     addDataset,
     saveResearchProtocol,

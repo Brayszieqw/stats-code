@@ -2,10 +2,14 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -112,17 +116,29 @@ function parseSessions(
   return sessions
     .filter(isSession)
     .map((session) => {
+      const integrityWarnings = Array.isArray(session.integrity_warnings)
+        ? session.integrity_warnings.flatMap((value) => {
+          const parsedWarning = domain.sessionIntegrityWarning.safeParse(value);
+          return parsedWarning.success && parsedWarning.data.session_id === session.id
+            ? [parsedWarning.data]
+            : [];
+        })
+        : [];
       const warn = (
         action: FileSessionIntegrityWarning['action'],
         recordType: FileSessionIntegrityWarning['record_type'],
         reason: string,
-      ): void => onIntegrityWarning({
-        event: 'file_session_integrity_warning',
-        action,
-        record_type: recordType,
-        session_id: session.id,
-        reason,
-      });
+      ): void => {
+        const warning: FileSessionIntegrityWarning = {
+          event: 'file_session_integrity_warning',
+          action,
+          record_type: recordType,
+          session_id: session.id,
+          reason,
+        };
+        integrityWarnings.push(warning);
+        onIntegrityWarning(warning);
+      };
       const rawProtocol: Record<string, unknown> = isRecord(session.research_protocol)
         ? session.research_protocol
         : {};
@@ -251,6 +267,7 @@ function parseSessions(
         research_protocol: trustedProtocol,
         dataset_audits: parsedAudits,
         analysis_plan_approvals: parsedApprovals,
+        integrity_warnings: integrityWarnings,
       });
     });
 }
@@ -279,12 +296,45 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
     }
   }
 
+  function writeDurable(targetPath: string, payload: string): void {
+    const fd = openSync(targetPath, 'wx', 0o600);
+    try {
+      writeFileSync(fd, payload, { encoding: 'utf8' });
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  function quarantine(raw: string): void {
+    const stamp = now().toISOString().replace(/[:.]/g, '-');
+    const basePath = `${filePath}.quarantine-${stamp}`;
+    const quarantinePath = existsSync(basePath) ? `${basePath}-${randomUUID()}` : basePath;
+    try {
+      writeDurable(quarantinePath, raw);
+    } catch {
+      try {
+        rmSync(quarantinePath, { force: true });
+      } catch {
+        // Keep the primary load path available even when quarantine cleanup fails.
+      }
+      // Best effort only; fail-closed loading and structured warnings still apply.
+    }
+  }
+
   function ensureLoaded(): void {
     if (loaded) return;
     loaded = true;
     if (!existsSync(filePath)) return;
     try {
-      for (const session of parseSessions(readFileSync(filePath, 'utf8'), onIntegrityWarning)) {
+      const raw = readFileSync(filePath, 'utf8');
+      let integrityWarningObserved = false;
+      const parsedSessions = parseSessions(raw, (warning) => {
+        integrityWarningObserved = true;
+        onIntegrityWarning(warning);
+      });
+      if (integrityWarningObserved) quarantine(raw);
+      for (const session of parsedSessions) {
         sessions.set(session.id, session);
       }
     } catch {
@@ -295,10 +345,19 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
 
   function save(): void {
     mkdirSync(dirname(filePath), { recursive: true });
-    const tmpPath = `${filePath}.tmp-${process.pid}-${now().getTime()}`;
+    const tmpPath = `${filePath}.tmp-${process.pid}-${now().getTime()}-${randomUUID()}`;
     const payload = JSON.stringify({ version: 1, sessions: [...sessions.values()] }, null, 2);
-    writeFileSync(tmpPath, payload, { encoding: 'utf8', mode: 0o600 });
-    renameSync(tmpPath, filePath);
+    try {
+      writeDurable(tmpPath, payload);
+      renameSync(tmpPath, filePath);
+    } catch (error) {
+      try {
+        rmSync(tmpPath, { force: true });
+      } catch {
+        // Keep the original write error; temp cleanup is secondary.
+      }
+      throw error;
+    }
   }
 
   function mustGet(id: string): Session {

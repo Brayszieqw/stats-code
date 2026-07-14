@@ -41,6 +41,7 @@ function makeController(isArchived: boolean): SessionController {
     researchProtocol: null,
     datasetAudits: [],
     analysisPlanApprovals: [],
+    integrityWarnings: [],
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
     saveResearchProtocol: vi.fn(async () => { throw new Error('read only'); }),

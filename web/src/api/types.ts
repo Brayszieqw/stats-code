@@ -146,6 +146,14 @@ export interface AnalysisPlanApprovalRequest extends DatasetAuditRequest {
   expected_audit_sha256: string;
 }
 
+export interface SessionIntegrityWarning {
+  event: 'file_session_integrity_warning';
+  action: 'downgraded' | 'discarded';
+  record_type: 'research_protocol' | 'dataset_audit' | 'analysis_plan_approval';
+  session_id: SessionId;
+  reason: string;
+}
+
 export interface Session {
   id: SessionId;
   status: SessionStatus;
@@ -158,6 +166,8 @@ export interface Session {
   dataset_audits?: DatasetAudit[];
   /** Server-issued approvals; client timestamps are never accepted. */
   analysis_plan_approvals?: AnalysisPlanApproval[];
+  /** Fail-closed decisions made while validating a persisted file-backed session. */
+  integrity_warnings?: SessionIntegrityWarning[];
   messages: Message[];
   datasets: DatasetSummary[];
   skill_runs: SkillRun[];

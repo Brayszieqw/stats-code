@@ -395,6 +395,15 @@ export type AnalysisPlanApprovalRequest = z.infer<typeof analysisPlanApprovalReq
 // SessionId is a newtype `struct SessionId(pub Uuid)` → serializes as a bare Uuid.
 export const sessionId = uuid;
 
+export const sessionIntegrityWarning = z.object({
+  event: z.literal('file_session_integrity_warning'),
+  action: z.enum(['downgraded', 'discarded']),
+  record_type: z.enum(['research_protocol', 'dataset_audit', 'analysis_plan_approval']),
+  session_id: sessionId,
+  reason: z.string().min(1),
+}).strict();
+export type SessionIntegrityWarning = z.infer<typeof sessionIntegrityWarning>;
+
 export const session = z.object({
   id: sessionId,
   status: sessionStatus,
@@ -407,6 +416,8 @@ export const session = z.object({
   dataset_audits: z.array(datasetAudit).optional(),
   /** Server-issued approvals; old client timestamps are never migrated into this list. */
   analysis_plan_approvals: z.array(analysisPlanApproval).optional(),
+  /** Persisted load-time integrity decisions, surfaced so the user can review fail-closed recovery. */
+  integrity_warnings: z.array(sessionIntegrityWarning).optional(),
   messages: z.array(message),
   datasets: z.array(datasetSummary),
   skill_runs: z.array(skillRun),

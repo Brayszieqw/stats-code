@@ -23,6 +23,7 @@ function makeController(overrides: Partial<SessionController> = {}): SessionCont
     researchProtocol: null,
     datasetAudits: [],
     analysisPlanApprovals: [],
+    integrityWarnings: [],
     setDecisionAssistant: vi.fn(),
     addDataset: vi.fn(),
     saveResearchProtocol: vi.fn(async () => { throw new Error('not used'); }),

@@ -19,6 +19,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { ChatInputBar } from '../components/ChatInputBar';
 import { DatasetUploader } from '../components/DatasetUploader';
 import { VoiceRecorder } from '../components/VoiceRecorder';
+import { SessionIntegrityAlert } from '../components/SessionIntegrityAlert';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
@@ -62,7 +63,7 @@ export function SimpleModeView({
   onPurgeEmptySessions,
 }: SimpleModeViewProps) {
   const { messages, error, isStreaming } = chat;
-  const { isArchived, sessionId, datasets, addDataset } = controller;
+  const { isArchived, sessionId, datasets, addDataset, integrityWarnings } = controller;
   const [datasetDrawerOpen, setDatasetDrawerOpen] = useState(false);
   const [voiceDrawerOpen, setVoiceDrawerOpen] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
@@ -123,6 +124,11 @@ export function SimpleModeView({
         <div className="stats-mode-toggle">
           <ModeToggle mode={mode} onChange={onModeChange} />
         </div>
+
+        <SessionIntegrityAlert
+          warnings={integrityWarnings}
+          style={{ margin: '52px auto 0', maxWidth: 760, width: 'calc(100% - 32px)', flex: '0 0 auto' }}
+        />
 
         {isArchived && (
           <Alert

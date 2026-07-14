@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
       researchProtocol: null,
       datasetAudits: [],
       analysisPlanApprovals: [],
+      integrityWarnings: [],
       setDecisionAssistant: vi.fn(),
       addDataset: vi.fn(),
       saveResearchProtocol: vi.fn(),

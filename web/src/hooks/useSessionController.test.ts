@@ -84,6 +84,23 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
     expect(result.current.isArchived).toBe(true);
   });
 
+  it('surfaces persisted integrity warnings from a file-backed session', async () => {
+    createSessionMock.mockResolvedValue(makeSession({
+      integrity_warnings: [{
+        event: 'file_session_integrity_warning',
+        action: 'downgraded',
+        record_type: 'research_protocol',
+        session_id: '11111111-1111-4111-8111-111111111111',
+        reason: 'state_hash_mismatch',
+      }],
+    }));
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.integrityWarnings).toEqual([
+      expect.objectContaining({ record_type: 'research_protocol', reason: 'state_hash_mismatch' }),
+    ]);
+  });
+
   it('loadSession replaces the active session and its messages (R9.6)', async () => {
     createSessionMock.mockResolvedValue(makeSession({ id: 'first' }));
     getSessionMock.mockResolvedValue(

@@ -28,6 +28,7 @@ import { AnalysisPreflightModal } from '../components/AnalysisPreflightModal';
 import { ResearchProtocolDrawer } from '../components/ResearchProtocolDrawer';
 import { ResearchWorkflowBar } from '../components/ResearchWorkflowBar';
 import { VoiceRecorder } from '../components/VoiceRecorder';
+import { SessionIntegrityAlert } from '../components/SessionIntegrityAlert';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
 import { runSkill, ApiError } from '../api/client';
 import type { SessionController } from '../hooks/useSessionController';
@@ -97,7 +98,7 @@ export function ProModeView({
   onPurgeEmptySessions,
 }: ProModeViewProps) {
   const screens = useBreakpoint();
-  const { sessionId, datasets, isArchived, addDataset } = controller;
+  const { sessionId, datasets, isArchived, addDataset, integrityWarnings } = controller;
 
   const [selectedDataset, setSelectedDataset] = useState<DatasetSummary | null>(null);
   const [lastProfiledDataset, setLastProfiledDataset] = useState<DatasetSummary | null>(null);
@@ -534,6 +535,8 @@ export function ProModeView({
               <ModeToggle mode={mode} onChange={onModeChange} />
             </div>
           </header>
+
+          <SessionIntegrityAlert warnings={integrityWarnings} style={{ margin: '10px 16px 0' }} />
 
           <div className="pro-thread-context" aria-label="分析上下文">
             <span className="pro-context-label"><DatabaseOutlined /> Context</span>

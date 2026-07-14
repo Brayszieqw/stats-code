@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -176,11 +176,13 @@ describe('file session store empty-shell reuse', () => {
     target.research_protocol.version = 999;
     target.research_protocol.approval_id = '11111111-1111-4111-8111-111111111111';
     target.research_protocol.approved_at = '2099-01-01T00:00:00.000Z';
-    writeFileSync(filePath, JSON.stringify(persisted), 'utf8');
+    const tamperedRaw = JSON.stringify(persisted);
+    writeFileSync(filePath, tamperedRaw, 'utf8');
 
     const warnings: FileSessionIntegrityWarning[] = [];
     const reloaded = createFileSessionStore({ filePath, onIntegrityWarning: (warning) => warnings.push(warning) });
-    const protocol = (await reloaded.get(session.id)).research_protocol!;
+    const reloadedSession = await reloaded.get(session.id);
+    const protocol = reloadedSession.research_protocol!;
     expect(protocol).toMatchObject({ status: 'Draft', version: 999, approval_id: null, approved_at: null });
     expect(protocol.state_sha256).not.toBe(originalStateHash);
     expect(warnings).toContainEqual(expect.objectContaining({
@@ -189,6 +191,17 @@ describe('file session store empty-shell reuse', () => {
       session_id: session.id,
       reason: 'state_hash_mismatch',
     }));
+    expect(reloadedSession.integrity_warnings).toContainEqual(expect.objectContaining({
+      action: 'downgraded',
+      record_type: 'research_protocol',
+      session_id: session.id,
+      reason: 'state_hash_mismatch',
+    }));
+
+    const quarantineFiles = readdirSync(dir).filter((name) => name.startsWith('sessions.json.quarantine-'));
+    expect(quarantineFiles).toHaveLength(1);
+    const quarantinePath = join(dir, quarantineFiles[0]!);
+    expect(readFileSync(quarantinePath, 'utf8')).toBe(tamperedRaw);
 
     const resilient = createFileSessionStore({
       filePath,
@@ -196,6 +209,16 @@ describe('file session store empty-shell reuse', () => {
     });
     await expect(resilient.get(session.id)).resolves.toMatchObject({
       research_protocol: { status: 'Draft', approval_id: null },
+    });
+
+    await reloaded.updateSettings(session.id, { decision_assistant: false });
+    expect(readFileSync(quarantinePath, 'utf8')).toBe(tamperedRaw);
+    const sanitized = JSON.parse(readFileSync(filePath, 'utf8')) as {
+      sessions: Array<{ id: string; research_protocol: { status: string }; integrity_warnings?: unknown[] }>;
+    };
+    expect(sanitized.sessions.find((candidate) => candidate.id === session.id)).toMatchObject({
+      research_protocol: { status: 'Draft' },
+      integrity_warnings: [expect.objectContaining({ reason: 'state_hash_mismatch' })],
     });
   });
 
@@ -251,7 +274,8 @@ describe('file session store empty-shell reuse', () => {
 
     const warnings: FileSessionIntegrityWarning[] = [];
     const reloaded = createFileSessionStore({ filePath, onIntegrityWarning: (warning) => warnings.push(warning) });
-    expect((await reloaded.get(session.id)).analysis_plan_approvals).toEqual([]);
+    const reloadedSession = await reloaded.get(session.id);
+    expect(reloadedSession.analysis_plan_approvals).toEqual([]);
     expect(warnings).toContainEqual({
       event: 'file_session_integrity_warning',
       action: 'discarded',
@@ -259,5 +283,6 @@ describe('file session store empty-shell reuse', () => {
       session_id: session.id,
       reason: 'binding_mismatch',
     });
+    expect(reloadedSession.integrity_warnings).toContainEqual(warnings[0]);
   });
 });

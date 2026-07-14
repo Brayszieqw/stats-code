@@ -7,14 +7,22 @@
 // _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { snapshot } from '@stats-code/engine';
 
-const { exportSnapshot, executeReplay, ReplayError, sha256Hex } = snapshot;
+const {
+  exportSnapshot,
+  executeReplay,
+  ReplayError,
+  sha256Hex,
+  encodeArchive,
+  extractSnapshotZipBytes,
+  replaySnapshotArchive,
+} = snapshot;
 type RunSnapshot = Parameters<typeof exportSnapshot>[0];
 
 const tmpDirs: string[] = [];
@@ -88,6 +96,19 @@ describe('executeReplay — success', () => {
     const outcome = executeReplay({ extractedDir: ex, installedReferenceSoftware: [] });
     expect(outcome.stepsReplayed).toBe(1);
   });
+
+  it('hashes the exact redacted artifact bytes stored in the snapshot', () => {
+    const run = runWithStep();
+    const raw = enc('{"source":"C:/Users/alice/private.csv"}');
+    run.artifacts[0] = { path: 'artifacts/step-1/result.json', bytes: raw };
+    run.workflow.steps[0]!.outputs[0]!.sha256 = sha256Hex(raw);
+    const ex = exportAndExtract(run);
+
+    expect(readFileSync(join(ex, 'artifacts', 'step-1', 'result.json'), 'utf8')).toContain('<external>');
+    expect(executeReplay({ extractedDir: ex, installedReferenceSoftware: [] })).toEqual({
+      stepsReplayed: 1,
+    });
+  });
 });
 
 describe('executeReplay — integrity gates', () => {
@@ -137,6 +158,73 @@ describe('executeReplay — integrity gates', () => {
     });
     expect(outcome.stepsReplayed).toBe(1);
   });
+
+  it('detects tampering in metadata members that workflow does not consume', () => {
+    const ex = exportAndExtract(runWithStep());
+    writeFileSync(join(ex, 'narrative.md'), '# changed\n');
+    expect(() => executeReplay({ extractedDir: ex, installedReferenceSoftware: [] })).toThrowError(
+      expect.objectContaining({ kind: 'member_sha256_mismatch' }),
+    );
+  });
+
+  it('detects a valid manifest field edit when an external manifest anchor is supplied', () => {
+    const ex = exportAndExtract(runWithStep());
+    const path = join(ex, 'manifest.json');
+    const original = readFileSync(path);
+    const expectedManifestSha256 = sha256Hex(original);
+    const manifest = JSON.parse(original.toString('utf8'));
+    manifest.run_id = 'run-tampered';
+    writeFileSync(path, JSON.stringify(manifest));
+    expect(() => executeReplay({
+      extractedDir: ex,
+      installedReferenceSoftware: [],
+      expectedManifestSha256,
+    })).toThrowError(expect.objectContaining({ kind: 'manifest_sha256_mismatch' }));
+  });
+
+  it('rejects extra members and traversal paths referenced by workflow.yaml', () => {
+    const withExtra = exportAndExtract(runWithStep());
+    writeFileSync(join(withExtra, 'extra.txt'), 'not declared');
+    expect(() => executeReplay({ extractedDir: withExtra, installedReferenceSoftware: [] })).toThrowError(
+      expect.objectContaining({ kind: 'member_set_mismatch' }),
+    );
+
+    const withTraversal = exportAndExtract(runWithStep());
+    const workflowPath = join(withTraversal, 'workflow.yaml');
+    const workflow = readFileSync(workflowPath, 'utf8').replace(
+      'artifacts/step-1/result.json',
+      '../outside.json',
+    );
+    writeFileSync(workflowPath, workflow);
+    expect(() => executeReplay({ extractedDir: withTraversal, installedReferenceSoftware: [] })).toThrowError(
+      expect.objectContaining({ kind: 'invalid_snapshot' }),
+    );
+  });
+
+  it('rejects unsupported manifest and versions schema versions', () => {
+    const badManifestDir = exportAndExtract(runWithStep());
+    const manifestPath = join(badManifestDir, 'manifest.json');
+    const badManifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    badManifest.schema_version = 999;
+    writeFileSync(manifestPath, JSON.stringify(badManifest));
+    expect(() => executeReplay({ extractedDir: badManifestDir, installedReferenceSoftware: [] })).toThrowError(
+      expect.objectContaining({ kind: 'invalid_snapshot' }),
+    );
+
+    const badVersionsDir = exportAndExtract(runWithStep());
+    const versionsPath = join(badVersionsDir, 'versions.json');
+    const badVersions = JSON.parse(readFileSync(versionsPath, 'utf8'));
+    badVersions.schema_version = 999;
+    const versionsBytes = Buffer.from(JSON.stringify(badVersions));
+    writeFileSync(versionsPath, versionsBytes);
+    const rootManifestPath = join(badVersionsDir, 'manifest.json');
+    const rootManifest = JSON.parse(readFileSync(rootManifestPath, 'utf8'));
+    rootManifest.members.find((member: { path: string }) => member.path === 'versions.json').sha256 = sha256Hex(versionsBytes);
+    writeFileSync(rootManifestPath, JSON.stringify(rootManifest));
+    expect(() => executeReplay({ extractedDir: badVersionsDir, installedReferenceSoftware: [] })).toThrowError(
+      expect.objectContaining({ kind: 'invalid_snapshot' }),
+    );
+  });
 });
 
 describe('executeReplay — side-effect prohibition (Req 7.5, 7.6)', () => {
@@ -168,5 +256,43 @@ describe('executeReplay — io', () => {
     const ex = exportAndExtract(runWithStep());
     const manifest = JSON.parse(readFileSync(join(ex, 'manifest.json'), 'utf8'));
     expect(manifest.input_dataset_sha256).toBe(sha256Hex(DATASET));
+  });
+});
+
+describe('snapshot archive production replay entry', () => {
+  it('verifies the exported archive SHA-256, safely extracts, and replays', () => {
+    const dir = freshTmp();
+    const zip = join(dir, 'snapshot.zip');
+    const exported = exportSnapshot(runWithStep(), zip);
+    expect(replaySnapshotArchive({ snapshotPath: zip, expectedSha256: exported.sha256 })).toMatchObject({
+      outcome: { stepsReplayed: 1 },
+      archiveSha256: exported.sha256,
+      archiveAnchored: true,
+    });
+    expect(() => replaySnapshotArchive({ snapshotPath: zip, expectedSha256: '0'.repeat(64) })).toThrowError(
+      expect.objectContaining({ kind: 'archive_sha256_mismatch' }),
+    );
+  });
+
+  it('rejects traversal and duplicate entries before writing extraction output', () => {
+    const traversal = Buffer.from(encodeArchive([{ name: 'safeaa.txt', bytes: enc('x') }]));
+    const safeName = Buffer.from('safeaa.txt');
+    const badName = Buffer.from('../bad.txt');
+    for (let offset = 0; offset <= traversal.length - safeName.length; offset += 1) {
+      if (traversal.subarray(offset, offset + safeName.length).equals(safeName)) badName.copy(traversal, offset);
+    }
+    const traversalRoot = freshTmp();
+    expect(() => extractSnapshotZipBytes(traversal, join(traversalRoot, 'extract'))).toThrowError(
+      expect.objectContaining({ kind: 'invalid_archive' }),
+    );
+    expect(existsSync(join(traversalRoot, 'bad.txt'))).toBe(false);
+
+    const duplicate = encodeArchive([
+      { name: 'same.txt', bytes: enc('a') },
+      { name: 'same.txt', bytes: enc('b') },
+    ]);
+    expect(() => extractSnapshotZipBytes(duplicate, join(freshTmp(), 'extract'))).toThrowError(
+      expect.objectContaining({ kind: 'invalid_archive' }),
+    );
   });
 });

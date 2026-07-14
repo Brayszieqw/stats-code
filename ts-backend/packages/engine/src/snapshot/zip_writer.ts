@@ -35,16 +35,18 @@ const LFH_SIG = 0x04034b50;
 const CDFH_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
 
-function validateEntryName(name: string): void {
+export function validateEntryName(name: string): void {
   const invalid = (reason: string): never => {
     throw new ZipWriteError('invalid_entry', `invalid entry name ${JSON.stringify(name)}: ${reason}`);
   };
   if (name.length === 0) invalid('entry name is empty');
   if (name.startsWith('/')) invalid("entry name must not start with '/'");
+  if (/^[A-Za-z]:\//.test(name)) invalid('entry name must not be an absolute drive path');
   if (name.includes('\\')) invalid('entry name must use forward-slash separators only');
   if (name.includes('\u0000')) invalid('entry name must not contain a NUL byte');
   for (const component of name.split('/')) {
     if (component === '..') invalid("entry name must not contain a '..' path component");
+    if (component === '' || component === '.') invalid('entry name must not contain empty or dot path components');
   }
   if (Buffer.byteLength(name, 'utf8') > 0xffff) invalid('entry name longer than 65535 bytes');
 }
@@ -153,8 +155,13 @@ export function encodeArchive(entries: readonly ZipEntry[]): Uint8Array {
 
 /** Sort entries by raw name bytes and encode the deterministic archive. */
 export function buildZipBytes(entries: readonly ZipEntry[]): Uint8Array {
+  const names = new Set<string>();
   for (const e of entries) {
     validateEntryName(e.name);
+    if (names.has(e.name)) {
+      throw new ZipWriteError('invalid_entry', `duplicate entry name ${JSON.stringify(e.name)}`);
+    }
+    names.add(e.name);
   }
   const sorted = [...entries].sort((a, b) => {
     const an = new TextEncoder().encode(a.name);

@@ -56,7 +56,7 @@ describe('research protocol compile route', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(RESULT);
-    expect(compile).toHaveBeenCalledWith({ brief });
+    expect(compile).toHaveBeenCalledWith({ brief }, { sessionId: session.id });
     expect((await sessionStore.get(session.id)).research_protocol).toBeNull();
   });
 

@@ -11,6 +11,11 @@ export {
   type LlmProviderOptions,
 } from './llm-provider.js';
 export {
+  createLlmCallHistory,
+  type LlmCallHistory,
+  type CreateLlmCallHistoryOptions,
+} from './llm-call-history.js';
+export {
   createFileLlmConfigStore,
   defaultLlmConfigPath,
   type FileLlmConfigStoreOptions,

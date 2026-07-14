@@ -83,7 +83,7 @@ export interface LlmProbe {
 
 /** Review-only natural-language → protocol proposal service. */
 export interface ProtocolCompiler {
-  compile(input: ProtocolCompileRequest): Promise<ProtocolCompileResult>;
+  compile(input: ProtocolCompileRequest, context?: { sessionId: string }): Promise<ProtocolCompileResult>;
 }
 
 export interface CoverageMatrixProvider {

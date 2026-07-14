@@ -15,9 +15,11 @@ import {
   createCoverageMatrixProvider,
   createSidecarProvider,
   createSnapshotRunRegistry,
+  createLlmCallHistory,
   createFileLlmConfigStore,
   createLlmProbe,
   createFsDatasetStore,
+  defaultDatasetRoot,
   createLlmProvider,
   createProtocolCompiler,
   createOrchestrator,
@@ -65,9 +67,15 @@ export interface RunLauncherOptions {
  */
 export function defaultState(): AppState {
   const sessionStore = createFileSessionStore();
-  const datasetStore = createFsDatasetStore();
-  const snapshotRuns = createSnapshotRunRegistry(datasetStore);
+  const datasetRoot = defaultDatasetRoot();
+  const datasetStore = createFsDatasetStore({ root: datasetRoot });
   const llmConfigStore = createFileLlmConfigStore();
+  const llmCallHistory = createLlmCallHistory();
+  const snapshotRuns = createSnapshotRunRegistry(datasetStore, {
+    llmCallsForSession: (sessionId) => llmCallHistory.list(sessionId),
+    llmConfig: () => llmConfigStore.read(),
+    workingDirectory: datasetRoot,
+  });
   const llmProbe = createLlmProbe();
   const registry = SkillRegistry.withDefaults();
   const runner = new SkillRunner(registry);
@@ -79,16 +87,16 @@ export function defaultState(): AppState {
     snapshotRunRecorder: snapshotRuns.recorder,
   });
 
-  const llmProviderFactory = () => {
+  const llmProviderFactory = (sessionId?: string) => {
     const cfg = llmConfigStore.read();
-    return cfg && cfg.api_key
-      ? createLlmProvider({
-          provider: cfg.provider,
-          apiKey: cfg.api_key,
-          baseUrl: cfg.base_url ?? undefined,
-          model: cfg.model ?? undefined,
-        })
-      : null;
+    if (!cfg?.api_key) return null;
+    const provider = createLlmProvider({
+      provider: cfg.provider,
+      apiKey: cfg.api_key,
+      baseUrl: cfg.base_url ?? undefined,
+      model: cfg.model ?? undefined,
+    });
+    return sessionId ? llmCallHistory.wrap(sessionId, provider) : provider;
   };
 
   const messageHandler = createOrchestrator({

@@ -10,12 +10,14 @@ export {
   buildZipBytes,
   writeDeterministicZip,
   writeSnapshotAtomic,
+  validateEntryName,
 } from './zip_writer.js';
 
 export {
   MANIFEST_SCHEMA_VERSION,
   RUN_STATUS_COMPLETED,
   type AuditSnapshotManifest,
+  type SnapshotMemberDigest,
   encodeSha256HexLower,
   buildManifest,
 } from './manifest.js';
@@ -61,3 +63,11 @@ export {
   ReplayError,
   executeReplay,
 } from './replay.js';
+
+export {
+  SnapshotArchiveError,
+  extractSnapshotZipBytes,
+  replaySnapshotArchive,
+  type ReplaySnapshotArchiveOptions,
+  type ReplaySnapshotArchiveResult,
+} from './zip_reader.js';

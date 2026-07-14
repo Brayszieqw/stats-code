@@ -63,6 +63,7 @@ export {
   createSnapshotProvider,
   createSnapshotRunRegistry,
   type SnapshotRunRegistry,
+  type CreateSnapshotRunRegistryOptions,
 } from './providers.js';
 export {
   type LlmProvider,
@@ -81,6 +82,7 @@ export {
 export * as conversation from './conversation/index.js';
 export {
   createLlmProvider,
+  createLlmCallHistory,
   DEFAULT_BASE_URLS,
   DEFAULT_MODELS,
   normalizeProviderBaseUrl,
@@ -88,6 +90,8 @@ export {
   type LlmMessage,
   type LlmRequest,
   type LlmProviderOptions,
+  type LlmCallHistory,
+  type CreateLlmCallHistoryOptions,
 } from './conversation/index.js';
 export {
   heuristicIntent,

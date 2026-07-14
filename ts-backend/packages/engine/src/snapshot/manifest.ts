@@ -10,7 +10,7 @@
 // _Requirements: 6.1, 6.7_
 
 /** Schema version of the `manifest.json` payload. */
-export const MANIFEST_SCHEMA_VERSION = 1;
+export const MANIFEST_SCHEMA_VERSION = 2;
 
 /** `run_status` value emitted by the exporter; only completed runs export. */
 export const RUN_STATUS_COMPLETED = 'completed';
@@ -28,6 +28,13 @@ export interface AuditSnapshotManifest {
   stats_code_commit_sha: string;
   run_id: string;
   run_status: string;
+  /** SHA-256 for every archive member except manifest.json itself. */
+  members: SnapshotMemberDigest[];
+}
+
+export interface SnapshotMemberDigest {
+  path: string;
+  sha256: string;
 }
 
 /** Encode a 32-byte SHA256 digest as 64-char lowercase hex. */
@@ -49,6 +56,7 @@ export function buildManifest(
   releaseVersion: string,
   commitSha: string,
   createdAtUtc: string,
+  members: readonly SnapshotMemberDigest[],
 ): AuditSnapshotManifest {
   return {
     schema_version: MANIFEST_SCHEMA_VERSION,
@@ -58,5 +66,8 @@ export function buildManifest(
     stats_code_commit_sha: commitSha,
     run_id: runId,
     run_status: RUN_STATUS_COMPLETED,
+    members: [...members]
+      .sort((a, b) => Buffer.from(a.path, 'utf8').compare(Buffer.from(b.path, 'utf8')))
+      .map((member) => ({ ...member })),
   };
 }

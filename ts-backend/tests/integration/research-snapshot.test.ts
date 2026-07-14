@@ -32,7 +32,17 @@ describe('research audit snapshot', () => {
   it('exports protocol + approval records and replay verifies their hashes', async () => {
     const root = freshDir();
     const datasetStore = createFsDatasetStore({ root: join(root, 'datasets') });
-    const snapshotRuns = createSnapshotRunRegistry(datasetStore);
+    const snapshotRuns = createSnapshotRunRegistry(datasetStore, {
+      workingDirectory: join(root, 'datasets'),
+      llmConfig: () => ({ provider: 'openai', api_key: 'sk-snapshot-secret', model: 'gpt-test' }),
+      llmCallsForSession: () => [{
+        provider: 'openai',
+        model: 'gpt-test',
+        request_at_utc: '2026-07-14T03:00:00.000Z',
+        prompt_sha256: '1'.repeat(64),
+        response_sha256: '2'.repeat(64),
+      }],
+    });
     const registry = SkillRegistry.withDefaults();
     const sessionStore = new MemSessionStore();
     const runner = new SkillRunner(registry);
@@ -56,7 +66,7 @@ describe('research audit snapshot', () => {
     const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;
     const protocol = {
       status: 'Approved',
-      research_question: '年龄是否与连续结局相关？',
+      research_question: '年龄是否与连续结局相关？sk-snapshot-secret',
       study_design: 'cross_sectional',
       population: '演示成人队列',
       eligibility_criteria: '有完整基线记录',
@@ -130,6 +140,7 @@ describe('research audit snapshot', () => {
       payload: { run_id: runId, destination },
     });
     expect(exported.statusCode).toBe(200);
+    expect(snapshotRuns.snapshotSha256(runId)).toBe(exported.json().sha256);
 
     const extractedDir = join(root, 'extracted');
     execFileSync('powershell', [
@@ -141,6 +152,7 @@ describe('research audit snapshot', () => {
       status: 'Approved',
       outcome: 'y（连续结局）',
     });
+    expect(readFileSync(join(extractedDir, 'protocol.json'), 'utf8')).not.toContain('sk-snapshot-secret');
     const approvalDocument = JSON.parse(readFileSync(join(extractedDir, 'approval.json'), 'utf8'));
     const auditDocument = JSON.parse(readFileSync(join(extractedDir, 'dataset-audit.json'), 'utf8'));
     expect(approvalDocument).toMatchObject({
@@ -155,6 +167,7 @@ describe('research audit snapshot', () => {
     expect(readFileSync(join(extractedDir, 'workflow.yaml'), 'utf8')).toContain('path: protocol.json');
     expect(readFileSync(join(extractedDir, 'workflow.yaml'), 'utf8')).toContain('path: approval.json');
     expect(readFileSync(join(extractedDir, 'workflow.yaml'), 'utf8')).toContain('path: dataset-audit.json');
+    expect(JSON.parse(readFileSync(join(extractedDir, 'llm_provenance.json'), 'utf8')).calls).toHaveLength(1);
     expect(snapshot.executeReplay({ extractedDir, installedReferenceSoftware: [] })).toEqual({
       stepsReplayed: 1,
     });

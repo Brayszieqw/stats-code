@@ -27,5 +27,5 @@ export {
 export { ALGORITHM_IDS } from './stats/index.js';
 export type { AlgorithmId } from './stats/index.js';
 export { main, classifyInvocation, KNOWN_SUBCOMMANDS, USAGE } from './cli.js';
-export type { LauncherArgs, Invocation, CliIo } from './cli.js';
+export type { LauncherArgs, Invocation, CliIo, ReplayRun } from './cli.js';
 export { VERSION } from './version.js';

@@ -91,6 +91,13 @@ describe('Property 17: snapshot determinism (byte-identical)', () => {
       true,
     );
   });
+
+  it('rejects duplicate archive member names', () => {
+    expect(() => buildZipBytes([
+      { name: 'same.txt', bytes: enc('a') },
+      { name: 'same.txt', bytes: enc('b') },
+    ])).toThrow(/duplicate entry name/);
+  });
 });
 
 describe('exportSnapshot assembles the full Audit_Snapshot', () => {
@@ -111,13 +118,21 @@ describe('exportSnapshot assembles the full Audit_Snapshot', () => {
     // data.csv is preserved verbatim.
     expect(readFileSync(join(extractDir, 'data.csv'))).toEqual(Buffer.from(DATASET));
 
-    // manifest.json carries run metadata, not a digest list.
+    // manifest.json v2 carries run metadata plus every non-manifest member digest.
     const manifest = JSON.parse(readFileSync(join(extractDir, 'manifest.json'), 'utf8'));
-    expect(manifest.schema_version).toBe(1);
+    expect(manifest.schema_version).toBe(2);
     expect(manifest.run_status).toBe('completed');
     expect(manifest.run_id).toBe('run-test');
     // input_dataset_sha256 must match the verbatim data.csv bytes.
     expect(manifest.input_dataset_sha256).toBe(sha256Hex(DATASET));
+    expect(manifest.members.map((member: { path: string }) => member.path)).toEqual([
+      'coverage.json',
+      'data.csv',
+      'llm_provenance.json',
+      'narrative.md',
+      'versions.json',
+      'workflow.yaml',
+    ]);
 
     const versions = JSON.parse(readFileSync(join(extractDir, 'versions.json'), 'utf8'));
     expect(versions.os_family).toBe('Windows');

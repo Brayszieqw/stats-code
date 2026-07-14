@@ -301,7 +301,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
       if (!state.protocolCompiler) {
         return reply.code(502).send({ error_code: 'LlmUnavailable', message: 'LLM 未配置；可继续使用手工协议表单。' });
       }
-      return reply.send(await state.protocolCompiler.compile(parsed.data));
+      return reply.send(await state.protocolCompiler.compile(parsed.data, { sessionId: req.params.sid }));
     } catch (err) {
       if (err instanceof StoreError) {
         const { status, body } = storeErrorResponse(err);

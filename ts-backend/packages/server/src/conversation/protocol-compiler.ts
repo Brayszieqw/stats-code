@@ -74,16 +74,19 @@ function missingRequiredFields(
 }
 
 export function createProtocolCompiler(
-  providerFactory: () => LlmProvider | null,
+  providerFactory: (sessionId?: string) => LlmProvider | null,
 ): ProtocolCompiler {
   return {
-    async compile(rawInput: ProtocolCompileRequest): Promise<ProtocolCompileResult> {
+    async compile(
+      rawInput: ProtocolCompileRequest,
+      context?: { sessionId: string },
+    ): Promise<ProtocolCompileResult> {
       const parsedInput = domain.protocolCompileRequest.safeParse(rawInput);
       if (!parsedInput.success) {
         throw new ProtocolCompilerError('SkillInvalidArgs', '研究摘要需为 20–8000 个字符。');
       }
 
-      const provider = providerFactory();
+      const provider = providerFactory(context?.sessionId);
       if (!provider) {
         throw new ProtocolCompilerError('LlmUnavailable', 'LLM 未配置；可继续使用手工协议表单。');
       }

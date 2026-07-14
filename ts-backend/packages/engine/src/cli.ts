@@ -8,11 +8,14 @@
 //   stats-code --version       → print version, exit 0
 //   stats-code --help          → print usage (lists --no-browser/--version/--help), exit 0
 //
-// Statistical sub-commands stay internal (invoked by `core`), and `parity` /
-// `replay` are hidden internal entry points that bypass the launcher. None of
-// these are advertised in --help (Requirement 11.5).
+// Statistical sub-commands stay internal (invoked by `core`). `replay` is the
+// public, read-only snapshot verification entry and bypasses the launcher.
 
 import { VERSION } from './version.js';
+import {
+  replaySnapshotArchive,
+  type ReplaySnapshotArchiveResult,
+} from './snapshot/zip_reader.js';
 
 /** Public launcher flags only (Requirement 11.2-11.4). */
 export interface LauncherArgs {
@@ -41,15 +44,15 @@ export const KNOWN_SUBCOMMANDS: readonly string[] = [
   'workflow',
   'run',
   'stats',
-  // Hidden internal entry points (bypass the launcher: no port, no browser, no lock).
+  // Hidden internal entry point.
   'parity',
-  'replay',
 ];
 
 export type Invocation =
   | { mode: 'launcher'; args: LauncherArgs }
   | { mode: 'version' }
   | { mode: 'help' }
+  | { mode: 'replay'; args: string[] }
   | { mode: 'subcommand'; name: string };
 
 /** Usage text. Lists only the three public flags (Requirement 11.3). */
@@ -57,12 +60,18 @@ export const USAGE = `stats-code — local statistics workbench
 
 Usage:
   stats-code [options]
+  stats-code replay <snapshot.zip> [--sha256 <expected-sha256>]
 
 Options:
   --no-browser    Start the server without opening the default browser
                   (used by the desktop shell / headless hosts).
   --version       Print the version and exit.
   --help          Print this help and exit.
+
+Replay:
+  Safely extract and verify every snapshot member without starting the server,
+  opening a browser, or creating an application lock. Supply the SHA-256
+  returned by export to anchor manifest integrity.
 
 Desktop UI (in-app window, no system browser):
   From the repo:  powershell -File scripts/start-desktop.ps1
@@ -86,6 +95,11 @@ export function classifyInvocation(argv: readonly string[]): Invocation {
   }
   if (userArgs.includes('--version') || userArgs.includes('-V')) {
     return { mode: 'version' };
+  }
+
+  const replayIndex = userArgs.indexOf('replay');
+  if (replayIndex !== -1) {
+    return { mode: 'replay', args: userArgs.slice(replayIndex + 1) };
   }
 
   for (const arg of userArgs) {
@@ -116,6 +130,28 @@ const defaultIo: CliIo = {
  */
 export type LauncherRun = (args: LauncherArgs) => Promise<number>;
 
+export type ReplayRun = (args: {
+  snapshotPath: string;
+  expectedSha256?: string;
+}) => ReplaySnapshotArchiveResult | Promise<ReplaySnapshotArchiveResult>;
+
+function parseReplayArgs(args: readonly string[]): { snapshotPath: string; expectedSha256?: string } {
+  const snapshotPath = args[0];
+  if (!snapshotPath || snapshotPath.startsWith('-')) {
+    throw new Error('usage: stats-code replay <snapshot.zip> [--sha256 <expected-sha256>]');
+  }
+  let expectedSha256: string | undefined;
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg !== '--sha256' || expectedSha256 !== undefined || index + 1 >= args.length) {
+      throw new Error(`invalid replay argument: ${arg ?? ''}`);
+    }
+    expectedSha256 = args[index + 1];
+    index += 1;
+  }
+  return { snapshotPath, ...(expectedSha256 ? { expectedSha256 } : {}) };
+}
+
 /**
  * Pure-ish entry point: classify argv, handle --version/--help synchronously,
  * and delegate launcher mode to the injected runner. Returns the process exit
@@ -123,7 +159,7 @@ export type LauncherRun = (args: LauncherArgs) => Promise<number>;
  */
 export async function main(
   argv: readonly string[],
-  opts: { io?: CliIo; runLauncher?: LauncherRun } = {},
+  opts: { io?: CliIo; runLauncher?: LauncherRun; runReplay?: ReplayRun } = {},
 ): Promise<number> {
   const io = opts.io ?? defaultIo;
   const invocation = classifyInvocation(argv);
@@ -135,6 +171,24 @@ export async function main(
     case 'help':
       io.stdout(USAGE);
       return 0;
+    case 'replay': {
+      try {
+        const args = parseReplayArgs(invocation.args);
+        const result = await (opts.runReplay ?? replaySnapshotArchive)(args);
+        io.stdout(
+          `Replay PASS: ${result.outcome.stepsReplayed} workflow step(s), archive SHA-256 ${result.archiveSha256}.\n`,
+        );
+        if (result.archiveAnchored) {
+          io.stdout('Archive integrity anchor: verified.\n');
+        } else {
+          io.stderr('warning: no archive SHA-256 anchor supplied; manifest fields are not externally anchored.\n');
+        }
+        return 0;
+      } catch (error) {
+        io.stderr(`Replay FAIL: ${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+      }
+    }
     case 'subcommand':
       // Internal subcommands are dispatched by `core`; the public binary does
       // not expose them. Reaching here from the public CLI is a usage error.

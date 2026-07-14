@@ -14,6 +14,7 @@
 // canonical emitter is hand-rolled for full control over the byte sequence.
 
 import { parse as parseYaml } from 'yaml';
+import { validateEntryName } from './zip_writer.js';
 
 // --- model ----------------------------------------------------------------
 
@@ -74,6 +75,7 @@ export const RULE = {
   WRONG_TYPE: 'wrong_type',
   SCHEMA_VERSION_UNSUPPORTED: 'schema_version_unsupported',
   INVALID_SHA256: 'invalid_sha256',
+  INVALID_ARTIFACT_PATH: 'invalid_artifact_path',
   DUPLICATE_STEP_ID: 'duplicate_step_id',
 } as const;
 
@@ -117,6 +119,11 @@ function parseArtifactRef(node: unknown, field: string): ArtifactRef {
     throw new WorkflowYamlError(RULE.WRONG_TYPE, 'artifact');
   }
   const path = requireString(node, 'path', 'artifact.path');
+  try {
+    validateEntryName(path);
+  } catch {
+    throw new WorkflowYamlError(RULE.INVALID_ARTIFACT_PATH, field);
+  }
   const sha256 = requireString(node, 'sha256', 'artifact.sha256');
   if (!isValidSha256(sha256)) {
     throw new WorkflowYamlError(RULE.INVALID_SHA256, field);

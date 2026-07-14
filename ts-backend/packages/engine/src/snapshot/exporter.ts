@@ -99,6 +99,7 @@ export class SnapshotError extends Error {
       | 'run_not_completed'
       | 'payload_too_large'
       | 'narrative'
+      | 'workflow'
       | 'zip'
       | 'io'
       | 'forbidden_spawn',
@@ -137,6 +138,28 @@ function redactTextBytes(bytes: Uint8Array, policy: RedactionPolicy): Uint8Array
     return bytes;
   }
   return new TextEncoder().encode(redactPure(text, policy));
+}
+
+function workflowWithFinalDigests(
+  workflow: Workflow,
+  memberBytes: ReadonlyMap<string, Uint8Array>,
+): Workflow {
+  const digestRef = (ref: { path: string; sha256: string }): { path: string; sha256: string } => {
+    const bytes = memberBytes.get(ref.path);
+    if (!bytes) {
+      throw new SnapshotError('workflow', `snapshot workflow references missing member: ${ref.path}`);
+    }
+    return { ...ref, sha256: sha256Hex(bytes) };
+  };
+  return {
+    ...workflow,
+    inputDataset: digestRef(workflow.inputDataset),
+    steps: workflow.steps.map((step) => ({
+      ...step,
+      inputs: step.inputs.map(digestRef),
+      outputs: step.outputs.map(digestRef),
+    })),
+  };
 }
 
 /**
@@ -188,13 +211,6 @@ function exportSnapshotInner(run: RunSnapshot, destination: string): SnapshotRes
   }
 
   // ---- Build every component payload ------------------------------------
-  const manifest = buildManifest(
-    run.runId,
-    run.datasetSha256,
-    run.releaseVersion,
-    run.commitSha,
-    run.createdAtUtc,
-  );
   const versions = buildVersions(
     run.osFamily,
     run.osVersion,
@@ -210,31 +226,53 @@ function exportSnapshotInner(run: RunSnapshot, destination: string): SnapshotRes
     throw new SnapshotError('narrative', `snapshot refused: ${(err as Error).message}`);
   }
 
-  const workflowYamlText = prettyPrint(run.workflow, undefined);
+  // Redaction can change artifact bytes (for example an absolute path becomes
+  // <external>). Workflow digests must be derived from the exact bytes stored.
+  const redactedArtifacts = run.artifacts.map((artifact) => ({
+    name: artifact.path,
+    bytes: redactTextBytes(artifact.bytes, policy),
+  }));
+  const finalMemberBytes = new Map<string, Uint8Array>([['data.csv', run.datasetCsvBytes]]);
+  for (const artifact of redactedArtifacts) finalMemberBytes.set(artifact.name, artifact.bytes);
+  const workflowYamlText = prettyPrint(
+    workflowWithFinalDigests(run.workflow, finalMemberBytes),
+    undefined,
+  );
   const coverage = getLoadedMatrix();
 
   // Compact JSON (no whitespace) mirrors serde_json::to_vec byte output and is
   // byte-stable for identical inputs because field/key order is fixed.
   const enc = new TextEncoder();
-  const manifestBytes = enc.encode(JSON.stringify(manifest));
   const versionsBytes = enc.encode(JSON.stringify(versions));
   const llmBytes = enc.encode(JSON.stringify(llm));
   const coverageBytes = enc.encode(JSON.stringify(coverage));
 
   // ---- Apply redaction to every text artifact ---------------------------
   // data.csv stays verbatim so its hash matches manifest.input_dataset_sha256.
-  const entries: ZipEntry[] = [
+  const entriesWithoutManifest: ZipEntry[] = [
     { name: 'data.csv', bytes: run.datasetCsvBytes },
-    { name: 'manifest.json', bytes: redactTextBytes(manifestBytes, policy) },
     { name: 'workflow.yaml', bytes: redactTextBytes(enc.encode(workflowYamlText), policy) },
     { name: 'versions.json', bytes: redactTextBytes(versionsBytes, policy) },
     { name: 'llm_provenance.json', bytes: redactTextBytes(llmBytes, policy) },
     { name: 'narrative.md', bytes: redactTextBytes(enc.encode(narrativeText), policy) },
     { name: 'coverage.json', bytes: redactTextBytes(coverageBytes, policy) },
   ];
-  for (const art of run.artifacts) {
-    entries.push({ name: art.path, bytes: redactTextBytes(art.bytes, policy) });
-  }
+  entriesWithoutManifest.push(...redactedArtifacts);
+  const manifest = buildManifest(
+    run.runId,
+    run.datasetSha256,
+    run.releaseVersion,
+    run.commitSha,
+    run.createdAtUtc,
+    entriesWithoutManifest.map((entry) => ({ path: entry.name, sha256: sha256Hex(entry.bytes) })),
+  );
+  const entries: ZipEntry[] = [
+    ...entriesWithoutManifest,
+    {
+      name: 'manifest.json',
+      bytes: redactTextBytes(enc.encode(JSON.stringify(manifest)), policy),
+    },
+  ];
 
   // ---- Write to <dest>.tmp via the deterministic zip writer -------------
   const destTmp = tmpPathFor(destination);

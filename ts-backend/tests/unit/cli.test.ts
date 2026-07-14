@@ -43,9 +43,12 @@ describe('classifyInvocation', () => {
     });
   });
 
-  it('hidden parity/replay route to subcommand mode', () => {
+  it('hidden parity stays internal while replay is a public verification mode', () => {
     expect(classifyInvocation(['stats-code', 'parity', '--filter', 'tableone']).mode).toBe('subcommand');
-    expect(classifyInvocation(['stats-code', 'replay', 'snapshot.zip']).mode).toBe('subcommand');
+    expect(classifyInvocation(['stats-code', 'replay', 'snapshot.zip'])).toEqual({
+      mode: 'replay',
+      args: ['snapshot.zip'],
+    });
   });
 
   it('unknown flags do not flip to subcommand', () => {
@@ -65,7 +68,7 @@ describe('main', () => {
     expect(out.join('')).toBe(`${VERSION}\n`);
   });
 
-  it('--help prints usage listing the three public flags and exits 0', async () => {
+  it('--help prints public launcher and replay usage and exits 0', async () => {
     const { io, out } = captureIo();
     const code = await main(['stats-code', '--help'], { io });
     expect(code).toBe(0);
@@ -74,6 +77,7 @@ describe('main', () => {
     expect(text).toContain('--no-browser');
     expect(text).toContain('--version');
     expect(text).toContain('--help');
+    expect(text).toContain('replay <snapshot.zip>');
   });
 
   it('--no-browser delegates to the launcher runner with noBrowser=true', async () => {
@@ -97,9 +101,40 @@ describe('main', () => {
     expect(err.join('')).toContain('internal subcommand');
   });
 
+  it('replay delegates directly without invoking the launcher', async () => {
+    const { io, out } = captureIo();
+    let launcherCalled = false;
+    let replayArgs: { snapshotPath: string; expectedSha256?: string } | undefined;
+    const code = await main(['stats-code', 'replay', 'snapshot.zip', '--sha256', 'a'.repeat(64)], {
+      io,
+      runLauncher: async () => {
+        launcherCalled = true;
+        return 0;
+      },
+      runReplay: async (args) => {
+        replayArgs = args;
+        return {
+          outcome: { stepsReplayed: 2 },
+          archiveSha256: 'a'.repeat(64),
+          archiveAnchored: true,
+        };
+      },
+    });
+    expect(code).toBe(0);
+    expect(launcherCalled).toBe(false);
+    expect(replayArgs).toEqual({ snapshotPath: 'snapshot.zip', expectedSha256: 'a'.repeat(64) });
+    expect(out.join('')).toContain('Replay PASS');
+  });
+
+  it('replay reports usage failure when the archive path is missing', async () => {
+    const { io, err } = captureIo();
+    expect(await main(['stats-code', 'replay'], { io })).toBe(2);
+    expect(err.join('')).toContain('Replay FAIL');
+  });
+
   it('help text does not advertise statistical subcommands', () => {
     // Public usage must not name internal statistical subcommands.
-    for (const sub of ['tableone', 'survival', 'power', 'parity', 'replay', 'workflow']) {
+    for (const sub of ['tableone', 'survival', 'power', 'parity', 'workflow']) {
       expect(USAGE.toLowerCase()).not.toMatch(new RegExp(`\\b${sub}\\b`));
     }
   });

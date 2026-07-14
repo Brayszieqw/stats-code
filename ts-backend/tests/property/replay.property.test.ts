@@ -137,4 +137,29 @@ describe('Property 22: replay soundness (Requirements 7.2, 7.4)', () => {
       { numRuns: 10 },
     );
   });
+
+  it('tampering any snapshot member is detected when manifest is externally anchored', () => {
+    const memberNames = [
+      'manifest.json',
+      'data.csv',
+      'workflow.yaml',
+      'versions.json',
+      'llm_provenance.json',
+      'narrative.md',
+      'coverage.json',
+      'artifacts/step-1/result.json',
+    ] as const;
+    for (const memberName of memberNames) {
+      const ex = exportAndExtract(buildRun('col\na,b', '{"v":"x"}'));
+      const manifestPath = join(ex, 'manifest.json');
+      const expectedManifestSha256 = sha256Hex(readFileSync(manifestPath));
+      const target = join(ex, ...memberName.split('/'));
+      writeFileSync(target, Buffer.concat([readFileSync(target), Buffer.from('\n')]));
+      expect(() => executeReplay({
+        extractedDir: ex,
+        installedReferenceSoftware: [],
+        expectedManifestSha256,
+      })).toThrow(ReplayError);
+    }
+  });
 });

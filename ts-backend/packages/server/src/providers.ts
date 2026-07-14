@@ -18,6 +18,7 @@ import type {
   SnapshotProvider,
   SnapshotRunRecorder,
   SnapshotRunRegistration,
+  LlmConfig,
 } from './state.js';
 
 type WireMatrix = z.infer<typeof sidecarContract.coverageMatrix>;
@@ -127,6 +128,14 @@ export function createSnapshotProvider(
 export interface SnapshotRunRegistry {
   recorder: SnapshotRunRecorder;
   provider: SnapshotProvider;
+  /** Last successful archive hash retained as the server-side trust anchor. */
+  snapshotSha256(runId: string): string | undefined;
+}
+
+export interface CreateSnapshotRunRegistryOptions {
+  llmCallsForSession?: (sessionId: string) => readonly engineSnapshot.LlmCall[];
+  llmConfig?: () => LlmConfig | null;
+  workingDirectory?: string;
 }
 
 function osFamily(): string {
@@ -145,8 +154,12 @@ function commitSha(): string {
  * from the local dataset store when the user exports a snapshot, avoiding one
  * large in-memory copy per completed run.
  */
-export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotRunRegistry {
+export function createSnapshotRunRegistry(
+  datasetStore: DatasetStore,
+  options: CreateSnapshotRunRegistryOptions = {},
+): SnapshotRunRegistry {
   const records = new Map<string, SnapshotRunRegistration>();
+  const snapshotHashes = new Map<string, string>();
   const enc = new TextEncoder();
 
   const recorder: SnapshotRunRecorder = {
@@ -155,7 +168,7 @@ export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotR
     },
   };
 
-  const provider = createSnapshotProvider(async (runId) => {
+  const materializer = createSnapshotProvider(async (runId) => {
     const record = records.get(runId);
     if (!record) return undefined;
 
@@ -184,6 +197,7 @@ export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotR
     const auditBytes = enc.encode(JSON.stringify(record.datasetAudit));
     const resultBytes = enc.encode(JSON.stringify(record.result));
     const resultPath = 'artifacts/step-1/result.json';
+    const llmConfig = options.llmConfig?.() ?? null;
 
     return {
       runId: record.runId,
@@ -213,7 +227,9 @@ export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotR
         { path: 'dataset-audit.json', bytes: auditBytes },
         { path: resultPath, bytes: resultBytes },
       ],
-      llmCalls: [],
+      llmCalls: [...(options.llmCallsForSession?.(record.sessionId) ?? [])],
+      // Every production analysis is executed by the in-process TypeScript engine.
+      // No external R/SAS/Python/SPSS runtime is invoked for this run.
       referenceSoftware: [],
       osFamily: osFamily(),
       osVersion: release(),
@@ -221,7 +237,8 @@ export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotR
       commitSha: commitSha(),
       createdAtUtc: record.endedAtUtc,
       runtimeDependencies: { node: process.versions.node },
-      apiKeys: [],
+      apiKeys: llmConfig?.api_key ? [llmConfig.api_key] : [],
+      workingDirectory: options.workingDirectory,
       narrativeSteps: [{
         id: 'step-1',
         algorithm: record.algorithmId,
@@ -232,5 +249,17 @@ export function createSnapshotRunRegistry(datasetStore: DatasetStore): SnapshotR
     };
   });
 
-  return { recorder, provider };
+  const provider: SnapshotProvider = {
+    async export(runId, destination) {
+      const result = await materializer.export(runId, destination);
+      snapshotHashes.set(runId, result.sha256);
+      return result;
+    },
+  };
+
+  return {
+    recorder,
+    provider,
+    snapshotSha256: (runId) => snapshotHashes.get(runId),
+  };
 }

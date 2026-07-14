@@ -30,7 +30,7 @@ export interface OrchestratorDeps {
   registry: SkillRegistry;
   researchWorkflow: ResearchWorkflowService;
   /** Returns a provider from the CURRENT persisted config, or null if unconfigured. */
-  llmProviderFactory: () => LlmProvider | null;
+  llmProviderFactory: (sessionId: string) => LlmProvider | null;
 }
 
 export interface IntentResult {
@@ -434,7 +434,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
   }
 
   async function* handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent> {
-    const provider = llmProviderFactory();
+    const provider = llmProviderFactory(sessionId);
     if (!provider) {
       // Still allow offline keyword routing when chat LLM is not configured.
       const offline = heuristicIntent(input.text);

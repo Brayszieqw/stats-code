@@ -105,6 +105,7 @@ export {
 export {
   createFileSessionStore,
   defaultSessionStorePath,
+  type FileSessionIntegrityWarning,
   type FileSessionStoreOptions,
 } from './conversation/index.js';
 export { createLlmProbe, type CreateLlmProbeOptions } from './conversation/index.js';

@@ -699,7 +699,13 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
 
   // POST /api/sessions/:sid/run — in-process skill execution (Requirement 12).
   app.post<{ Params: { sid: string } }>('/api/sessions/:sid/run', async (req, reply) => {
-    // Resolve the session first: 404 if missing, 409 if archived (R12.6).
+    // All research-gate routes resolve schema errors before session state so
+    // malformed requests have one stable 422 contract across entry points.
+    const parsed = domain.runRequest.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid run request body' });
+    }
+
     let session;
     try {
       session = await state.sessionStore.get(req.params.sid);
@@ -712,12 +718,6 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     }
     if (session.status === 'Archived') {
       return reply.code(409).send({ error_code: 'SessionArchived', message: '会话已归档，仅支持只读访问' });
-    }
-
-    // Validate the request body against the contract (R12.1/12.3).
-    const parsed = domain.runRequest.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid run request body' });
     }
 
     // Every formal analysis enters through the same session-aware gate.

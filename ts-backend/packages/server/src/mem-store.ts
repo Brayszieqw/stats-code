@@ -78,6 +78,7 @@ export class MemSessionStore implements SessionStore {
   appendDatasetAudit(id: string, audit: DatasetAudit): Promise<void> {
     const s = this.sessions.get(id);
     if (!s) return Promise.reject(new StoreError('not_found', 'session not found'));
+    if (s.status !== 'Active') return Promise.reject(new StoreError('archived', 'session is archived'));
     (s.dataset_audits ??= []).push(audit);
     s.last_active_at = new Date().toISOString();
     return Promise.resolve();
@@ -102,6 +103,7 @@ export class MemSessionStore implements SessionStore {
   appendSkillRun(id: string, run: SkillRun): Promise<void> {
     const s = this.sessions.get(id);
     if (!s) return Promise.reject(new StoreError('not_found', 'session not found'));
+    if (s.status !== 'Active') return Promise.reject(new StoreError('archived', 'session is archived'));
     s.skill_runs.push(run);
     s.last_active_at = new Date().toISOString();
     return Promise.resolve();

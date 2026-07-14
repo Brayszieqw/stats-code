@@ -59,7 +59,30 @@ describe('route contracts', () => {
     expect(schemas['compile_research_protocol']?.body).toBeDefined();
     expect(schemas['compile_research_protocol']?.response).toBeDefined();
     expect(schemas['audit_dataset']?.body).toBeDefined();
+    expect(schemas['approve_analysis_plan']?.body).toBeDefined();
     expect(schemas['approve_analysis_plan']?.response).toBeDefined();
+  });
+
+  it('accepts contract-shaped audit and approval requests', () => {
+    const auditRequest = {
+      skill_id: 'model_linear',
+      args: { outcome: 'y', predictors: ['x'] },
+      expected_protocol_version: 1,
+      audit_roles: {},
+    };
+    const approvalRequest = {
+      ...auditRequest,
+      dataset_id: '33333333-3333-4333-8333-333333333333',
+      expected_audit_id: '22222222-2222-4222-8222-222222222222',
+      expected_audit_sha256: 'a'.repeat(64),
+    };
+
+    expect(domain.datasetAuditRequest.safeParse(auditRequest).success).toBe(true);
+    expect(domain.analysisPlanApprovalRequest.safeParse(approvalRequest).success).toBe(true);
+    expect(domain.analysisPlanApprovalRequest.safeParse({
+      ...approvalRequest,
+      approved_at: '2099-01-01T00:00:00.000Z',
+    }).success).toBe(false);
   });
 });
 

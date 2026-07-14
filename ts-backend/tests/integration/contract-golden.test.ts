@@ -15,6 +15,9 @@ import {
   MemSessionStore,
   contract,
   type AppState,
+  type AnalysisPlanApproval,
+  type DatasetAudit,
+  type ResearchWorkflowService,
   type SnapshotProvider,
   type CoverageMatrixProvider,
 } from '@stats-code/server';
@@ -33,6 +36,48 @@ const snapshotProvider: SnapshotProvider = {
   export() {
     return { snapshot_path: 'out.zip', sha256: '0'.repeat(64) };
   },
+};
+
+const auditGolden: DatasetAudit = {
+  schema_version: '1.0',
+  audit_rules_version: '1.1.0',
+  audit_id: '22222222-2222-4222-8222-222222222222',
+  dataset_id: '33333333-3333-4333-8333-333333333333',
+  dataset_sha256: 'a'.repeat(64),
+  protocol_version: 1,
+  skill_id: 'model_linear',
+  run_spec_sha256: 'b'.repeat(64),
+  roles: {},
+  status: 'passed',
+  findings: [],
+  audit_sha256: 'c'.repeat(64),
+  created_at: '2026-07-14T00:00:00.000Z',
+};
+
+const approvalGolden: AnalysisPlanApproval = {
+  schema_version: '1.0',
+  plan_id: '44444444-4444-4444-8444-444444444444',
+  approval_id: '55555555-5555-4555-8555-555555555555',
+  status: 'Approved',
+  protocol_version: 1,
+  protocol_sha256: 'd'.repeat(64),
+  protocol_approval_id: '66666666-6666-4666-8666-666666666666',
+  dataset_id: auditGolden.dataset_id,
+  dataset_sha256: auditGolden.dataset_sha256,
+  skill_id: 'model_linear',
+  args: { outcome: 'y', predictors: ['x'] },
+  run_spec_sha256: auditGolden.run_spec_sha256,
+  audit_id: auditGolden.audit_id,
+  audit_sha256: auditGolden.audit_sha256,
+  audit_roles: auditGolden.roles,
+  approved_at: '2026-07-14T00:00:01.000Z',
+};
+
+const researchWorkflow: ResearchWorkflowService = {
+  now: () => new Date('2026-07-14T00:00:00.000Z'),
+  auditDataset: async () => auditGolden,
+  approveAnalysisPlan: async () => approvalGolden,
+  execute: async () => ({ analysis: { run_id: 'run-1' } }),
 };
 
 describe('every route is registered in the contract harness', () => {
@@ -124,6 +169,73 @@ describe('session lifecycle golden', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().settings.decision_assistant).toBe(false);
     expect(domain.session.safeParse(res.json()).success).toBe(true);
+    await app.close();
+  });
+});
+
+describe('research workflow gate golden', () => {
+  it('audit and approval routes preserve their contract response shapes and success statuses', async () => {
+    const app = buildRouter({ state: makeState({ researchWorkflow }) });
+    const audit = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/session-1/datasets/${auditGolden.dataset_id}/audit`,
+      payload: {
+        skill_id: 'model_linear',
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+        audit_roles: {},
+      },
+    });
+    expect(audit.statusCode).toBe(200);
+    expect(audit.json()).toEqual(auditGolden);
+    expect(domain.datasetAudit.safeParse(audit.json()).success).toBe(true);
+
+    const approval = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/session-1/analysis-plans/approve',
+      payload: {
+        skill_id: 'model_linear',
+        dataset_id: auditGolden.dataset_id,
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+        expected_audit_id: auditGolden.audit_id,
+        expected_audit_sha256: auditGolden.audit_sha256,
+        audit_roles: {},
+      },
+    });
+    expect(approval.statusCode).toBe(201);
+    expect(approval.json()).toEqual(approvalGolden);
+    expect(domain.analysisPlanApproval.safeParse(approval.json()).success).toBe(true);
+    await app.close();
+  });
+
+  it('returns schema 422 before session 404 for all three gate routes', async () => {
+    const app = buildRouter({ state: makeState({ researchWorkflow }) });
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    const responses = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${unknown}/datasets/${auditGolden.dataset_id}/audit`,
+        payload: {},
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${unknown}/analysis-plans/approve`,
+        payload: {},
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${unknown}/run`,
+        payload: {},
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode)).toEqual([422, 422, 422]);
+    expect(responses.map((response) => response.json().error_code)).toEqual([
+      'SkillInvalidArgs',
+      'SkillInvalidArgs',
+      'SkillInvalidArgs',
+    ]);
     await app.close();
   });
 });

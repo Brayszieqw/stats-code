@@ -4,7 +4,7 @@
 //
 // _Requirements: 7.2, 7.3, 7.4, 7.5, 7.6, 8.2, 13.2_
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
   createOrchestrator,
@@ -276,6 +276,48 @@ describe('orchestrator research context safety', () => {
 });
 
 describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () => {
+  it('dispatches the conversation path through the gate with allowMatchingPlan enabled', async () => {
+    const registry = SkillRegistry.withDefaults();
+    const sessionStore = new MemSessionStore();
+    const execute = vi.fn(async () => ({ analysis: { run_id: 'run-1' } }));
+    const researchWorkflow: ResearchWorkflowService = {
+      now: () => new Date('2026-07-13T00:00:00.000Z'),
+      auditDataset: async () => { throw new Error('not used'); },
+      approveAnalysisPlan: async () => { throw new Error('not used'); },
+      execute,
+    };
+    const orchestrator = createOrchestrator({
+      sessionStore,
+      registry,
+      researchWorkflow,
+      llmProviderFactory: () => mockLlm([
+        '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"]},"has_query_intent":true,"text_response":null}',
+        '线性回归结果解读。',
+      ]),
+    });
+    const session = await sessionStore.create();
+    await sessionStore.appendDataset(session.id, fixtureSummary());
+
+    const events = await collect(
+      orchestrator.handleMessage(session.id, { text: '对 y 做线性回归', settings: settings() }),
+    );
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith({
+      sessionId: session.id,
+      datasetId: 'ds-1',
+      skillId: 'model_linear',
+      args: { outcome: 'y', predictors: ['x'], dataset_id: 'ds-1' },
+      allowMatchingPlan: true,
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      'skill_call',
+      'skill_result',
+      'interpretation',
+      'done',
+    ]);
+  });
+
   it('uses the latest session dataset when the LLM omits dataset_id', async () => {
     const llm = mockLlm([
       '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"]},"has_query_intent":true,"text_response":null}',

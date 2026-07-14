@@ -37,6 +37,7 @@ export {
 export {
   createFileSessionStore,
   defaultSessionStorePath,
+  type FileSessionIntegrityWarning,
   type FileSessionStoreOptions,
 } from './file-session-store.js';
 export {

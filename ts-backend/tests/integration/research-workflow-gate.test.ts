@@ -105,6 +105,30 @@ async function auditPlan(
   return response.json();
 }
 
+function approvalPayload(audit: Record<string, unknown>) {
+  return {
+    ...runSpec,
+    expected_protocol_version: 1,
+    expected_audit_id: audit.audit_id,
+    expected_audit_sha256: audit.audit_sha256,
+    audit_roles: audit.roles,
+  };
+}
+
+async function approvePlan(
+  app: ReturnType<typeof buildRouter>,
+  sid: string,
+) {
+  const audit = await auditPlan(app, sid, runSpec);
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/sessions/${sid}/analysis-plans/approve`,
+    payload: approvalPayload(audit),
+  });
+  expect(response.statusCode).toBe(201);
+  return { audit, approval: response.json() };
+}
+
 describe('server-enforced research workflow gate', () => {
   it('rejects unapproved runs and client-reported approval timestamps before invoking the runner', async () => {
     const state = makeState();
@@ -317,6 +341,267 @@ describe('server-enforced research workflow gate', () => {
     ]));
     expect(state.runnerSpy).not.toHaveBeenCalled();
     expect((await state.sessionStore.get(sid)).dataset_audits).toHaveLength(1);
+    await app.close();
+  });
+
+  it('rejects execution when the persisted dataset bytes no longer match the approved sha', async () => {
+    let bytes = new TextEncoder().encode(CLEAN_CSV);
+    const sessionStore = new MemSessionStore();
+    const datasetStore: DatasetStore = {
+      saveAndParse: async () => summary(CLEAN_CSV),
+      readRawById: async () => bytes,
+    };
+    const registry = SkillRegistry.withDefaults();
+    const runner = new SkillRunner(registry);
+    const runnerSpy = vi.spyOn(runner, 'run');
+    const researchWorkflow = createResearchWorkflowService({ sessionStore, datasetStore, registry, runner });
+    const state: AppState = { sessionStore, datasetStore, skillRegistry: registry, skillRunner: runner, researchWorkflow };
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+
+    bytes = new TextEncoder().encode(`${CLEAN_CSV}P006,6,6\n`);
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...runSpec, plan_id: approval.plan_id },
+    });
+
+    expect(run.statusCode).toBe(409);
+    expect(run.json()).toMatchObject({
+      error_code: 'ResearchApprovalStale',
+      details: { dataset_id: DATASET_ID },
+    });
+    expect(runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('rejects execution when the fresh audit becomes blocked', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+    const session = await state.sessionStore.get(sid);
+    session.analysis_plan_approvals[0]!.audit_roles = { primary_key: ['x'] };
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...runSpec, plan_id: approval.plan_id },
+    });
+
+    expect(run.statusCode).toBe(409);
+    expect(run.json().error_code).toBe('ResearchAuditBlocked');
+    expect(run.json().details.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'AUDIT_ROLE_OVERRIDE_REJECTED', severity: 'blocker' }),
+    ]));
+    expect((await state.sessionStore.get(sid)).dataset_audits).toHaveLength(2);
+    expect(state.runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('rejects execution when the fresh audit hash drifts from the approval', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+    const session = await state.sessionStore.get(sid);
+    session.analysis_plan_approvals[0]!.audit_sha256 = 'f'.repeat(64);
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...runSpec, plan_id: approval.plan_id },
+    });
+
+    expect(run.statusCode).toBe(409);
+    expect(run.json().error_code).toBe('ResearchApprovalStale');
+    expect((await state.sessionStore.get(sid)).dataset_audits).toHaveLength(2);
+    expect(state.runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('rejects execution when the approval references a missing server audit record', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+    (await state.sessionStore.get(sid)).dataset_audits = [];
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...runSpec, plan_id: approval.plan_id },
+    });
+
+    expect(run.statusCode).toBe(409);
+    expect(run.json().error_code).toBe('ResearchApprovalStale');
+    expect(run.json().message).toContain('审计记录不存在');
+    expect(state.runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('fails the final linearization check when the protocol changes during execute recomputation', async () => {
+    const bytes = new TextEncoder().encode(CLEAN_CSV);
+    const sessionStore = new MemSessionStore();
+    let readCount = 0;
+    let signalExecuteRead!: () => void;
+    let releaseExecuteRead!: () => void;
+    const executeReadStarted = new Promise<void>((resolve) => { signalExecuteRead = resolve; });
+    const executeReadGate = new Promise<void>((resolve) => { releaseExecuteRead = resolve; });
+    const datasetStore: DatasetStore = {
+      saveAndParse: async () => summary(CLEAN_CSV),
+      readRawById: async () => {
+        readCount += 1;
+        if (readCount === 3) {
+          signalExecuteRead();
+          await executeReadGate;
+        }
+        return bytes;
+      },
+    };
+    const registry = SkillRegistry.withDefaults();
+    const runner = new SkillRunner(registry);
+    const runnerSpy = vi.spyOn(runner, 'run');
+    const researchWorkflow = createResearchWorkflowService({ sessionStore, datasetStore, registry, runner });
+    const state: AppState = { sessionStore, datasetStore, skillRegistry: registry, skillRunner: runner, researchWorkflow };
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+
+    const pendingRun = app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...runSpec, plan_id: approval.plan_id },
+    });
+    await executeReadStarted;
+    const changed = await app.inject({
+      method: 'PATCH',
+      url: `/api/sessions/${sid}/protocol`,
+      payload: { ...protocol, expected_version: 1, outcome: 'changed during execute' },
+    });
+    expect(changed.statusCode).toBe(200);
+    releaseExecuteRead();
+
+    const run = await pendingRun;
+    expect(run.statusCode).toBe(409);
+    expect(run.json().error_code).toBe('ResearchApprovalStale');
+    expect(run.json().message).toContain('运行复核期间');
+    expect(runnerSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('creates independent approvals for repeated approval of the same spec', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const audit = await auditPlan(app, sid, runSpec);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/analysis-plans/approve`,
+      payload: approvalPayload(audit),
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/analysis-plans/approve`,
+      payload: approvalPayload(audit),
+    });
+
+    expect([first.statusCode, second.statusCode]).toEqual([201, 201]);
+    expect(first.json().plan_id).not.toBe(second.json().plan_id);
+    expect(first.json().run_spec_sha256).toBe(second.json().run_spec_sha256);
+    expect((await state.sessionStore.get(sid)).analysis_plan_approvals).toHaveLength(2);
+    await app.close();
+  });
+
+  it('atomically persists both independent approvals when approve requests race', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const audit = await auditPlan(app, sid, runSpec);
+
+    const [left, right] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${sid}/analysis-plans/approve`,
+        payload: approvalPayload(audit),
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${sid}/analysis-plans/approve`,
+        payload: approvalPayload(audit),
+      }),
+    ]);
+
+    expect([left.statusCode, right.statusCode]).toEqual([201, 201]);
+    expect(left.json().approval_id).not.toBe(right.json().approval_id);
+    expect((await state.sessionStore.get(sid)).analysis_plan_approvals).toHaveLength(2);
+    await app.close();
+  });
+
+  it('returns 404 for approval against an unknown session', async () => {
+    const state = makeState();
+    const app = buildRouter({ state });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/00000000-0000-4000-8000-000000000000/analysis-plans/approve',
+      payload: {
+        ...runSpec,
+        expected_protocol_version: 1,
+        expected_audit_id: '11111111-1111-4111-8111-111111111111',
+        expected_audit_sha256: '0'.repeat(64),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error_code).toBe('SessionNotFound');
+    await app.close();
+  });
+
+  it('rejects direct approval while the research protocol is Draft', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/sessions/${sid}/protocol`,
+      payload: { ...protocol, status: 'Draft' },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/analysis-plans/approve`,
+      payload: {
+        ...runSpec,
+        expected_protocol_version: 1,
+        expected_audit_id: '11111111-1111-4111-8111-111111111111',
+        expected_audit_sha256: '0'.repeat(64),
+      },
+    });
+
+    expect(response.statusCode).toBe(428);
+    expect(response.json().error_code).toBe('ResearchProtocolRequired');
+    expect((await state.sessionStore.get(sid)).analysis_plan_approvals).toEqual([]);
+    await app.close();
+  });
+
+  it('allows concurrent executions of the same approved plan and records both runs', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid);
+    const payload = { ...runSpec, plan_id: approval.plan_id };
+
+    const [left, right] = await Promise.all([
+      app.inject({ method: 'POST', url: `/api/sessions/${sid}/run`, payload }),
+      app.inject({ method: 'POST', url: `/api/sessions/${sid}/run`, payload }),
+    ]);
+
+    expect([left.statusCode, right.statusCode]).toEqual([200, 200]);
+    expect(left.json().analysis.plan_id).toBe(approval.plan_id);
+    expect(right.json().analysis.plan_id).toBe(approval.plan_id);
+    expect(state.runnerSpy).toHaveBeenCalledTimes(2);
+    expect((await state.sessionStore.get(sid)).skill_runs).toHaveLength(2);
     await app.close();
   });
 });

@@ -39,6 +39,15 @@ const DEFAULT_TITLE = '新对话';
 export interface FileSessionStoreOptions {
   filePath?: string;
   now?: () => Date;
+  onIntegrityWarning?: (warning: FileSessionIntegrityWarning) => void;
+}
+
+export interface FileSessionIntegrityWarning {
+  event: 'file_session_integrity_warning';
+  action: 'downgraded' | 'discarded';
+  record_type: 'research_protocol' | 'dataset_audit' | 'analysis_plan_approval';
+  session_id: string;
+  reason: string;
 }
 
 export function defaultSessionStorePath(): string {
@@ -90,7 +99,10 @@ function isSession(value: unknown): value is Session {
   );
 }
 
-function parseSessions(raw: string): Session[] {
+function parseSessions(
+  raw: string,
+  onIntegrityWarning: (warning: FileSessionIntegrityWarning) => void,
+): Session[] {
   const parsed = JSON.parse(raw) as unknown;
   const sessions = Array.isArray(parsed)
     ? parsed
@@ -100,6 +112,17 @@ function parseSessions(raw: string): Session[] {
   return sessions
     .filter(isSession)
     .map((session) => {
+      const warn = (
+        action: FileSessionIntegrityWarning['action'],
+        recordType: FileSessionIntegrityWarning['record_type'],
+        reason: string,
+      ): void => onIntegrityWarning({
+        event: 'file_session_integrity_warning',
+        action,
+        record_type: recordType,
+        session_id: session.id,
+        reason,
+      });
       const rawProtocol: Record<string, unknown> = isRecord(session.research_protocol)
         ? session.research_protocol
         : {};
@@ -123,6 +146,9 @@ function parseSessions(raw: string): Session[] {
           // Legacy "Approved" records predate server approval ids/versioning;
           // never mint trust for them or reuse their client-origin timestamp.
           const migratedStatus = fields.status === 'Approved' ? 'Draft' : fields.status;
+          if (fields.status === 'Approved') {
+            warn('downgraded', 'research_protocol', 'legacy_approved_without_server_trust');
+          }
           const migratedState = {
             ...fields,
             status: migratedStatus,
@@ -154,6 +180,12 @@ function parseSessions(raw: string): Session[] {
             && recomputedStateHash === parsedProtocol.data.state_sha256
             && (parsedProtocol.data.status !== 'Approved' || parsedProtocol.data.approval_id !== null)
           ) return parsedProtocol.data;
+          const reason = recomputedHash !== parsedProtocol.data.content_sha256
+            ? 'content_hash_mismatch'
+            : recomputedStateHash !== parsedProtocol.data.state_sha256
+              ? 'state_hash_mismatch'
+              : 'approved_protocol_missing_approval_id';
+          warn('downgraded', 'research_protocol', reason);
           const downgraded = {
             ...parsedProtocol.data,
             status: 'Draft' as const,
@@ -170,22 +202,32 @@ function parseSessions(raw: string): Session[] {
       const parsedAudits = Array.isArray(session.dataset_audits)
         ? session.dataset_audits.flatMap((value) => {
           const parsedAudit = domain.datasetAudit.safeParse(value);
-          if (!parsedAudit.success) return [];
+          if (!parsedAudit.success) {
+            warn('discarded', 'dataset_audit', 'schema_invalid');
+            return [];
+          }
           const {
             audit_id: _auditId,
             audit_sha256: _auditSha256,
             created_at: _createdAt,
             ...content
           } = parsedAudit.data;
-          return sha256Canonical(content) === parsedAudit.data.audit_sha256
-            ? [parsedAudit.data]
-            : [];
+          if (sha256Canonical(content) === parsedAudit.data.audit_sha256) return [parsedAudit.data];
+          warn('discarded', 'dataset_audit', 'content_hash_mismatch');
+          return [];
         })
         : [];
       const parsedApprovals = Array.isArray(session.analysis_plan_approvals)
         ? session.analysis_plan_approvals.flatMap((value) => {
           const parsedApproval = domain.analysisPlanApproval.safeParse(value);
-          if (!parsedApproval.success || !trustedProtocol || trustedProtocol.status !== 'Approved') return [];
+          if (!parsedApproval.success) {
+            warn('discarded', 'analysis_plan_approval', 'schema_invalid');
+            return [];
+          }
+          if (!trustedProtocol || trustedProtocol.status !== 'Approved') {
+            warn('discarded', 'analysis_plan_approval', 'protocol_not_approved');
+            return [];
+          }
           const approval = parsedApproval.data;
           const dataset = session.datasets.find((candidate) => candidate.dataset_id === approval.dataset_id);
           const audit = parsedAudits.find((candidate) => candidate.audit_id === approval.audit_id);
@@ -199,7 +241,9 @@ function parseSessions(raw: string): Session[] {
               approval.dataset_id,
               approval.args,
             );
-          return valid ? [approval] : [];
+          if (valid) return [approval];
+          warn('discarded', 'analysis_plan_approval', 'binding_mismatch');
+          return [];
         })
         : [];
       return cloneSession({
@@ -214,6 +258,15 @@ function parseSessions(raw: string): Session[] {
 export function createFileSessionStore(opts: FileSessionStoreOptions = {}): SessionStore {
   const filePath = opts.filePath ?? defaultSessionStorePath();
   const now = opts.now ?? (() => new Date());
+  const warningSink = opts.onIntegrityWarning
+    ?? ((warning: FileSessionIntegrityWarning) => { console.warn(JSON.stringify(warning)); });
+  const onIntegrityWarning = (warning: FileSessionIntegrityWarning): void => {
+    try {
+      warningSink(warning);
+    } catch {
+      // Observability must never turn a recoverable integrity downgrade into data loss.
+    }
+  };
   let loaded = false;
   const sessions = new Map<string, Session>();
 
@@ -231,7 +284,7 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
     loaded = true;
     if (!existsSync(filePath)) return;
     try {
-      for (const session of parseSessions(readFileSync(filePath, 'utf8'))) {
+      for (const session of parseSessions(readFileSync(filePath, 'utf8'), onIntegrityWarning)) {
         sessions.set(session.id, session);
       }
     } catch {
@@ -326,6 +379,7 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
 
     async appendDatasetAudit(id: string, audit: DatasetAudit): Promise<void> {
       const session = mustGet(id);
+      if (session.status !== 'Active') throw new StoreError('archived', 'session is archived');
       (session.dataset_audits ??= []).push(JSON.parse(JSON.stringify(audit)) as DatasetAudit);
       session.last_active_at = now().toISOString();
       save();
@@ -349,6 +403,7 @@ export function createFileSessionStore(opts: FileSessionStoreOptions = {}): Sess
 
     async appendSkillRun(id: string, run: SkillRun): Promise<void> {
       const session = mustGet(id);
+      if (session.status !== 'Active') throw new StoreError('archived', 'session is archived');
       session.skill_runs.push(JSON.parse(JSON.stringify(run)) as SkillRun);
       session.last_active_at = now().toISOString();
       save();

@@ -1,8 +1,58 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildRouter, createFileSessionStore } from '@stats-code/server';
+import {
+  buildRouter,
+  createFileSessionStore,
+  createResearchWorkflowService,
+  SkillRegistry,
+  SkillRunner,
+  type DatasetStore,
+  type DatasetSummary,
+  type FileSessionIntegrityWarning,
+} from '@stats-code/server';
+
+const CSV = 'participant_id,y,x\nP001,1,1\nP002,2,2\nP003,3,3.1\n';
+const DATASET_ID = '33333333-3333-4333-8333-333333333333';
+
+function datasetSummary(): DatasetSummary {
+  const bytes = new TextEncoder().encode(CSV);
+  return {
+    dataset_id: DATASET_ID,
+    file_name: 'data.csv',
+    size_bytes: bytes.byteLength,
+    encoding: 'Utf8',
+    row_count: 3,
+    columns: [
+      { name: 'participant_id', inferred_type: 'String', missing_count: 0 },
+      { name: 'y', inferred_type: 'Numeric', missing_count: 0 },
+      { name: 'x', inferred_type: 'Numeric', missing_count: 0 },
+    ],
+    uploaded_at: '2026-01-01T00:00:00Z',
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
+const approvedProtocol = {
+  status: 'Approved',
+  research_question: 'x 与 y 是否相关？',
+  study_design: 'cross_sectional',
+  population: '演示成年人',
+  eligibility_criteria: '每人一行且主键唯一',
+  exposure: 'x',
+  comparator: 'x 较低者',
+  outcome: 'y',
+  time_zero: '基线',
+  follow_up: '横断面',
+  analysis_unit: '参与者',
+  estimand: 'x 每增加 1 单位时 y 的均值差',
+  confounders: '无',
+  missing_data_strategy: '完整案例',
+  primary_analysis: '多元线性回归',
+  sensitivity_analysis: '稳健性检查',
+} as const;
 
 describe('file session store empty-shell reuse', () => {
   let dir: string;
@@ -70,13 +120,21 @@ describe('file session store empty-shell reuse', () => {
     const next = await store.create();
     expect(next.id).not.toBe(session.id);
 
-    const reloaded = createFileSessionStore({ filePath });
+    const warnings: FileSessionIntegrityWarning[] = [];
+    const reloaded = createFileSessionStore({ filePath, onIntegrityWarning: (warning) => warnings.push(warning) });
     expect((await reloaded.get(session.id)).research_protocol).toMatchObject({
       status: 'Draft',
       outcome: 'outcome',
       version: 1,
       approval_id: null,
       approved_at: null,
+    });
+    expect(warnings).toContainEqual({
+      event: 'file_session_integrity_warning',
+      action: 'downgraded',
+      record_type: 'research_protocol',
+      session_id: session.id,
+      reason: 'legacy_approved_without_server_trust',
     });
   });
 
@@ -120,9 +178,86 @@ describe('file session store empty-shell reuse', () => {
     target.research_protocol.approved_at = '2099-01-01T00:00:00.000Z';
     writeFileSync(filePath, JSON.stringify(persisted), 'utf8');
 
-    const reloaded = createFileSessionStore({ filePath });
+    const warnings: FileSessionIntegrityWarning[] = [];
+    const reloaded = createFileSessionStore({ filePath, onIntegrityWarning: (warning) => warnings.push(warning) });
     const protocol = (await reloaded.get(session.id)).research_protocol!;
     expect(protocol).toMatchObject({ status: 'Draft', version: 999, approval_id: null, approved_at: null });
     expect(protocol.state_sha256).not.toBe(originalStateHash);
+    expect(warnings).toContainEqual(expect.objectContaining({
+      action: 'downgraded',
+      record_type: 'research_protocol',
+      session_id: session.id,
+      reason: 'state_hash_mismatch',
+    }));
+
+    const resilient = createFileSessionStore({
+      filePath,
+      onIntegrityWarning: () => { throw new Error('logging unavailable'); },
+    });
+    await expect(resilient.get(session.id)).resolves.toMatchObject({
+      research_protocol: { status: 'Draft', approval_id: null },
+    });
+  });
+
+  it('filters a stale persisted approval and reports the failed binding check', async () => {
+    const bytes = new TextEncoder().encode(CSV);
+    const sessionStore = createFileSessionStore({ filePath });
+    const datasetStore: DatasetStore = {
+      saveAndParse: async () => datasetSummary(),
+      readRawById: async () => bytes,
+    };
+    const registry = SkillRegistry.withDefaults();
+    const runner = new SkillRunner(registry);
+    const researchWorkflow = createResearchWorkflowService({ sessionStore, datasetStore, registry, runner });
+    const app = buildRouter({ state: { sessionStore, datasetStore, researchWorkflow } });
+    const session = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    await sessionStore.appendDataset(session.id, datasetSummary());
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${session.id}/protocol`, payload: approvedProtocol });
+    const audit = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${session.id}/datasets/${DATASET_ID}/audit`,
+      payload: {
+        skill_id: 'model_linear',
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+      },
+    });
+    expect(audit.statusCode).toBe(200);
+    const approval = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${session.id}/analysis-plans/approve`,
+      payload: {
+        skill_id: 'model_linear',
+        dataset_id: DATASET_ID,
+        args: { outcome: 'y', predictors: ['x'] },
+        expected_protocol_version: 1,
+        expected_audit_id: audit.json().audit_id,
+        expected_audit_sha256: audit.json().audit_sha256,
+        audit_roles: audit.json().roles,
+      },
+    });
+    expect(approval.statusCode).toBe(201);
+    await app.close();
+
+    const persisted = JSON.parse(readFileSync(filePath, 'utf8')) as {
+      sessions: Array<{
+        id: string;
+        analysis_plan_approvals: Array<{ args: Record<string, unknown> }>;
+      }>;
+    };
+    const target = persisted.sessions.find((candidate) => candidate.id === session.id)!;
+    target.analysis_plan_approvals[0]!.args = { outcome: 'y', predictors: ['x'], alpha: 0.01 };
+    writeFileSync(filePath, JSON.stringify(persisted), 'utf8');
+
+    const warnings: FileSessionIntegrityWarning[] = [];
+    const reloaded = createFileSessionStore({ filePath, onIntegrityWarning: (warning) => warnings.push(warning) });
+    expect((await reloaded.get(session.id)).analysis_plan_approvals).toEqual([]);
+    expect(warnings).toContainEqual({
+      event: 'file_session_integrity_warning',
+      action: 'discarded',
+      record_type: 'analysis_plan_approval',
+      session_id: session.id,
+      reason: 'binding_mismatch',
+    });
   });
 });

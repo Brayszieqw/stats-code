@@ -52,9 +52,11 @@ export interface SessionStore {
   updateSettings(id: string, settings: SessionSettings): Promise<void>;
   /** Atomic compare-and-swap; false means the expected version is stale. */
   updateResearchProtocol(id: string, protocol: ResearchProtocol, expectedVersion?: number): Promise<boolean>;
+  /** Append only while the session is active. */
   appendDatasetAudit(id: string, audit: DatasetAudit): Promise<void>;
   /** Atomically append only while the session is active and the bound protocol is still current. */
   appendAnalysisPlanApproval(id: string, approval: AnalysisPlanApproval): Promise<boolean>;
+  /** Append only while the session is active. */
   appendSkillRun(id: string, run: SkillRun): Promise<void>;
   appendMessages(id: string, messages: Message[]): Promise<void>;
   appendDataset(id: string, dataset: DatasetSummary): Promise<void>;

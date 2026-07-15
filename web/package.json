@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "node scripts/record-research-gate-demo.mjs",
     "test:a8": "node scripts/a8-network-verify.mjs",
     "demo:research-gate": "node scripts/record-research-gate-demo.mjs",
     "audit": "npm audit --omit=dev"

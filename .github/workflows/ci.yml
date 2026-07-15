@@ -88,6 +88,25 @@ jobs:
           npm run build
         working-directory: ts-backend
 
+      - name: Install Chromium for browser E2E
+        run: npx playwright install --only-shell chromium
+        working-directory: web
+
+      - name: Browser E2E (research gate)
+        shell: pwsh
+        run: .\scripts\run-web-e2e-ci.ps1
+
+      - name: Upload browser E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stats-code-e2e-${{ github.sha }}
+          path: |
+            web/output/playwright/research-gate-demo/*
+            web/output/playwright/ci/*
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Build single-file exe (Node SEA)
         run: npm run sea
         working-directory: ts-backend

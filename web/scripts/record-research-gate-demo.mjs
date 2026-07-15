@@ -352,6 +352,7 @@ async function run() {
     });
     await pause(page);
 
+    assert(report.console_errors.length === 0, `console errors observed: ${report.console_errors.join(' | ')}`);
     assert(report.page_errors.length === 0, `page errors observed: ${report.page_errors.join(' | ')}`);
     report.status = 'passed';
     report.completed_at = new Date().toISOString();
@@ -366,6 +367,16 @@ async function run() {
   } finally {
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
+    if (report.session_id) {
+      try {
+        await apiJson(`/api/sessions/${encodeURIComponent(report.session_id)}`, { method: 'DELETE' });
+        report.session_deleted = true;
+      } catch (error) {
+        report.session_deleted = false;
+        report.cleanup_error = error instanceof Error ? error.message : String(error);
+        if (!failure) failure = new Error(`session cleanup failed: ${report.cleanup_error}`);
+      }
+    }
     if (video) {
       const generatedVideo = await video.path().catch(() => null);
       if (generatedVideo) {

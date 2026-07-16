@@ -184,10 +184,33 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   });
 
   // Permissive CORS (mirrors tower_http CorsLayer::permissive()).
-  app.addHook('onSend', (_req, reply, payload, done) => {
+  //
+  // onSend alone is not enough for browser preflight: OPTIONS has no matching
+  // route, so it used to fall through to the /api not-found handler (404) while
+  // still advertising Allow-Methods: OPTIONS. Answer OPTIONS for /api/* with
+  // 204 before routing.
+  const CORS_ALLOW_METHODS = 'GET,POST,PATCH,DELETE,OPTIONS';
+  const corsAllowHeaders = (req: { headers: { [key: string]: string | string[] | undefined } }): string => {
+    const requested = req.headers['access-control-request-headers'];
+    if (typeof requested === 'string' && requested.length > 0) return requested;
+    if (Array.isArray(requested) && requested.length > 0) return requested.join(',');
+    return '*';
+  };
+
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.method !== 'OPTIONS') return;
+    const path = req.url.split('?')[0] ?? req.url;
+    if (!path.startsWith('/api/')) return;
     reply.header('access-control-allow-origin', '*');
-    reply.header('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    reply.header('access-control-allow-headers', '*');
+    reply.header('access-control-allow-methods', CORS_ALLOW_METHODS);
+    reply.header('access-control-allow-headers', corsAllowHeaders(req));
+    return reply.code(204).send();
+  });
+
+  app.addHook('onSend', (req, reply, payload, done) => {
+    reply.header('access-control-allow-origin', '*');
+    reply.header('access-control-allow-methods', CORS_ALLOW_METHODS);
+    reply.header('access-control-allow-headers', corsAllowHeaders(req));
     done(null, payload);
   });
 

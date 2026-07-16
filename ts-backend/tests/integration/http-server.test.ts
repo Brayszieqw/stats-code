@@ -15,6 +15,43 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
+  it('OPTIONS /api/sessions preflight → 204 with CORS headers (not 404)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/sessions',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(String(res.headers['access-control-allow-methods'])).toContain('OPTIONS');
+    expect(String(res.headers['access-control-allow-methods'])).toContain('POST');
+    expect(String(res.headers['access-control-allow-headers']).toLowerCase()).toContain('content-type');
+    expect(res.body).toBe('');
+    await app.close();
+  });
+
+  it('OPTIONS /api/health preflight → 204 (any /api/* path)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({ method: 'OPTIONS', url: '/api/health' });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    await app.close();
+  });
+
+  it('GET responses still carry CORS allow headers', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(String(res.headers['access-control-allow-methods'])).toContain('GET');
+    await app.close();
+  });
+
   it('POST /api/sessions → 201 with a session DTO', async () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({ method: 'POST', url: '/api/sessions' });

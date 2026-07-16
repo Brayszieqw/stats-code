@@ -31,6 +31,9 @@ $BackendDir    = Join-Path $RepoRoot 'ts-backend'
 $EnginePkg     = Join-Path $BackendDir 'packages/engine/package.json'
 $BuiltExe      = Join-Path $BackendDir 'build/stats-code.exe'
 $InstallScript = Join-Path $RepoRoot 'install.ps1'
+$StartBat      = Join-Path $RepoRoot 'packaging/start.bat'
+$InstallBat    = Join-Path $RepoRoot 'packaging/install.bat'
+$ColleagueReadme = Join-Path $RepoRoot 'packaging/colleague-README.txt'
 $ReadmeFile    = Join-Path $RepoRoot 'README.md'
 $StageDir      = Join-Path $BackendDir 'build/release/stage'
 $OutDir        = Join-Path $BackendDir 'build/release'
@@ -102,12 +105,29 @@ New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
 $StagedExe     = Join-Path $StageDir 'stats-code.exe'
 $StagedInstall = Join-Path $StageDir 'install.ps1'
+$StagedStart   = Join-Path $StageDir 'start.bat'
+$StagedInstallBat = Join-Path $StageDir 'install.bat'
+$StagedColleague = Join-Path $StageDir '发给同事说明.txt'
 $StagedSums    = Join-Path $StageDir 'SHA256SUMS.txt'
 
 Copy-Item -LiteralPath $BuiltExe      -Destination $StagedExe     -Force
 Copy-Item -LiteralPath $InstallScript -Destination $StagedInstall -Force
 
 $itemsToZip = @($StagedExe, $StagedInstall, $StagedSums)
+
+if (Test-Path -LiteralPath $StartBat -PathType Leaf) {
+    Copy-Item -LiteralPath $StartBat -Destination $StagedStart -Force
+    $itemsToZip += $StagedStart
+}
+if (Test-Path -LiteralPath $InstallBat -PathType Leaf) {
+    Copy-Item -LiteralPath $InstallBat -Destination $StagedInstallBat -Force
+    $itemsToZip += $StagedInstallBat
+}
+if (Test-Path -LiteralPath $ColleagueReadme -PathType Leaf) {
+    Copy-Item -LiteralPath $ColleagueReadme -Destination $StagedColleague -Force
+    $itemsToZip += $StagedColleague
+}
+
 if (Test-Path -LiteralPath $ReadmeFile -PathType Leaf) {
     $StagedReadme = Join-Path $StageDir 'README.md'
     Copy-Item -LiteralPath $ReadmeFile -Destination $StagedReadme -Force
@@ -116,12 +136,20 @@ if (Test-Path -LiteralPath $ReadmeFile -PathType Leaf) {
     Write-Host '  note: README.md not found at repo root; archive ships without it.'
 }
 
+# Refuse to stage credential filenames if they ever appear under StageDir.
+$forbidden = @('llm-config.json', '.env', '.env.local', 'env.json', 'secrets.json', 'credentials.json')
+Get-ChildItem -LiteralPath $StageDir -File -Recurse | ForEach-Object {
+    if ($forbidden -contains $_.Name) {
+        throw "Refusing to ship credential file in release stage: $($_.FullName)"
+    }
+}
+
 # GNU coreutils sha256sum format (two-space separator, LF, trailing newline)
 # so `sha256sum -c SHA256SUMS.txt` verifies the extracted archive in one shot.
-$sumsLines = @(
-    "$(Get-Sha256Lower -Path $StagedExe)  stats-code.exe",
-    "$(Get-Sha256Lower -Path $StagedInstall)  install.ps1"
-)
+$sumsLines = foreach ($item in ($itemsToZip | Where-Object { $_ -ne $StagedSums })) {
+    $name = Split-Path -Leaf $item
+    "$(Get-Sha256Lower -Path $item)  $name"
+}
 $sumsContent = ($sumsLines -join "`n") + "`n"
 [System.IO.File]::WriteAllText($StagedSums, $sumsContent, [System.Text.UTF8Encoding]::new($false))
 $sumsLines | ForEach-Object { Write-Host "  $_" }

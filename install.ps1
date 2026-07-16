@@ -1,19 +1,19 @@
-﻿<#
+<#
 .SYNOPSIS
   Installs stats-code.exe to %LOCALAPPDATA%\Programs\stats-code\.
 
 .DESCRIPTION
-  Three-step user-level installer (no UAC required):
-    1. Copy   - copy stats-code.exe to Install_Dir.
-    2. PATH   - append Install_Dir to HKCU\Environment\Path (idempotent).  [task 13.2]
-    3. Shortcut - create/overwrite "Stats Code.lnk" on the desktop.        [task 13.4]
+  User-level installer (no UAC required):
+    1. Copy   - copy stats-code.exe (+ optional demo data / start.bat) to Install_Dir.
+    2. PATH   - append Install_Dir to HKCU\Environment\Path (idempotent).
+    3. Shortcut - create/overwrite "Stats Code.lnk" on the desktop.
 
-  This script is part of the Distribution_Archive (single-command-launcher spec)
-  and is expected to live next to stats-code.exe at install time.
+  Security:
+    - Never copies API keys, llm-config.json, .env, or any credential files.
+    - LLM keys must be configured by each user inside the app after install.
 
-.NOTES
-  Requirements covered by this revision: 14.1, 14.2, 14.3, 14.6
-  Desktop shortcut (14.4, 14.5) comes in task 13.4.
+  This script is part of the Distribution_Archive / Demo-Pack and is expected
+  to live next to stats-code.exe at install time.
 #>
 
 Set-StrictMode -Version Latest
@@ -30,6 +30,23 @@ $Target_Exe  = Join-Path $Install_Dir 'stats-code.exe'
 if (-not (Test-Path -LiteralPath $Source_Exe -PathType Leaf)) {
     Write-Error "未找到 stats-code.exe（期望路径：$Source_Exe）。请确认 install.ps1 与 stats-code.exe 位于同一目录后再运行。"
     exit 1
+}
+
+# Refuse to package-install anything that looks like a secrets file in the source dir.
+$forbiddenNames = @(
+    'llm-config.json',
+    '.env',
+    '.env.local',
+    'env.json',
+    'secrets.json',
+    'credentials.json'
+)
+foreach ($name in $forbiddenNames) {
+    $hit = Join-Path $PSScriptRoot $name
+    if (Test-Path -LiteralPath $hit -PathType Leaf) {
+        Write-Error "检测到不应分发的密钥文件：$name。请从安装包目录删除后再安装（密钥只应保存在本机 %APPDATA%\stats-code\）。"
+        exit 1
+    }
 }
 
 if (-not (Test-Path -LiteralPath $Install_Dir -PathType Container)) {
@@ -52,24 +69,42 @@ try {
 "@
     exit 1
 } catch {
-    # 非 IOException 的失败（例如权限不足）也按非零退出，避免静默成功。
     Write-Error "拷贝 stats-code.exe 到 $Target_Exe 失败：$($_.Exception.Message)"
     exit 1
 }
 
 Write-Host "Copy complete: $Target_Exe"
 
+# Optional demo dataset (never required; no secrets)
+$Source_Data_Dir = Join-Path $PSScriptRoot 'data'
+$Source_Demo     = Join-Path $Source_Data_Dir 'demo_cohort.csv'
+if (Test-Path -LiteralPath $Source_Demo -PathType Leaf) {
+    $Target_Data_Dir = Join-Path $Install_Dir 'data'
+    New-Item -ItemType Directory -Path $Target_Data_Dir -Force | Out-Null
+    Copy-Item -LiteralPath $Source_Demo -Destination (Join-Path $Target_Data_Dir 'demo_cohort.csv') -Force
+    Write-Host "Demo data copied: $Target_Data_Dir\demo_cohort.csv"
+}
+
+# Portable start helper next to the installed exe
+$Start_Bat = Join-Path $Install_Dir 'start.bat'
+$startBatContent = @"
+@echo off
+setlocal EnableExtensions
+cd /d "%~dp0"
+if not exist "%~dp0stats-code.exe" (
+  echo [ERROR] stats-code.exe not found.
+  pause
+  exit /b 1
+)
+start "" "%~dp0stats-code.exe"
+exit /b 0
+"@
+[System.IO.File]::WriteAllText($Start_Bat, $startBatContent, [System.Text.UTF8Encoding]::new($false))
+Write-Host "Start helper written: $Start_Bat"
+
 # ---------------------------------------------------------------------------
 # Step 2 - HKCU\Environment\Path 幂等更新（user-level，无需 UAC）
 # ---------------------------------------------------------------------------
-#
-# 关键点：
-#   * 用 [Environment]::GetEnvironmentVariable('Path','User') 读取，等价于
-#     `Get-ItemProperty 'HKCU:\Environment' Path` 但缺失时返回 $null 而不会抛错。
-#   * 写回用 [Environment]::SetEnvironmentVariable(..., 'User')，它在写入
-#     HKCU\Environment\Path 的同时广播 WM_SETTINGCHANGE，让已运行的 Shell 也
-#     刷新 PATH。直接 Set-ItemProperty 不会广播，需要手动 P/Invoke，故选前者。
-#   * 比较时按 `;` split、去空、去末尾反斜杠、忽略大小写，避免重复追加。
 
 $Current_Path = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $Current_Path) { $Current_Path = '' }
@@ -101,32 +136,33 @@ if ($Normalized_Entries -contains $Install_Dir_Norm) {
 # ---------------------------------------------------------------------------
 # Step 3 - 桌面快捷方式（覆盖式创建）
 # ---------------------------------------------------------------------------
-#
-# 关键点：
-#   * 用 WScript.Shell COM CreateShortcut() 创建 .lnk 文件。
-#   * 每次运行直接覆盖同名快捷方式（CreateShortcut 打开已存在的 .lnk 时等同编辑）
-#     → 不会产生 `Stats Code (2).lnk` 副本。
-#   * 桌面路径通过 [Environment]::GetFolderPath('Desktop') 获取，
-#     比 `$env:USERPROFILE\Desktop` 更健壮（支持重定向桌面到 OneDrive 等场景）。
 
 $Desktop_Dir    = [Environment]::GetFolderPath('Desktop')
 $Shortcut_Path  = Join-Path $Desktop_Dir 'Stats Code.lnk'
+$WshShell = $null
+$Shortcut = $null
 
 try {
     $WshShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WshShell.CreateShortcut($Shortcut_Path)
     $Shortcut.TargetPath       = $Target_Exe
     $Shortcut.WorkingDirectory = $Install_Dir
-    $Shortcut.Description      = 'Stats Code 统计分析智能体'
+    $Shortcut.Description      = 'Stats Code 统计分析智能体（无需 API Key 即可用专业模式）'
     $Shortcut.Save()
     Write-Host "Desktop shortcut created: $Shortcut_Path"
 } catch {
     Write-Error "创建桌面快捷方式失败：$($_.Exception.Message)"
     exit 1
 } finally {
-    # 释放 COM 对象
     if ($null -ne $Shortcut) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($Shortcut) }
     if ($null -ne $WshShell) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($WshShell) }
 }
+
+Write-Host ''
+Write-Host 'Install complete.'
+Write-Host "  exe     : $Target_Exe"
+Write-Host "  start   : $Start_Bat"
+Write-Host '  note    : No API keys were installed. Configure LLM later inside the app if needed.'
+Write-Host '  tip     : Professional mode works without any API key.'
 
 exit 0

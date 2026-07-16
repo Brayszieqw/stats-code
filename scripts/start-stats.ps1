@@ -69,6 +69,9 @@ function Invoke-NpmInstall([string]$Dir) {
 Write-Host '============================================'
 Write-Host '  Stats Code dev launcher'
 Write-Host "  repo: $RepoRoot"
+Write-Host '  note: uses your local env / APPDATA only;'
+Write-Host '        never copies API keys into packages.'
+Write-Host '  share: build Demo-Pack via scripts\build-demo-pack.ps1'
 Write-Host '============================================'
 
 # --- 1. preflight -----------------------------------------------------------

@@ -451,8 +451,9 @@ describe('server-enforced research workflow gate', () => {
     expect(approval.statusCode).toBe(409);
     expect(approval.json().error_code).toBe('ResearchAuditBlocked');
     expect(approval.json().details.findings).toEqual(expect.arrayContaining([
+      // Rebinding primary_key to the unique `x` cannot hide the duplicated
+      // participant_id: the union gate still blocks (D11 redesign).
       expect.objectContaining({ code: 'DUPLICATE_PRIMARY_KEY', severity: 'blocker' }),
-      expect.objectContaining({ code: 'AUDIT_ROLE_OVERRIDE_REJECTED', severity: 'blocker' }),
     ]));
     expect(state.runnerSpy).not.toHaveBeenCalled();
     expect((await state.sessionStore.get(sid)).dataset_audits).toHaveLength(1);
@@ -491,7 +492,7 @@ describe('server-enforced research workflow gate', () => {
     await app.close();
   });
 
-  it('rejects execution when the fresh audit becomes blocked', async () => {
+  it('rejects execution when tampered audit roles drift the audit hash from the approval', async () => {
     const state = makeState();
     const { app, sid } = await seed(state);
     await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
@@ -505,11 +506,11 @@ describe('server-enforced research workflow gate', () => {
       payload: { ...runSpec, plan_id: approval.plan_id },
     });
 
+    // The adopted role changes the fresh audit's roles (and therefore its
+    // hash), which no longer matches the hash the approval bound (D11: the
+    // hash chain, not a blanket override rejection, is the tamper defense).
     expect(run.statusCode).toBe(409);
-    expect(run.json().error_code).toBe('ResearchAuditBlocked');
-    expect(run.json().details.findings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'AUDIT_ROLE_OVERRIDE_REJECTED', severity: 'blocker' }),
-    ]));
+    expect(run.json().error_code).toBe('ResearchApprovalStale');
     expect((await state.sessionStore.get(sid)).dataset_audits).toHaveLength(2);
     expect(state.runnerSpy).not.toHaveBeenCalled();
     await app.close();

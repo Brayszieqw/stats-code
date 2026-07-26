@@ -221,7 +221,7 @@ describe('orchestrator research context safety', () => {
     };
     session.dataset_audits = [{
       schema_version: '1.0',
-      audit_rules_version: '1.1.0',
+      audit_rules_version: '1.2.0',
       audit_id: '22222222-2222-4222-8222-222222222222',
       dataset_id: 'ds-1',
       dataset_sha256: 'c'.repeat(64),

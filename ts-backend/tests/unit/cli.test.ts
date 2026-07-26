@@ -51,8 +51,18 @@ describe('classifyInvocation', () => {
     });
   });
 
-  it('unknown flags do not flip to subcommand', () => {
-    expect(classifyInvocation(['stats-code', '--definitely-not-a-flag']).mode).toBe('launcher');
+  it('unknown flags are rejected instead of silently launching (D8)', () => {
+    expect(classifyInvocation(['stats-code', '--definitely-not-a-flag'])).toEqual({
+      mode: 'invalid_flag',
+      flag: '--definitely-not-a-flag',
+    });
+    expect(classifyInvocation(['stats-code', '--replay', 'x.zip'])).toEqual({
+      mode: 'invalid_flag',
+      flag: '--replay',
+    });
+    // Subcommand flag namespaces are untouched.
+    expect(classifyInvocation(['stats-code', 'replay', 'x.zip', '--sha256', 'abc']).mode).toBe('replay');
+    expect(classifyInvocation(['stats-code', 'parity', '--filter', 'tableone']).mode).toBe('subcommand');
   });
 
   it('--help takes precedence over a subcommand token', () => {
@@ -124,6 +134,22 @@ describe('main', () => {
     expect(launcherCalled).toBe(false);
     expect(replayArgs).toEqual({ snapshotPath: 'snapshot.zip', expectedSha256: 'a'.repeat(64) });
     expect(out.join('')).toContain('Replay PASS');
+  });
+
+  it('--replay (unknown flag) errors with exit 2 and never starts the launcher (D8)', async () => {
+    const { io, err } = captureIo();
+    let launcherCalled = false;
+    const code = await main(['stats-code', '--replay', 'x.zip'], {
+      io,
+      runLauncher: async () => {
+        launcherCalled = true;
+        return 0;
+      },
+    });
+    expect(code).toBe(2);
+    expect(launcherCalled).toBe(false);
+    expect(err.join('')).toContain("unknown option '--replay'");
+    expect(err.join('')).toContain('replay <snapshot.zip>');
   });
 
   it('replay reports usage failure when the archive path is missing', async () => {

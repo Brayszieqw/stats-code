@@ -171,10 +171,20 @@ export function ReportViewer({ messages, selectedDataset, activeView, pinnedArti
   // 而不是当前选中数据集的行数（那与本次结果无关，会误导读者）。
   const isPowerPayload = typeof payload.required_n === 'number'
     && typeof payload.achieved_power === 'number';
+  // Outside the power path this tile means "records this analysis actually
+  // used". The dataset row count was taking priority over every result-derived
+  // count, so rows dropped for missing values were still counted here and the
+  // tile read higher than the analysis it labelled. Prefer the run's own
+  // complete-case count, then the payload's n, and only then the file's size.
+  const completeCaseN = typeof resultContract?.counts?.complete_case_n === 'number'
+    ? resultContract.counts.complete_case_n
+    : null;
+  const payloadN = typeof payload.n_total === 'number'
+    ? payload.n_total
+    : typeof payload.n === 'number' ? payload.n : null;
   const sampleSize = isPowerPayload
     ? Math.ceil(payload.required_n as number)
-    : selectedDataset?.row_count
-      ?? (typeof payload.n === 'number' ? payload.n : null);
+    : completeCaseN ?? payloadN ?? selectedDataset?.row_count ?? null;
   const flatCiLower = flatNum('ci_lower');
   const flatCiUpper = flatNum('ci_upper');
   const confidenceInterval = primaryCoefficient && primaryCoefficient.ciLower !== null && primaryCoefficient.ciUpper !== null

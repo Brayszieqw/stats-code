@@ -143,8 +143,13 @@ function parseTextTable(
   bytes: Uint8Array,
   fileName: string,
   _ext: string,
-): { row_count: number; columns: ColumnSummary[]; preview_rows: Record<string, string | number>[] } {
-  const { headers, rows } = parseDelimitedTable(bytes, fileName);
+): {
+  row_count: number;
+  columns: ColumnSummary[];
+  preview_rows: Record<string, string | number>[];
+  encoding: DatasetSummary['encoding'];
+} {
+  const { headers, rows, encoding } = parseDelimitedTable(bytes, fileName);
   const columnCount = headers.length;
   if (columnCount === 0) {
     throw new Error('dataset has no columns');
@@ -215,7 +220,7 @@ function parseTextTable(
     return { name, inferred_type: inferredType, missing_count: missingCounts[idx]! };
   });
 
-  return { row_count: rowCount, columns, preview_rows };
+  return { row_count: rowCount, columns, preview_rows, encoding };
 }
 
 export function createFsDatasetStore(opts: FsDatasetStoreOptions = {}): DatasetStore {
@@ -252,7 +257,7 @@ export function createFsDatasetStore(opts: FsDatasetStoreOptions = {}): DatasetS
         dataset_id: datasetId,
         file_name: fileName,
         size_bytes: bytes.byteLength,
-        encoding: 'Utf8',
+        encoding: parsed.encoding,
         row_count: parsed.row_count,
         columns: parsed.columns,
         uploaded_at: new Date().toISOString(),

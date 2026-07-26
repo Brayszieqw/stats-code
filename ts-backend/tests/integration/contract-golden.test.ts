@@ -40,7 +40,7 @@ const snapshotProvider: SnapshotProvider = {
 
 const auditGolden: DatasetAudit = {
   schema_version: '1.0',
-  audit_rules_version: '1.1.0',
+  audit_rules_version: '1.2.0',
   audit_id: '22222222-2222-4222-8222-222222222222',
   dataset_id: '33333333-3333-4333-8333-333333333333',
   dataset_sha256: 'a'.repeat(64),
@@ -280,6 +280,7 @@ describe('coverage-matrix golden', () => {
         id: 'tableone',
         display_name: 'Table One',
         iterative: false,
+        ui_runnable: true,
         coverage: { R: 'live', SAS: 'recorded', Python: 'sidecar_only', SPSS: 'none' },
         reference: {
           R: { callable: 'tableone', package: 'tableone', version: '0.13.2' },

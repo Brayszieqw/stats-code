@@ -55,6 +55,13 @@ export interface AlgorithmEntry {
   id: string;
   display_name: string;
   iterative: boolean;
+  /**
+   * True when the algorithm can be run from the shipped UI/HTTP surface;
+   * false = engine-level verified only (no run entry point yet). Optional so
+   * older fixtures/back ends without the field still parse (treat absent as
+   * not runnable).
+   */
+  ui_runnable?: boolean;
   coverage: Record<ReferenceSoftware, CoverageState>;
   reference: Record<ReferenceSoftware, ReferenceImpl>;
 }

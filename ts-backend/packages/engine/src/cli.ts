@@ -53,7 +53,8 @@ export type Invocation =
   | { mode: 'version' }
   | { mode: 'help' }
   | { mode: 'replay'; args: string[] }
-  | { mode: 'subcommand'; name: string };
+  | { mode: 'subcommand'; name: string }
+  | { mode: 'invalid_flag'; flag: string };
 
 /** Usage text. Lists only the three public flags (Requirement 11.3). */
 export const USAGE = `stats-code — local statistics workbench
@@ -108,6 +109,16 @@ export function classifyInvocation(argv: readonly string[]): Invocation {
     }
     if (KNOWN_SUBCOMMANDS.includes(arg)) {
       return { mode: 'subcommand', name: arg };
+    }
+  }
+
+  // Unknown public flags must fail loudly instead of silently starting the
+  // server (D8, e.g. `stats-code --replay x.zip`). Runs after subcommand
+  // detection so internal subcommands keep their own flag namespaces
+  // (`parity --filter …`, `replay --sha256 …`).
+  for (const arg of userArgs) {
+    if (arg.startsWith('-') && arg !== '--no-browser') {
+      return { mode: 'invalid_flag', flag: arg };
     }
   }
 
@@ -194,6 +205,13 @@ export async function main(
       // not expose them. Reaching here from the public CLI is a usage error.
       io.stderr(`error: '${invocation.name}' is an internal subcommand and is not publicly available.\n`);
       return 1;
+    case 'invalid_flag':
+      io.stderr(
+        `error: unknown option '${invocation.flag}'\n` +
+        'Usage: stats-code [--no-browser | --version | --help]\n' +
+        '       stats-code replay <snapshot.zip> [--sha256 <expected-sha256>]\n',
+      );
+      return 2;
     case 'launcher': {
       if (!opts.runLauncher) {
         // Launcher implementation lands in Phase 1; until then this is a no-op

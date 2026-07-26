@@ -11,18 +11,31 @@ import {
   SQRT_2PI,
 } from './special.js';
 
-/** Standard normal CDF (Abramowitz & Stegun approximation, ~1e-7 precision). */
+/**
+ * Standard normal CDF via the incomplete-gamma identity Φ(-|z|) = Q(½, z²/2)/2.
+ *
+ * The Abramowitz & Stegun 26.2.17 rational approximation this replaced carries
+ * ~7.5e-8 ABSOLUTE error. Tail probabilities fall below that scale around
+ * |z|=4, so every returned digit there was noise, and past |z|≈9 the result
+ * collapsed to exactly 0 — reporting p = 0 for Wald tests whose true p is
+ * ~1e-19. Relative accuracy matters here because these values are p-values.
+ *
+ * The continued fraction converges for x > a+1 (i.e. |z| > √3); below that the
+ * series form of the lower gamma is the accurate branch. Same split as
+ * `inverseNormal` below.
+ */
 export function normalCdf(value: number): number {
+  if (Number.isNaN(value)) return Number.NaN;
+  // Degenerate (zero-SE) coefficients hand us ±Infinity; the gamma kernels
+  // return NaN there, so the limits are taken explicitly.
+  if (value === Number.POSITIVE_INFINITY) return 1;
+  if (value === Number.NEGATIVE_INFINITY) return 0;
   const absolute = Math.abs(value);
-  const t = 1 / (1 + 0.2316419 * absolute);
-  const density = Math.exp(-0.5 * absolute * absolute) / SQRT_2PI;
-  const approximation =
-    1 -
-    density *
-      t *
-      (0.31938153 +
-        t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return value >= 0 ? approximation : 1 - approximation;
+  const gammaArgument = (absolute * absolute) / 2;
+  const tail = gammaArgument > 1.5
+    ? regularizedUpperGammaCf(0.5, gammaArgument) / 2
+    : (1 - regularizedLowerGamma(0.5, gammaArgument)) / 2;
+  return value >= 0 ? 1 - tail : tail;
 }
 
 /** Chi-square CDF using the regularized lower incomplete gamma function. */

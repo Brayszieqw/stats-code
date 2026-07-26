@@ -22,14 +22,14 @@ describe('normalization helpers', () => {
     expect(basename('/usr/bin/')).toBe('bin');
   });
 
-  it('normalizeCommand strips .exe only on Windows', () => {
+  it('normalizeCommand strips executable suffixes on every platform (S2)', () => {
     expect(normalizeCommand('/usr/bin/python3')).toBe('python3');
-    if (IS_WINDOWS) {
-      expect(normalizeCommand('Rscript.exe')).toBe('Rscript');
-      expect(normalizeCommand('Rscript.EXE')).toBe('Rscript');
-    } else {
-      expect(normalizeCommand('Rscript.exe')).toBe('Rscript.exe');
-    }
+    expect(normalizeCommand('Rscript.exe')).toBe('Rscript');
+    expect(normalizeCommand('Rscript.EXE')).toBe('Rscript');
+    expect(normalizeCommand('C:\\Python311\\python.exe')).toBe('python');
+    expect(normalizeCommand('python.bat')).toBe('python');
+    expect(normalizeCommand('python.cmd')).toBe('python');
+    expect(normalizeCommand('spss.com')).toBe('spss');
   });
 });
 

@@ -25,6 +25,29 @@ function freshRoot(): string {
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
+/** Encode BMP text as UTF-16LE bytes, optionally BOM-prefixed. */
+function utf16le(s: string, bom = true): Uint8Array {
+  const units: number[] = [];
+  if (bom) units.push(0xfeff);
+  for (const ch of s) units.push(ch.codePointAt(0)!);
+  const bytes = new Uint8Array(units.length * 2);
+  units.forEach((u, i) => {
+    bytes[i * 2] = u & 0xff;
+    bytes[i * 2 + 1] = u >> 8;
+  });
+  return bytes;
+}
+
+// "组别,数值\n甲,1\n" in GBK (hand-encoded — Node has no GBK encoder).
+const GBK_SAMPLE = new Uint8Array([
+  0xd7, 0xe9, 0xb1, 0xf0, // 组别
+  0x2c, // ,
+  0xca, 0xfd, 0xd6, 0xb5, // 数值
+  0x0a,
+  0xbc, 0xd7, // 甲
+  0x2c, 0x31, 0x0a, // ,1\n
+]);
+
 describe('createFsDatasetStore (Requirements 6.1, 6.2, 6.7, 6.8)', () => {
   it('parses CSV into correct row count and columns with sha256', async () => {
     const store = createFsDatasetStore({ root: freshRoot() });
@@ -36,11 +59,49 @@ describe('createFsDatasetStore (Requirements 6.1, 6.2, 6.7, 6.8)', () => {
     expect(summary.columns.map((c) => c.name)).toEqual(['age', 'name']);
     expect(summary.columns[0].inferred_type).toBe('Numeric');
     expect(summary.columns[1].inferred_type).toBe('String');
+    expect(summary.encoding).toBe('Utf8');
     expect(summary.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
     expect(summary.preview_rows).toEqual([
       { age: 42, name: '[已脱敏]' },
       { age: 37, name: '[已脱敏]' },
     ]);
+  });
+
+  describe('encoding detection (D2)', () => {
+    it('decodes GBK uploads and labels them Gbk, keeping sha256 over raw bytes', async () => {
+      const store = createFsDatasetStore({ root: freshRoot() });
+      const summary = await store.saveAndParse(randomUUID(), 'gbk.csv', GBK_SAMPLE);
+      expect(summary.encoding).toBe('Gbk');
+      expect(summary.columns.map((c) => c.name)).toEqual(['组别', '数值']);
+      expect(summary.row_count).toBe(1);
+      // Hash-chain invariant: sha256 stays over the EXACT raw upload bytes.
+      expect(summary.sha256).toBe(createHash('sha256').update(GBK_SAMPLE).digest('hex'));
+    });
+
+    it('decodes BOM-prefixed UTF-16LE uploads and labels them Utf16', async () => {
+      const store = createFsDatasetStore({ root: freshRoot() });
+      const bytes = utf16le('组别,数值\n甲,1\n');
+      const summary = await store.saveAndParse(randomUUID(), 'utf16.csv', bytes);
+      expect(summary.encoding).toBe('Utf16');
+      expect(summary.columns.map((c) => c.name)).toEqual(['组别', '数值']);
+      expect(summary.row_count).toBe(1);
+    });
+
+    it('detects BOM-less UTF-16LE via the NUL heuristic', async () => {
+      const store = createFsDatasetStore({ root: freshRoot() });
+      const bytes = utf16le('age,name\n42,alice\n', false);
+      const summary = await store.saveAndParse(randomUUID(), 'utf16-nobom.csv', bytes);
+      expect(summary.encoding).toBe('Utf16');
+      expect(summary.columns.map((c) => c.name)).toEqual(['age', 'name']);
+    });
+
+    it('skips a UTF-8 BOM without polluting the first header', async () => {
+      const store = createFsDatasetStore({ root: freshRoot() });
+      const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...enc('age,name\n42,alice\n')]);
+      const summary = await store.saveAndParse(randomUUID(), 'bom.csv', bytes);
+      expect(summary.encoding).toBe('Utf8');
+      expect(summary.columns.map((c) => c.name)).toEqual(['age', 'name']);
+    });
   });
 
   it('keeps a small numeric column Numeric even when values repeat', async () => {

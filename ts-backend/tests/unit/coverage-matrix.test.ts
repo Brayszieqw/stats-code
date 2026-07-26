@@ -56,6 +56,46 @@ describe('coverage matrix loader', () => {
     expect(lookup(m, 'logistic')?.iterative).toBe(true);
     expect(lookup(m, 'tableone')?.iterative).toBe(false);
   });
+
+  it('splits ui_runnable honestly: 10 runnable vs 7 engine-level only (G2)', () => {
+    const m = getLoadedMatrix();
+    const runnable = m.algorithms.filter((e) => e.ui_runnable).map((e) => e.id).sort();
+    const engineOnly = m.algorithms.filter((e) => !e.ui_runnable).map((e) => e.id).sort();
+    // The 8 dispatched skills + the two power designs reachable through the
+    // merged `power` skill (test_type → powerPhase3 / powerSingleArm).
+    expect(runnable).toEqual([
+      'anova', 'correlation', 'cox', 'kaplan_meier', 'linear', 'logistic',
+      'power_phase3', 'power_single_arm', 'tableone', 'ttest',
+    ]);
+    // Engine-verified (parity/oracle) but no /run dispatch or configurator
+    // entry — including power_phase2, which the merged skill never maps to.
+    expect(engineOnly).toEqual([
+      'attributable_risk', 'diagnostic_roc', 'life_table', 'nonparametric',
+      'or_rr', 'power_phase2', 'standardization',
+    ]);
+  });
+
+  it('defaults ui_runnable to false when a fixture omits it', () => {
+    const toml = `schema_version = 1
+release_version = "x"
+[[algorithm]]
+id = "fixture"
+display_name = "Fixture"
+iterative = false
+[algorithm.coverage]
+R = "none"
+SAS = "none"
+Python = "none"
+SPSS = "none"
+[algorithm.reference]
+R = { fn = "f", version = "1" }
+SAS = { proc = "P", version = "1" }
+Python = { fn = "f", version = "1" }
+SPSS = { proc = "P", version = "1" }
+`;
+    const m = parseCoverageMatrix(toml, '1.0.0');
+    expect(m.algorithms[0]?.ui_runnable).toBe(false);
+  });
 });
 
 describe('coverage matrix parse errors', () => {

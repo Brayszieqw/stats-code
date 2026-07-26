@@ -107,7 +107,10 @@ $StagedExe     = Join-Path $StageDir 'stats-code.exe'
 $StagedInstall = Join-Path $StageDir 'install.ps1'
 $StagedStart   = Join-Path $StageDir 'start.bat'
 $StagedInstallBat = Join-Path $StageDir 'install.bat'
-$StagedColleague = Join-Path $StageDir '发给同事说明.txt'
+# 与 build-demo-pack.ps1 同理：本脚本以 UTF-8 无 BOM 保存，Windows PowerShell 5.1
+# 按 ANSI 解析中文字面量，直接写字面量会在 stage 目录产出乱码文件名（曾实际发生）。
+$ColleagueReadmeName = (-join ([char[]]@(0x53D1, 0x7ED9, 0x540C, 0x4E8B, 0x8BF4, 0x660E))) + '.txt'
+$StagedColleague = Join-Path $StageDir $ColleagueReadmeName
 $StagedSums    = Join-Path $StageDir 'SHA256SUMS.txt'
 
 Copy-Item -LiteralPath $BuiltExe      -Destination $StagedExe     -Force

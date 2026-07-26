@@ -38,6 +38,7 @@ export function toWireMatrix(matrix: coverage.CoverageMatrix): WireMatrix {
       id: entry.id,
       display_name: entry.display_name,
       iterative: entry.iterative,
+      ui_runnable: entry.ui_runnable,
       coverage: { ...entry.coverage },
       reference: Object.fromEntries(
         coverage.REQUIRED_SOFTWARE.map((sw) => {

@@ -338,7 +338,7 @@ export type DatasetAuditFinding = z.infer<typeof datasetAuditFinding>;
 
 export const datasetAudit = z.object({
   schema_version: z.literal('1.0'),
-  audit_rules_version: z.literal('1.1.0'),
+  audit_rules_version: z.literal('1.2.0'),
   audit_id: uuid,
   dataset_id: uuid,
   dataset_sha256: z.string().regex(/^[0-9a-f]{64}$/),

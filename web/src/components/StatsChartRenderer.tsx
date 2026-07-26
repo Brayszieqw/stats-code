@@ -289,10 +289,13 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
       };
     }
 
-    // ─── Scenario 3: One-Way ANOVA / T-Test / Variance Homogeneity ───
-    if (payload.groups && Array.isArray(payload.groups) && 'overall_mean' in payload) {
-      // ANOVA groups summary
-      const groupData = payload.groups as any[];
+    // ─── Scenario 3: One-Way ANOVA group comparison ───
+    // Gated on `group_stats`, which the anova skill emits. The previous guard
+    // required `overall_mean` — a field no backend path produces — so this
+    // chart was unreachable, and its body read `{group, mean, sd}` objects out
+    // of `payload.groups`, which is a plain array of label strings.
+    if (Array.isArray(payload.group_stats) && payload.group_stats.length > 0) {
+      const groupData = payload.group_stats as any[];
       const names = groupData.map((g) => g.group);
       const means = groupData.map((g) => g.mean);
       const sds = groupData.map((g) => g.sd);
@@ -303,8 +306,10 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
 
       return {
         title: {
-          text: `组间均值对比图 (${payload.variable || '指标'})`,
-          subtext: `ANOVA p-value: ${payload.p_value < 0.001 ? '<0.001' : payload.p_value.toFixed(4)}`,
+          text: `组间均值对比图 (${payload.test_variable || payload.variable || '指标'})`,
+          subtext: typeof payload.p_value === 'number' && Number.isFinite(payload.p_value)
+            ? `ANOVA p-value: ${payload.p_value < 0.001 ? '<0.001' : payload.p_value.toFixed(4)}`
+            : 'ANOVA p-value: 不可用',
           left: 'center',
           textStyle: { color: '#2b3a4a', fontSize: 14, fontWeight: 'bold' },
         },
@@ -315,8 +320,8 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
             if (!param) return '';
             const idx = param.dataIndex;
             return `<b>${escapeHtml(names[idx])}</b><br/>
-                    均值 (Mean): ${means[idx].toFixed(3)}<br/>
-                    标准差 (SD): ±${sds[idx].toFixed(3)}`;
+                    均值 (Mean): ${fmtNum(means[idx], 3)}<br/>
+                    标准差 (SD): ±${fmtNum(sds[idx], 3)}`;
           },
         },
         grid: {
@@ -392,8 +397,12 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
     }
 
     // ─── Scenario 4: Power Analysis (PowerResult) ───
-    if (payload.method && (payload.power !== undefined || payload.total_n !== undefined)) {
-      const powerVal = payload.power || 0.8;
+    // Gate on `achieved_power`, the field the backend actually emits. The old
+    // guard looked for `power`/`total_n`, so this chart never rendered; had it
+    // rendered, `payload.power || 0.8` would have shown a hard-coded 0.8 rather
+    // than the computed power.
+    if (typeof payload.achieved_power === 'number' && Number.isFinite(payload.achieved_power)) {
+      const powerVal = payload.achieved_power as number;
       return {
         title: {
           text: `检验功效分析 (Power Analysis: ${payload.method})`,

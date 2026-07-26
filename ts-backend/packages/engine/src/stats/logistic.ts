@@ -155,7 +155,9 @@ export function logisticRegression(x: Matrix, y: readonly number[], weights?: re
         ? 0
         : Math.sign(beta) * Number.POSITIVE_INFINITY
       : beta / stdError;
-    const pValue = Math.min(1, Math.max(0, 2 * (1 - normalCdf(Math.abs(z)))));
+    // 2*Φ(-|z|) rather than 2*(1-Φ(|z|)): the latter cancels catastrophically
+    // in the tail, where Φ(|z|) rounds to 1 and the p-value collapses to 0.
+    const pValue = Math.min(1, Math.max(0, 2 * normalCdf(-Math.abs(z))));
     coefficients.push({
       index: j,
       beta,

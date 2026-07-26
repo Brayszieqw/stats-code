@@ -3,7 +3,7 @@
 // Property 21: Forbidden spawn. For ALL spawn targets that normalize to a
 // Forbidden_Runtime, a guarded spawn throws ForbiddenSpawnError; for ALL
 // targets that do not, the sentinel does not block them. Matching is pure
-// (basename + Windows .exe strip + platform casing).
+// (basename + executable-suffix strip on every platform + platform casing).
 //
 // Validates: Requirements 8.1, 8.2, 8.3
 
@@ -30,7 +30,7 @@ const forbiddenTargetArb = fc
   .record({
     base: fc.constantFrom(...FORBIDDEN_RUNTIMES),
     prefix: dirPrefixArb,
-    // .exe suffix is only normalized away on Windows.
+    // .exe suffix is stripped on every platform (S2).
     exe: fc.boolean(),
     // Case variation; only flips matching on Windows (case-insensitive).
     upper: fc.boolean(),
@@ -50,12 +50,13 @@ const allowedNameArb = fc
 describe('Property 21: forbidden spawn (Requirements 8.1, 8.2, 8.3)', () => {
   it('every forbidden target (any path/exe/casing) is matched when it should be', () => {
     fc.assert(
-      fc.property(forbiddenTargetArb, ({ target, exe, upper }) => {
+      fc.property(forbiddenTargetArb, ({ target, base, upper }) => {
         const matched = matchForbiddenCommand(target) !== null;
-        // On Unix: .exe suffix is NOT stripped, so "<name>.exe" won't match;
-        // uppercase won't match either (case-sensitive). On Windows both the
-        // .exe strip and case-insensitive compare apply, so it always matches.
-        const expected = IS_WINDOWS ? true : !exe && !upper;
+        // The .exe strip is platform-independent (S2), so the suffix can never
+        // hide a forbidden runtime. Casing still differs per platform: Windows
+        // compares case-insensitively, Unix matches only when uppercasing the
+        // blocklist name is a no-op (e.g. "R").
+        const expected = IS_WINDOWS ? true : !upper || base.toUpperCase() === base;
         expect(matched).toBe(expected);
       }),
       { numRuns: 400 },

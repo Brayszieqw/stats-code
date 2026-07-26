@@ -29,7 +29,8 @@
 // _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7_
 
 import { createHash } from 'node:crypto';
-import { readFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { guardedSpawn } from '../spawn_policy.js';
 import { getLoadedMatrix } from '../coverage/index.js';
@@ -102,6 +103,7 @@ export class SnapshotError extends Error {
       | 'workflow'
       | 'zip'
       | 'io'
+      | 'bad_destination'
       | 'forbidden_spawn',
     message: string,
     public readonly detail?: {
@@ -123,6 +125,31 @@ export function sha256Hex(bytes: Uint8Array): string {
 /** Append ".tmp" to the destination filename (same directory → atomic rename). */
 function tmpPathFor(destination: string): string {
   return `${destination}.tmp`;
+}
+
+/**
+ * Resolve the export destination (D16): refuse empty paths, land directory
+ * destinations on a run-named zip inside them, and create missing parent
+ * directories (recursive mkdir tolerates pre-existing ones).
+ */
+function resolveDestination(runId: string, destination: string): string {
+  if (destination.trim().length === 0) {
+    throw new SnapshotError('bad_destination', 'snapshot destination is empty');
+  }
+  let dest = destination;
+  try {
+    if (statSync(dest).isDirectory()) {
+      dest = join(dest, `snapshot-${runId}.zip`);
+    }
+  } catch {
+    /* destination does not exist yet — the mkdir below covers its parent */
+  }
+  try {
+    mkdirSync(dirname(dest), { recursive: true });
+  } catch (err) {
+    throw new SnapshotError('io', `snapshot io error at ${dest}: ${(err as Error).message}`);
+  }
+  return dest;
 }
 
 /**
@@ -189,6 +216,10 @@ function exportSnapshotInner(run: RunSnapshot, destination: string): SnapshotRes
       { measuredBytes: measured, ceilingBytes: ARTIFACT_PAYLOAD_CEILING_BYTES },
     );
   }
+
+  // ---- Resolve destination (after both refusal gates: no fs side effects
+  // for a refused run) ------------------------------------------------------
+  const dest = resolveDestination(run.runId, destination);
 
   // ---- Build redaction policy -------------------------------------------
   const policy = redactionPolicy({
@@ -275,7 +306,7 @@ function exportSnapshotInner(run: RunSnapshot, destination: string): SnapshotRes
   ];
 
   // ---- Write to <dest>.tmp via the deterministic zip writer -------------
-  const destTmp = tmpPathFor(destination);
+  const destTmp = tmpPathFor(dest);
   try {
     writeDeterministicZip(entries, destTmp);
   } catch (err) {
@@ -287,30 +318,30 @@ function exportSnapshotInner(run: RunSnapshot, destination: string): SnapshotRes
 
   // ---- Atomic rename (.tmp → final) -------------------------------------
   try {
-    renameSync(destTmp, destination);
+    renameSync(destTmp, dest);
   } catch (err) {
     try {
       rmSync(destTmp, { force: true });
     } catch {
       /* best-effort cleanup */
     }
-    throw new SnapshotError('io', `snapshot io error at ${destination}: ${(err as Error).message}`);
+    throw new SnapshotError('io', `snapshot io error at ${dest}: ${(err as Error).message}`);
   }
 
   // ---- Re-read the final file and compute SHA256 ------------------------
   let sha: string;
   try {
-    sha = sha256Hex(readFileSync(destination));
+    sha = sha256Hex(readFileSync(dest));
   } catch (err) {
     try {
-      rmSync(destination, { force: true });
+      rmSync(dest, { force: true });
     } catch {
       /* best-effort cleanup */
     }
-    throw new SnapshotError('io', `snapshot io error at ${destination}: ${(err as Error).message}`);
+    throw new SnapshotError('io', `snapshot io error at ${dest}: ${(err as Error).message}`);
   }
 
-  return { snapshotPath: destination, sha256: sha };
+  return { snapshotPath: dest, sha256: sha };
 }
 
 /** Build the deterministic snapshot zip bytes in-memory (no fs touch). */

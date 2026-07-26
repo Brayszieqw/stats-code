@@ -30,6 +30,9 @@ $EnginePackage = Join-Path $BackendDir 'packages\engine\package.json'
 $Version = (Get-Content -LiteralPath $EnginePackage -Raw | ConvertFrom-Json).version
 $ArchivePath = Join-Path $OutputRoot "StatsCode-Demo-Pack-$Version-windows-x64.zip"
 $RecordName = (-join ([char[]]@(0x51B7, 0x542F, 0x52A8, 0x9A8C, 0x8BC1, 0x8BB0, 0x5F55))) + '.md'
+# “发给同事说明.txt”同样必须用字符码拼：本脚本以 UTF-8 无 BOM 保存，
+# Windows PowerShell 5.1 会按 ANSI 解析中文字面量，直接写字面量会得到乱码文件名。
+$ColleagueReadmeName = (-join ([char[]]@(0x53D1, 0x7ED9, 0x540C, 0x4E8B, 0x8BF4, 0x660E))) + '.txt'
 $RecordPath = Join-Path $StageDir $RecordName
 
 function Assert-NoSecretsInTree {
@@ -88,7 +91,7 @@ $copies = @(
     @{ Source = (Join-Path $RepoRoot 'install.ps1'); Destination = (Join-Path $StageDir 'install.ps1') },
     @{ Source = (Join-Path $PackagingDir 'start.bat'); Destination = (Join-Path $StageDir 'start.bat') },
     @{ Source = (Join-Path $PackagingDir 'install.bat'); Destination = (Join-Path $StageDir 'install.bat') },
-    @{ Source = (Join-Path $PackagingDir 'colleague-README.txt'); Destination = (Join-Path $StageDir '发给同事说明.txt') },
+    @{ Source = (Join-Path $PackagingDir 'colleague-README.txt'); Destination = (Join-Path $StageDir $ColleagueReadmeName) },
     @{ Source = (Join-Path $RepoRoot 'web\public\demo_cohort.csv'); Destination = (Join-Path $StageDir 'data\demo_cohort.csv') },
     @{ Source = (Join-Path $PSScriptRoot 'verify-demo-pack.ps1'); Destination = (Join-Path $StageDir 'verify-demo-pack.ps1') }
 )

@@ -115,6 +115,13 @@
 （distributions/linalg/special）、sidecar 渲染、snapshot/replay、redactor、
 Spawn_Policy 哨兵（主动阻断对 R/SAS/Python/SPSS 等外部统计运行时的 spawn）。
 
+**能力分层（G2，如实宣示）**：17 个算法全部引擎级数值验证（parity/oracle），
+其中 **10 个可从 UI/HTTP 实际运行**（tableone/ttest/anova/correlation/linear/
+logistic/cox/kaplan_meier + 经合并 `power` 技能的 power_phase3、power_single_arm）；
+其余 7 个（nonparametric/or_rr/attributable_risk/standardization/life_table/
+diagnostic_roc/power_phase2）暂无 `/run` 分发与配置器入口。覆盖矩阵
+（`coverage/matrix.toml` → `/api/coverage-matrix`）以 `ui_runnable` 字段逐算法标注。
+
 ### 应用组合（api）
 `ts-backend/packages/api`，launcher 组装 + SEA 二进制入口。
 依赖方向（eslint 强制）：**api → server → engine**。
@@ -123,10 +130,10 @@ Spawn_Policy 哨兵（主动阻断对 R/SAS/Python/SPSS 等外部统计运行时
 
 1. **等价代码侧栏**：每个分析附 R/SAS/Python/SPSS 四语言等价代码；
    模板在 `packages/engine/src/sidecar/templates/`，构建期嵌入。
-2. **数值平价**：`tests/parity/` vitest 套件对照 32 个录制基线
+2. **数值平价**：`tests/parity/` vitest 套件对照 30 个录制基线
    （`tests/parity/known_values/`），随 `npm test` 全量跑。
 3. **审计快照**：导出确定性 zip（manifest/workflow/provenance/narrative），
-   支持 `--replay` 完整性门控复现。
+   支持 `replay <snapshot.zip> [--sha256 <sha>]` 完整性门控复现。
 
 ## 历史用法（已废弃）
 

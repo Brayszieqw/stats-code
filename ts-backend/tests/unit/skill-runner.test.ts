@@ -1,8 +1,9 @@
 // tests/unit/skill-runner.test.ts — in-process SkillRunner (task 5.9).
 //
 // In-process invocation of linear/logistic/cox/kaplan_meier against a fixture
-// dataset returns a SkillResult with analysis metadata; missing arg →
-// invalid_args; thrown engine error → execution_failed (≤ 2048 chars).
+// dataset returns a SkillResult with analysis metadata; missing arg and every
+// hand-thrown input rejection (engine gates, column extraction) → invalid_args
+// (422 at the route, D15); runtime defects → execution_failed (≤ 2048 chars).
 //
 // _Requirements: 5.2, 5.3, 5.5, 5.6_
 
@@ -159,8 +160,8 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       dataset_id: 'ds-1',
     }, ctx)).rejects.toMatchObject({
       detail: {
-        kind: 'execution_failed',
-        diagnosticExcerpt: expect.stringMatching(/non-zero variance/i),
+        kind: 'invalid_args',
+        message: expect.stringMatching(/non-zero variance/i),
       },
     });
   });
@@ -327,7 +328,7 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       predictors: ['x', 'twice_x'],
       dataset_id: 'ds-1',
     }, ctx)).rejects.toMatchObject({
-      detail: { kind: 'execution_failed', diagnosticExcerpt: expect.stringMatching(/rank deficient/i) },
+      detail: { kind: 'invalid_args', message: expect.stringMatching(/rank deficient/i) },
     });
   });
 
@@ -339,7 +340,7 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       predictors: ['x'],
       dataset_id: 'ds-1',
     }, ctx)).rejects.toMatchObject({
-      detail: { kind: 'execution_failed', diagnosticExcerpt: expect.stringMatching(/encoded as 0\/1/) },
+      detail: { kind: 'invalid_args', message: expect.stringMatching(/encoded as 0\/1/) },
     });
   });
 
@@ -385,7 +386,7 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     ).rejects.toMatchObject({ detail: { kind: 'invalid_args', missing: ['predictors'] } });
   });
 
-  it('maps a thrown engine error to execution_failed with a bounded excerpt', async () => {
+  it('maps a thrown engine input error to invalid_args with a bounded message (D15)', async () => {
     const ctx = ctxFor('y,x\n1,1\n2,2\n', [num('y'), num('x')]);
     try {
       await runner.run(reg.get('model_linear')!, {
@@ -397,12 +398,67 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
     } catch (err) {
       expect(err).toBeInstanceOf(SkillRunErrorException);
       const detail = (err as SkillRunErrorException).detail;
-      expect(detail.kind).toBe('execution_failed');
-      if (detail.kind === 'execution_failed') {
-        expect(detail.diagnosticExcerpt.length).toBeLessThanOrEqual(2048);
-        expect(detail.diagnosticExcerpt).toContain('column not found');
+      expect(detail.kind).toBe('invalid_args');
+      if (detail.kind === 'invalid_args') {
+        expect(detail.message.length).toBeLessThanOrEqual(2048);
+        expect(detail.message).toContain('column not found');
       }
     }
+  });
+
+  it('keeps runtime defects (non-plain Error subclasses) as execution_failed (D15)', async () => {
+    const throwingRunner = new SkillRunner(reg);
+    const ctx = ctxFor('y,x\n1,1\n2,2\n', [num('y'), num('x')]);
+    // Force a TypeError inside execution by sabotaging the context shape.
+    const broken = { ...ctx, datasetBytes: undefined } as unknown as SkillContext;
+    await expect(throwingRunner.run(reg.get('model_linear')!, {
+      outcome: 'y',
+      predictors: ['x'],
+      dataset_id: 'ds-1',
+    }, broken)).rejects.toMatchObject({
+      detail: { kind: 'execution_failed' },
+    });
+  });
+
+  describe('degenerate analysis inputs reject as invalid_args, not 500 (D15)', () => {
+    it('ttest with a single group', async () => {
+      const ctx = ctxFor('score,arm\n10,A\n11,A\n12,A\n13,A\n', [num('score'), cat('arm')]);
+      await expect(runner.run(reg.get('ttest')!, {
+        group: 'arm', testVar: 'score', dataset_id: 'ds-1',
+      }, ctx)).rejects.toMatchObject({
+        detail: { kind: 'invalid_args', message: expect.stringMatching(/./) },
+      });
+    });
+
+    it('ttest with a singleton group', async () => {
+      const ctx = ctxFor('score,arm\n10,A\n20,B\n21,B\n22,B\n', [num('score'), cat('arm')]);
+      await expect(runner.run(reg.get('ttest')!, {
+        group: 'arm', testVar: 'score', dataset_id: 'ds-1',
+      }, ctx)).rejects.toMatchObject({
+        detail: { kind: 'invalid_args', message: expect.stringMatching(/./) },
+      });
+    });
+
+    it('correlation with an unknown method', async () => {
+      const ctx = ctxFor('x,y\n1,2\n2,4\n3,5\n4,8\n5,9\n', [num('x'), num('y')]);
+      await expect(runner.run(reg.get('correlation')!, {
+        x: 'x', y: 'y', method: 'bogus', dataset_id: 'ds-1',
+      }, ctx)).rejects.toMatchObject({
+        detail: { kind: 'invalid_args', message: expect.stringMatching(/./) },
+      });
+    });
+
+    it('anova with non-numeric text in the outcome column', async () => {
+      const ctx = ctxFor(
+        'score,arm\nabc,A\n11,A\n20,B\n21,B\n30,C\n31,C\n',
+        [num('score'), cat('arm')],
+      );
+      await expect(runner.run(reg.get('anova')!, {
+        group: 'arm', testVar: 'score', dataset_id: 'ds-1',
+      }, ctx)).rejects.toMatchObject({
+        detail: { kind: 'invalid_args', message: expect.stringMatching(/./) },
+      });
+    });
   });
 
   it('runs native inspect skill without an algorithm mapping', async () => {
@@ -498,6 +554,56 @@ describe('SkillRunner in-process execution (Requirements 5.2, 5.3, 5.5, 5.6)', (
       expect(entry.degrees_of_freedom).toBe(direct.dfBetween);
       expect(entry.degrees_of_freedom_denominator).toBe(direct.dfWithin);
       expect(entry.group_ns).toEqual([3, 3, 3]);
+    });
+
+    it('anova skips rows with a blank test value instead of scoring them as 0', async () => {
+      // `Number('')` is 0, so a blank cell used to enter the analysis as a
+      // literal zero — while resultCounts() reported that same row as excluded.
+      // The statistics and the audit metadata describing them must agree.
+      const ctx = ctxFor(
+        'score,arm\n10,A\n11,A\n12,A\n,A\n20,B\n21,B\n22,B\n',
+        [num('score'), cat('arm')],
+      );
+      const result = await runner.run(reg.get('anova')!, {
+        group: 'arm',
+        testVar: 'score',
+        dataset_id: 'ds-1',
+      }, ctx);
+      const payload = result.payload as { n_total: number; group_ns: Record<string, number> };
+      const direct = stats.anova.oneWayAnova([[10, 11, 12], [20, 21, 22]]);
+
+      // 6 rows analysed, not 7: the blank row is excluded rather than scored as
+      // zero. `complete_case_n` (attached on the research-workflow path) counts
+      // by the same rule, so the two now describe the same rows.
+      expect(payload.n_total).toBe(6);
+      expect(payload.group_ns).toEqual({ A: 3, B: 3 });
+      expect((payload as unknown as { f_statistic: number }).f_statistic)
+        .toBeCloseTo(direct.fStatistic, 12);
+    });
+
+    it('anova rejects non-numeric text rather than silently dropping the row', async () => {
+      // A non-empty, non-numeric cell counts as "complete" for the audit trail,
+      // so dropping it quietly would put the reported N and the analysed N back
+      // out of step. Surface it as an input error instead.
+      const ctx = ctxFor(
+        'score,arm\n10,A\n11,A\nabc,A\n20,B\n21,B\n22,B\n',
+        [num('score'), cat('arm')],
+      );
+      await expect(runner.run(reg.get('anova')!, {
+        group: 'arm',
+        testVar: 'score',
+        dataset_id: 'ds-1',
+      }, ctx)).rejects.toThrow(SkillRunErrorException);
+    });
+
+    it('correlation rejects an unsupported method instead of substituting pearson', async () => {
+      const ctx = ctxFor('x,y\n1,2\n2,4\n3,5\n4,9\n', [num('x'), num('y')]);
+      await expect(runner.run(reg.get('correlation')!, {
+        x: 'x',
+        y: 'y',
+        method: 'kendall',
+        dataset_id: 'ds-1',
+      }, ctx)).rejects.toThrow(SkillRunErrorException);
     });
 
     it('no stratification → all continuous variables not_computed, no throw', async () => {
@@ -789,7 +895,7 @@ describe('regression dummy encoding for categorical predictors', () => {
       predictors: ['age', 'arm'],
       dataset_id: 'ds-1',
     }, ctx)).rejects.toMatchObject({
-      detail: { kind: 'execution_failed', diagnosticExcerpt: expect.stringMatching(/no variation/i) },
+      detail: { kind: 'invalid_args', message: expect.stringMatching(/no variation/i) },
     });
   });
 
@@ -802,8 +908,8 @@ describe('regression dummy encoding for categorical predictors', () => {
       dataset_id: 'ds-1',
     }, ctx)).rejects.toMatchObject({
       detail: {
-        kind: 'execution_failed',
-        diagnosticExcerpt: expect.stringMatching(/missing value in column smoke/i),
+        kind: 'invalid_args',
+        message: expect.stringMatching(/missing value in column smoke/i),
       },
     });
   });

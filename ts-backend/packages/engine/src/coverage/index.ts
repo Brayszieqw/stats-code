@@ -33,6 +33,13 @@ export interface AlgorithmEntry {
   id: string;
   display_name: string;
   iterative: boolean;
+  /**
+   * Whether the algorithm can actually be RUN from the shipped UI/HTTP
+   * surface (`/api/sessions/:sid/run` dispatch + web configurator), as
+   * opposed to being engine-level verified only (G2). Parity coverage above
+   * speaks to numerical validation; this speaks to reachability.
+   */
+  ui_runnable: boolean;
   coverage: Record<ReferenceSoftware, CoverageState>;
   reference: Record<ReferenceSoftware, ReferenceImpl>;
 }
@@ -113,6 +120,12 @@ export function parseCoverageMatrix(tomlText: string, releaseVersion: string): C
     if (typeof obj['iterative'] !== 'boolean') {
       throw new CoverageParseError(`algorithm "${id}" missing boolean field "iterative"`);
     }
+    // Optional so hand-written fixtures stay valid; absence means "not
+    // reachable from the UI/HTTP surface" — the honest default (G2).
+    const uiRunnable = obj['ui_runnable'];
+    if (uiRunnable !== undefined && typeof uiRunnable !== 'boolean') {
+      throw new CoverageParseError(`algorithm "${id}" field "ui_runnable" must be a boolean`);
+    }
 
     const coverageRaw = asRecord(obj['coverage'], `algorithm "${id}" coverage`);
     const referenceRaw = asRecord(obj['reference'], `algorithm "${id}" reference`);
@@ -139,6 +152,7 @@ export function parseCoverageMatrix(tomlText: string, releaseVersion: string): C
       id,
       display_name: obj['display_name'],
       iterative: obj['iterative'],
+      ui_runnable: uiRunnable === true,
       coverage,
       reference,
     });

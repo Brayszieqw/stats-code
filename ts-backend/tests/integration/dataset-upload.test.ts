@@ -107,6 +107,35 @@ describe('POST /api/sessions/:sid/datasets (wired)', () => {
     await app.close();
   });
 
+  it('rejects non-base64 payload data with 422 instead of accepting mojibake (D1)', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/datasets`,
+      payload: { filename: 'data.csv', data: '!!!not-base64!!!' },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error_code).toBe('SkillInvalidArgs');
+    const session = (await app.inject({ method: 'GET', url: `/api/sessions/${sid}` })).json();
+    expect(session.datasets).toHaveLength(0);
+    await app.close();
+  });
+
+  it('still accepts canonical base64 wrapped with newlines (D1)', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;
+    const wrapped = b64('age,name\n42,alice\n37,bob\n').replace(/(.{8})/g, '$1\n');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/datasets`,
+      payload: { filename: 'data.csv', data: wrapped },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().row_count).toBe(2);
+    await app.close();
+  });
+
   it('returns 500 when no dataset store is configured', async () => {
     const app = buildRouter({ state: { sessionStore: new MemSessionStore() } });
     const sid = (await app.inject({ method: 'POST', url: '/api/sessions' })).json().id as string;

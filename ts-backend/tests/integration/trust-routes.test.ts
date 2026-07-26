@@ -149,6 +149,30 @@ describe('POST /api/sidecar/:id (wired)', () => {
     });
     await app.close();
   });
+
+  it('missing required columns → 400 InvalidRequest, not 500 (D3)', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sidecar/ttest',
+      payload: { software: 'R', dataset_sha256: 'c'.repeat(64) },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error_code).toBe('InvalidRequest');
+    await app.close();
+  });
+
+  it('unknown sidecar algorithm → 404 NotFound, not 500 (D4)', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sidecar/not_an_algo',
+      payload: { software: 'R', dataset_sha256: 'a'.repeat(64), columns: [], params: {} },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error_code).toBe('NotFound');
+    await app.close();
+  });
 });
 
 describe('POST /api/snapshot/export (wired)', () => {
@@ -180,6 +204,83 @@ describe('POST /api/snapshot/export (wired)', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error_code).toBe('RunNotFound');
+    await app.close();
+  });
+
+  it('exports twice to the same destination — both succeed (D16)', async () => {
+    const dest = join(freshTmp(), 'repeat.zip');
+    const app = buildRouter({ state: wiredState() });
+    for (let i = 0; i < 2; i += 1) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/snapshot/export',
+        payload: { run_id: 'run-1', destination: dest, download: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(String(res.headers['content-type'])).toContain('application/zip');
+      expect(String(res.headers['x-snapshot-sha256'])).toMatch(/^[0-9a-f]{64}$/);
+    }
+    await app.close();
+  });
+
+  it('lands a directory destination on a run-named zip inside it (D16)', async () => {
+    const dir = freshTmp();
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/snapshot/export',
+      payload: { run_id: 'run-1', destination: dir },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.snapshot_path).toBe(join(dir, 'snapshot-run-1.zip'));
+    expect(existsSync(body.snapshot_path)).toBe(true);
+    await app.close();
+  });
+
+  it('creates missing destination parent directories (D16)', async () => {
+    const dest = join(freshTmp(), 'a', 'b', 'out.zip');
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/snapshot/export',
+      payload: { run_id: 'run-1', destination: dest },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(existsSync(dest)).toBe(true);
+    await app.close();
+  });
+
+  it('empty destination → 400 InvalidRequest instead of a raw errno 500 (D16/D5)', async () => {
+    const app = buildRouter({ state: wiredState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/snapshot/export',
+      payload: { run_id: 'run-1', destination: '   ' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error_code).toBe('InvalidRequest');
+    await app.close();
+  });
+
+  it('non-completed run → 409 RunNotCompleted with actual_status (D16)', async () => {
+    const runs = new Map<string, RunSnapshot>([
+      ['run-2', { ...completedRun(), runId: 'run-2', status: 'running' }],
+    ]);
+    const state: AppState = {
+      sessionStore: new MemSessionStore(),
+      snapshotProvider: createSnapshotProvider((id) => runs.get(id)),
+    };
+    const app = buildRouter({ state });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/snapshot/export',
+      payload: { run_id: 'run-2', destination: join(freshTmp(), 'x.zip') },
+    });
+    expect(res.statusCode).toBe(409);
+    const body = res.json();
+    expect(body.error_code).toBe('RunNotCompleted');
+    expect(body.actual_status).toBe('running');
     await app.close();
   });
 });

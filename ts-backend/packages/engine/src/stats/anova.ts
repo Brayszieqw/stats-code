@@ -35,6 +35,10 @@ export function oneWayAnova(groups: readonly (readonly number[])[]): AnovaResult
 
   let ssBetween = 0;
   let ssWithin = 0;
+  // Does any group hold genuinely differing values? Judged per group against
+  // that group's own magnitude, so the answer does not depend on how far apart
+  // the group means are.
+  let withinVariation = false;
   for (const group of groups) {
     const ni = group.length;
     if (ni === 0) {
@@ -42,17 +46,31 @@ export function oneWayAnova(groups: readonly (readonly number[])[]): AnovaResult
     }
     const groupMean = group.reduce((s, v) => s + v, 0) / ni;
     ssBetween += ni * (groupMean - grandMean) ** 2;
+    let groupScale = 1;
     for (const v of group) {
       ssWithin += (v - groupMean) ** 2;
+      const magnitude = Math.abs(v);
+      if (magnitude > groupScale) groupScale = magnitude;
     }
+    if (!withinVariation) {
+      const first = group[0]!;
+      withinVariation = group.some((v) => Math.abs(v - first) > groupScale * 1e-12);
+    }
+  }
+  if (!Number.isFinite(grandMean) || !Number.isFinite(ssBetween) || !Number.isFinite(ssWithin)) {
+    throw new Error('ANOVA requires finite observations.');
   }
   const ssTotal = ssBetween + ssWithin;
   const dfBetween = k - 1;
   const dfWithin = nTotal - k;
   const msBetween = ssBetween / dfBetween;
   const msWithin = ssWithin / dfWithin;
-  const degenerate = msWithin === 0;
-  const fStatistic = msWithin > 0
+  // `msWithin === 0` only caught groups whose repeated value is exactly
+  // representable: [0.1,0.1,0.1] vs [0.2,0.2,0.2] leaves msWithin ≈ 7e-34 from
+  // mean rounding — zero within-group variance in every sense that matters, yet
+  // the exact test called it non-zero and the F ratio was reported as real.
+  const degenerate = !withinVariation;
+  const fStatistic = !degenerate
     ? msBetween / msWithin
     : msBetween > 0
       ? Number.POSITIVE_INFINITY

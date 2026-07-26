@@ -97,10 +97,14 @@ function resolveRoles(
     headers,
     ['person_time', 'person_years', 'person_months', 'fu_pt', 'follow_up_time', 'followup_time', 'time_at_risk'],
   );
+  // Only unambiguous sampling/analysis-weight names auto-bind (D12): a bare
+  // `weight`/`wt` column is far more often an outcome or covariate (birth
+  // weight, plant weight) than a survey weight, and the blocker it used to
+  // trigger could not be argued with. Declaring roles.weight still binds.
   const weight = findSemanticHeader(
     headers,
-    ['survey_weight', 'sampling_weight', 'sample_weight', 'propensity_weight', 'analysis_weight', 'survey_wt', 'sampling_wt', 'sample_wt', 'iptw', 'ipcw', 'weight', 'weights', 'wt'],
-    [/^(survey|sampling|sample|analysis|propensity)?_?(weight|weights|wt)$/],
+    ['survey_weight', 'sampling_weight', 'sample_weight', 'propensity_weight', 'analysis_weight', 'survey_wt', 'sampling_wt', 'sample_wt', 'iptw', 'ipcw'],
+    [/^(survey|sampling|sample|analysis|propensity)_(weight|weights|wt)$/],
   );
   const psu = findSemanticHeader(headers, ['psu', 'psu_id', 'primary_sampling_unit', 'primary_sampling_unit_id']);
   const cluster = findSemanticHeader(
@@ -169,14 +173,28 @@ function roleValueColumns(value: unknown): string[] {
   return explicitStringArray(value) ?? (explicitString(value) ? [explicitString(value)!] : []);
 }
 
-function requestedRoleFindings(
+/**
+ * Fold client-declared roles into the server inference (D11/D12 redesign):
+ * a declared role whose columns exist is ADOPTED — it becomes the binding of
+ * record (returned in `roles`, therefore hashed into audit_sha256) and is
+ * validated by the data gates below. Declaring a nonexistent column stays a
+ * blocker. The former blanket AUDIT_ROLE_OVERRIDE_REJECTED (any mismatch with
+ * the inference) is removed: it made audit_roles useless — every value either
+ * matched the inference (no-op) or dead-locked the dataset. Tamper resistance
+ * now rests on the data gates (primary-key checks run on the union of adopted
+ * and inferred keys) plus the audit-hash chain the approval binds.
+ */
+function applyRequestedRoles(
   headers: string[],
-  roles: DatasetAuditRoles,
+  inferred: DatasetAuditRoles,
   requested: unknown,
-): DatasetAuditFinding[] {
-  if (!requested || typeof requested !== 'object' || Array.isArray(requested)) return [];
+): { roles: DatasetAuditRoles; findings: DatasetAuditFinding[] } {
+  if (!requested || typeof requested !== 'object' || Array.isArray(requested)) {
+    return { roles: inferred, findings: [] };
+  }
   const raw = requested as Record<string, unknown>;
   const findings: DatasetAuditFinding[] = [];
+  const roles: DatasetAuditRoles = { ...inferred };
   for (const key of ROLE_KEYS) {
     if (!(key in raw)) continue;
     const requestedColumns = roleValueColumns(raw[key]);
@@ -188,21 +206,17 @@ function requestedRoleFindings(
         'blocker',
         missingColumns,
         [],
-        `客户端提交的 ${key} 角色包含不存在的列；角色映射已拒绝。`,
+        `客户端提交的 ${key} 角色包含不存在的列；该角色声明未被采纳。`,
       ));
+      continue;
     }
-    const serverColumns = roleValueColumns(roles[key]);
-    if (JSON.stringify(requestedColumns) !== JSON.stringify(serverColumns)) {
-      findings.push(makeFinding(
-        'AUDIT_ROLE_OVERRIDE_REJECTED',
-        'blocker',
-        requestedColumns,
-        [],
-        `${key} 角色必须与服务端基于数据和规范化方案得到的映射一致。`,
-      ));
+    if (key === 'primary_key') {
+      roles.primary_key = requestedColumns;
+    } else {
+      (roles as Record<string, string | string[] | undefined>)[key] = requestedColumns[0];
     }
   }
-  return findings;
+  return { roles, findings };
 }
 
 function analysisColumns(args: Record<string, unknown>): string[] {
@@ -244,8 +258,9 @@ function parseDate(raw: string): number | null {
 export function auditDataset(input: AuditDatasetInput): DatasetAudit {
   const now = input.now ?? (() => new Date());
   const { headers, rows } = parseDelimitedTable(input.bytes, input.fileName);
-  const roles = resolveRoles(headers, input.skillId, input.args);
-  const findings: DatasetAuditFinding[] = requestedRoleFindings(headers, roles, input.roles);
+  const inferredRoles = resolveRoles(headers, input.skillId, input.args);
+  const { roles, findings: roleFindings } = applyRequestedRoles(headers, inferredRoles, input.roles);
+  const findings: DatasetAuditFinding[] = [...roleFindings];
 
   if (rows.length === 0) {
     findings.push(makeFinding('DATASET_NO_ROWS', 'blocker', [], [], '数据集只有表头，没有可审计或分析的数据行。'));
@@ -300,8 +315,19 @@ export function auditDataset(input: AuditDatasetInput): DatasetAudit {
     ));
   }
 
-  if (roles.primary_key) {
-    const keyIndexes = roles.primary_key.map((column) => columnIndex(headers, column));
+  // Primary-key gates run on the UNION of the adopted binding and the
+  // server-inferred identifier (when they differ): rebinding the key must not
+  // hide duplication that is visible under the dataset's own identifier.
+  const primaryKeySets: string[][] = [];
+  if (roles.primary_key) primaryKeySets.push(roles.primary_key);
+  if (
+    inferredRoles.primary_key
+    && JSON.stringify(inferredRoles.primary_key) !== JSON.stringify(roles.primary_key ?? [])
+  ) {
+    primaryKeySets.push(inferredRoles.primary_key);
+  }
+  for (const keyColumns of primaryKeySets) {
+    const keyIndexes = keyColumns.map((column) => columnIndex(headers, column));
     const missingRows: number[] = [];
     const duplicateRows: number[] = [];
     const firstByKey = new Map<string, number>();
@@ -315,13 +341,14 @@ export function auditDataset(input: AuditDatasetInput): DatasetAudit {
       else firstByKey.set(key, rowNumber);
     });
     if (missingRows.length > 0) {
-      findings.push(makeFinding('PRIMARY_KEY_MISSING', 'blocker', roles.primary_key, missingRows, '主键存在空值，无法确认每条观察记录的身份。'));
+      findings.push(makeFinding('PRIMARY_KEY_MISSING', 'blocker', keyColumns, missingRows, '主键存在空值，无法确认每条观察记录的身份。'));
     }
     if (duplicateRows.length > 0) {
-      findings.push(makeFinding('DUPLICATE_PRIMARY_KEY', 'blocker', roles.primary_key, duplicateRows, '主键不唯一；正式分析已阻断。'));
+      findings.push(makeFinding('DUPLICATE_PRIMARY_KEY', 'blocker', keyColumns, duplicateRows, '主键不唯一；正式分析已阻断。'));
     }
-  } else {
-    findings.push(makeFinding('PRIMARY_KEY_UNBOUND', 'blocker', [], [], '未能由服务端可靠识别主键；建立版本化字段映射前禁止审批。'));
+  }
+  if (!roles.primary_key) {
+    findings.push(makeFinding('PRIMARY_KEY_UNBOUND', 'blocker', [], [], '未能识别主键；请在审计请求的 audit_roles.primary_key 中指定主键列（将按非空且唯一校验，并计入审计哈希链）。'));
   }
 
   if (roles.pair_id && roles.repeat_index) {
@@ -432,7 +459,7 @@ export function auditDataset(input: AuditDatasetInput): DatasetAudit {
   const specHash = runSpecSha256(input.skillId, input.datasetId, input.args);
   const content = {
     schema_version: '1.0' as const,
-    audit_rules_version: '1.1.0' as const,
+    audit_rules_version: '1.2.0' as const,
     dataset_id: input.datasetId,
     dataset_sha256: input.datasetSha256,
     protocol_version: input.protocolVersion,

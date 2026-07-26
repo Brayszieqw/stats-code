@@ -29,6 +29,46 @@ describe('normal CDF (known values, matches R pnorm)', () => {
   it('pnorm(3) ≈ 0.9986501', () => expect(close(normalCdf(3), 0.9986501, 1e-5)).toBe(true));
 });
 
+describe('normal CDF tail (RELATIVE accuracy — these are p-values)', () => {
+  // The absolute tolerances above cannot see tail error: the A&S rational
+  // approximation this kernel used to employ carried ~7.5e-8 absolute error,
+  // which swamps every value here, and past |z|≈9 it returned exactly 0 —
+  // reporting p = 0 for Wald tests whose true p is ~1e-19.
+  // Reference values from R's pnorm(-z, log.p = FALSE). Tolerance is 1e-6
+  // relative: the incomplete-gamma continued fraction loses a few digits as the
+  // argument grows, which is immaterial for a p-value but real.
+  const R_PNORM_LOWER_TAIL: Array<[number, number]> = [
+    [4, 3.167124183311998e-5],
+    [5, 2.866515718791939e-7],
+    [6, 9.865876450376946e-10],
+    [8, 6.220960574271786e-16],
+    [10, 7.619853024160525e-24],
+    [15, 3.670966917678476e-51],
+    [20, 2.753624119125215e-89],
+    [30, 4.906713927148880e-198],
+  ];
+
+  for (const [z, expected] of R_PNORM_LOWER_TAIL) {
+    it(`pnorm(-${z}) ≈ ${expected.toExponential(4)} to 1e-6 relative`, () => {
+      const actual = normalCdf(-z);
+      expect(actual).toBeGreaterThan(0);
+      expect(Math.abs(actual - expected) / expected).toBeLessThan(1e-6);
+    });
+  }
+
+  it('stays finite and monotone at the extremes', () => {
+    expect(normalCdf(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(normalCdf(Number.POSITIVE_INFINITY)).toBe(1);
+    expect(Number.isNaN(normalCdf(Number.NaN))).toBe(true);
+    expect(normalCdf(-30)).toBeGreaterThan(0);
+    expect(normalCdf(-30)).toBeLessThan(normalCdf(-20));
+    // Past |z|≈38, exp(-z²/2) falls below the smallest subnormal double, so 0
+    // is the representable answer rather than a kernel defect. Documented here
+    // so a future reader does not mistake it for the bug this suite guards.
+    expect(normalCdf(-40)).toBe(0);
+  });
+});
+
 describe('chi-square CDF (known values)', () => {
   it('pchisq(3.841, 1) ≈ 0.95', () => expect(close(chiSquareCdf(3.841, 1), 0.95, 5e-3)).toBe(true));
   it('pchisq(5.991, 2) ≈ 0.95', () => expect(close(chiSquareCdf(5.991, 2), 0.95, 5e-3)).toBe(true));

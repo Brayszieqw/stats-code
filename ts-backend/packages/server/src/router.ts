@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { sidecar as engineSidecar } from '@stats-code/engine';
+import { sidecar as engineSidecar, snapshot as engineSnapshot } from '@stats-code/engine';
 import {
   domain,
   patchSettingsRequest,
@@ -36,12 +36,35 @@ const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
 /**
  * Map snapshot export failures to stable SPA-facing error codes.
  * "run not found" is expected after backend restart (in-memory registry), not a 500.
+ * Engine SnapshotError kinds map to the statuses the SPA already decodes
+ * (409 RunNotCompleted / 413 PayloadTooLarge — see web useSnapshotExport).
  */
 function replySnapshotError(
   reply: { code: (status: number) => { send: (body: Record<string, unknown>) => unknown } },
   err: unknown,
 ) {
   const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof engineSnapshot.SnapshotError) {
+    switch (err.kind) {
+      case 'run_not_completed':
+        return reply.code(409).send({
+          error_code: 'RunNotCompleted',
+          message,
+          actual_status: err.detail?.actual ?? null,
+        });
+      case 'payload_too_large':
+        return reply.code(413).send({
+          error_code: 'PayloadTooLarge',
+          message,
+          measured_bytes: err.detail?.measuredBytes ?? null,
+          ceiling_bytes: err.detail?.ceilingBytes ?? null,
+        });
+      case 'bad_destination':
+        return reply.code(400).send({ error_code: 'InvalidRequest', message });
+      default:
+        break;
+    }
+  }
   if (/run not found/i.test(message)) {
     return reply.code(404).send({
       error_code: 'RunNotFound',
@@ -207,13 +230,23 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     logger: false,
   });
 
-  // Permissive CORS (mirrors tower_http CorsLayer::permissive()).
+  // Same-origin CORS (S1). This API is an unauthenticated localhost service:
+  // a wildcard ACAO would let any web page in the user's browser drive it
+  // cross-origin (including the DNS-rebinding surface). Only loopback origins
+  // (the SPA itself or a local dev server) are reflected; every other origin
+  // gets no CORS headers, and its state-changing requests are refused outright.
   //
   // onSend alone is not enough for browser preflight: OPTIONS has no matching
   // route, so it used to fall through to the /api not-found handler (404) while
   // still advertising Allow-Methods: OPTIONS. Answer OPTIONS for /api/* with
   // 204 before routing.
   const CORS_ALLOW_METHODS = 'GET,POST,PATCH,DELETE,OPTIONS';
+  const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+  const trustedOrigin = (req: { headers: { origin?: string | string[] | undefined } }): string | null => {
+    const origin = req.headers.origin;
+    if (typeof origin !== 'string' || origin.length === 0) return null;
+    return LOOPBACK_ORIGIN.test(origin) ? origin : null;
+  };
   const corsAllowHeaders = (req: { headers: { [key: string]: string | string[] | undefined } }): string => {
     const requested = req.headers['access-control-request-headers'];
     if (typeof requested === 'string' && requested.length > 0) return requested;
@@ -222,19 +255,48 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   };
 
   app.addHook('onRequest', async (req, reply) => {
-    if (req.method !== 'OPTIONS') return;
     const path = req.url.split('?')[0] ?? req.url;
     if (!path.startsWith('/api/')) return;
-    reply.header('access-control-allow-origin', '*');
-    reply.header('access-control-allow-methods', CORS_ALLOW_METHODS);
-    reply.header('access-control-allow-headers', corsAllowHeaders(req));
-    return reply.code(204).send();
+    const origin =
+      typeof req.headers.origin === 'string' && req.headers.origin.length > 0
+        ? req.headers.origin
+        : undefined;
+    const trusted = trustedOrigin(req);
+
+    if (req.method === 'OPTIONS') {
+      if (origin !== undefined && trusted === null) {
+        // Cross-origin preflight: refuse without any CORS headers.
+        return reply.code(403).send();
+      }
+      if (trusted !== null) {
+        reply.header('access-control-allow-origin', trusted);
+        reply.header('vary', 'origin');
+        reply.header('access-control-allow-methods', CORS_ALLOW_METHODS);
+        reply.header('access-control-allow-headers', corsAllowHeaders(req));
+      }
+      return reply.code(204).send();
+    }
+
+    // A state-changing cross-origin request must not execute at all — CORS
+    // only hides the response from the page; it does not stop the side effect.
+    if (
+      (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') &&
+      origin !== undefined &&
+      trusted === null
+    ) {
+      return reply.code(403).send({
+        error_code: 'ForbiddenOrigin',
+        message: '跨源请求被拒绝：本地 API 仅接受同源（127.0.0.1/localhost）访问。',
+      });
+    }
   });
 
   app.addHook('onSend', (req, reply, payload, done) => {
-    reply.header('access-control-allow-origin', '*');
-    reply.header('access-control-allow-methods', CORS_ALLOW_METHODS);
-    reply.header('access-control-allow-headers', corsAllowHeaders(req));
+    const trusted = trustedOrigin(req);
+    if (trusted !== null) {
+      reply.header('access-control-allow-origin', trusted);
+      reply.header('vary', 'origin');
+    }
     done(null, payload);
   });
 
@@ -450,7 +512,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     const body = (req.body ?? {}) as { text?: string; content?: { type: string; text: string } };
     const text = body.text ?? (body.content?.type === 'text' ? body.content.text : undefined);
     if (text === undefined) {
-      return reply.code(413).send({ error_code: 'MessageTooLong', message: '请求体缺少 text 字段' });
+      return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: '请求体缺少 text 字段' });
     }
     if ([...text].length > 8000) {
       return reply.code(413).send({ error_code: 'MessageTooLong', message: '消息过长' });
@@ -482,7 +544,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     // message handler is configured (Phase-0 scaffold), emit a single terminal
     // `done` frame so the SSE contract shape still holds.
     reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream',
+      'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
@@ -620,14 +682,15 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
           .code(500)
           .send({ error_code: 'SkillExecutionFailed', message: '数据集存储服务尚未初始化' });
       }
-      // Decode the base64 payload (Requirement 6.1). Reject empty/invalid input.
-      let bytes: Uint8Array;
-      try {
-        const buf = Buffer.from(parsed.data.data, 'base64');
-        bytes = new Uint8Array(buf);
-      } catch {
+      // Decode the base64 payload (Requirement 6.1). Buffer.from silently maps
+      // garbage input to bytes instead of throwing, so validate strictly before
+      // decoding (D1): whitespace wrapping is tolerated, everything else must
+      // be canonical base64 with trailing padding only.
+      const normalizedB64 = parsed.data.data.replace(/\s+/g, '');
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalizedB64) || normalizedB64.length % 4 !== 0) {
         return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid base64 dataset' });
       }
+      const bytes = new Uint8Array(Buffer.from(normalizedB64, 'base64'));
       if (bytes.byteLength === 0) {
         return reply.code(422).send({ error_code: 'DatasetEmpty', message: '数据集为空' });
       }
@@ -877,6 +940,22 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
         return reply.code(400).send({
           error_code: 'InvalidRequest',
           message: 'sidecar request contains a non-portable identifier',
+        });
+      }
+      // Unknown algorithm id is a client addressing error, not a server fault (D4).
+      if (err instanceof engineSidecar.GenerateError && err.kind === 'unknown_algorithm') {
+        return reply.code(404).send({
+          error_code: 'NotFound',
+          message: `unknown sidecar algorithm: ${req.params.algorithm_id}`,
+        });
+      }
+      // Template placeholders referencing columns/params the request did not
+      // supply (e.g. the contract-default empty `columns`) are a client error,
+      // not a 500 (D3). The renderer itself stays strict.
+      if (err instanceof engineSidecar.RenderError) {
+        return reply.code(400).send({
+          error_code: 'InvalidRequest',
+          message: `sidecar request is missing required columns/params: ${err.message}`,
         });
       }
       return reply.code(500).send({ error_code: 'InternalError', message: (err as Error).message });

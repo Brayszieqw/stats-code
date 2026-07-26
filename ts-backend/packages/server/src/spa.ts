@@ -68,6 +68,12 @@ export function installSpaFallback(app: FastifyInstance, source: SpaAssetSource)
         .send(Buffer.from(asset.bytes));
     }
 
+    // A miss under an asset prefix is a genuine 404 (D14): serving index.html
+    // for /assets/x.woff2 makes browsers parse HTML as fonts/JS (OTS errors).
+    if (ASSET_PREFIXES.some((prefix) => routePath.startsWith(prefix))) {
+      return reply.code(404).send({ error_code: 'NotFound', message: 'asset not found' });
+    }
+
     // SPA fallback: index.html for any other route (deep links, refreshes).
     const index = source.indexHtml();
     return reply.code(200).header('content-type', index.contentType).send(Buffer.from(index.bytes));

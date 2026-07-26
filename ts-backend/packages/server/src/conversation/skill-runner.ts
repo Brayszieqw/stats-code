@@ -87,11 +87,22 @@ function numericValuesByGroup(
   const groupIdx = columnIndex(headers, group);
   const testIdx = columnIndex(headers, testVar);
   const buckets = new Map<string, number[]>();
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
     const label = row[groupIdx]?.trim() ?? '';
     if (label.length === 0) continue;
-    const value = Number(row[testIdx]);
-    if (!Number.isFinite(value)) continue;
+    // Trim before Number(): `Number('')` is 0, so an empty cell used to enter
+    // the analysis as a literal zero while `resultCounts()` — which tests
+    // `.trim().length > 0` — reported that same row as excluded. The audit
+    // metadata and the numbers it describes must come from one rule.
+    const raw = row[testIdx]?.trim() ?? '';
+    if (raw.length === 0) continue;
+    const value = Number(raw);
+    // Non-numeric text is an input error, not a missing value: dropping it
+    // silently would again disagree with the complete-case count, which reads
+    // any non-empty cell as present.
+    if (!Number.isFinite(value)) {
+      throw new Error(`non-numeric value in column ${testVar} at data row ${rowIndex + 1}`);
+    }
     const values = buckets.get(label) ?? [];
     values.push(value);
     buckets.set(label, values);
@@ -1070,7 +1081,19 @@ export class SkillRunner {
       return result;
     } catch (err) {
       if (err instanceof SkillRunErrorException) throw err;
-      // Any thrown engine error → execution_failed with a bounded excerpt.
+      // Hand-thrown validation errors — the engine's input gates and the
+      // column-extraction helpers all throw plain `Error` with a clear,
+      // user-actionable message (single group, zero variance, collinearity,
+      // non-numeric text, …) — are input rejections → invalid_args (422 at the
+      // route, D15). Genuine defects surface as TypeError/RangeError/etc. and
+      // stay execution_failed (500).
+      if (err instanceof Error && err.constructor === Error) {
+        throw new SkillRunErrorException({
+          kind: 'invalid_args',
+          missing: [],
+          message: err.message.slice(0, MAX_DIAGNOSTIC_CHARS),
+        });
+      }
       const excerpt = String((err as Error).message ?? err).slice(0, MAX_DIAGNOSTIC_CHARS);
       throw new SkillRunErrorException({ kind: 'execution_failed', diagnosticExcerpt: excerpt });
     } finally {
@@ -1140,12 +1163,23 @@ export class SkillRunner {
         const labels = [...buckets.keys()].sort();
         const groups = labels.map((label) => buckets.get(label)!);
         const res = stats.anova.oneWayAnova(groups);
+        // Per-group mean/SD so the client can draw the group comparison without
+        // recomputing anything from data it does not hold.
+        const groupStats = labels.map((label, i) => {
+          const values = groups[i]!;
+          const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+          const variance = values.length > 1
+            ? values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1)
+            : 0;
+          return { group: label, n: values.length, mean, sd: Math.sqrt(variance) };
+        });
         return {
           method: res.method,
           group_variable: group,
           test_variable: testVar,
           groups: labels,
           group_ns: Object.fromEntries(labels.map((label, i) => [label, groups[i]!.length])),
+          group_stats: groupStats,
           k: res.k,
           n_total: res.nTotal,
           ss_between: res.ssBetween,
@@ -1165,7 +1199,13 @@ export class SkillRunner {
         const xName = asString(args.x, 'x');
         const yName = asString(args.y, 'y');
         const methodRaw = typeof args.method === 'string' ? args.method.trim().toLowerCase() : 'pearson';
-        const method = methodRaw === 'spearman' ? 'spearman' : 'pearson';
+        // Reject unknown methods instead of quietly substituting Pearson: asking
+        // for Kendall and receiving a Pearson coefficient labelled `pearson` is
+        // a silent answer to a question the user did not ask.
+        if (methodRaw !== 'pearson' && methodRaw !== 'spearman') {
+          throw new Error(`unsupported correlation method '${methodRaw}'; expected 'pearson' or 'spearman'`);
+        }
+        const method = methodRaw;
         const x = numericColumn(headers, rows, xName);
         const y = numericColumn(headers, rows, yName);
         const res = method === 'spearman'
@@ -1434,6 +1474,10 @@ export class SkillRunner {
       }
       return {
         required_n: res.requiredN,
+        // `required_n` means "total" for one_proportion and "per arm" for the
+        // two-group designs. Emitting the engine's own total removes the need
+        // for the client to guess a multiplier from a label.
+        total_n: res.totalN,
         achieved_power: res.achievedPower,
         effect_size: res.effectSize,
         alpha: res.alpha,

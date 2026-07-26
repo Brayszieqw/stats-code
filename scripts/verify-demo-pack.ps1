@@ -5,12 +5,25 @@
 
 [CmdletBinding()]
 param(
-    [string]$PackDir = (Join-Path $PSScriptRoot '..\ts-backend\build\demo-pack\StatsCode-Demo-Pack'),
+    [string]$PackDir,
     [switch]$SkipChecksum
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($PackDir)) {
+    # This script ships INSIDE the demo pack, and colleague-README.txt tells the
+    # recipient to run it with no arguments from the extracted folder. There it
+    # sits beside stats-code.exe, so prefer its own directory; the repo-relative
+    # build output is only the fallback for running it from a source checkout.
+    $SelfDir = $PSScriptRoot
+    if (Test-Path -LiteralPath (Join-Path $SelfDir 'stats-code.exe') -PathType Leaf) {
+        $PackDir = $SelfDir
+    } else {
+        $PackDir = Join-Path $SelfDir '..\ts-backend\build\demo-pack\StatsCode-Demo-Pack'
+    }
+}
 
 $PackDir = [System.IO.Path]::GetFullPath($PackDir)
 $ExePath = Join-Path $PackDir 'stats-code.exe'

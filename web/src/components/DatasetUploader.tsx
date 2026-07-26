@@ -57,6 +57,11 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
   const { upload, uploading, progress, result, error, reset } = useDatasetUpload(sessionId);
   const notifiedRef = useRef<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
+  // The demo loader fetches a static asset before handing off to `upload`, so
+  // its failures never reach the hook's `error`. Without this the button just
+  // stopped responding — the worst place to be silent, since it is the first
+  // thing a new user clicks.
+  const [demoError, setDemoError] = useState<string | null>(null);
 
   // Notify parent when upload completes (once per result)
   useEffect(() => {
@@ -74,16 +79,17 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
 
   const handleLoadDemo = async () => {
     setDemoLoading(true);
+    setDemoError(null);
     try {
       const response = await fetch('/demo_cohort.csv');
       if (!response.ok) {
-        throw new Error(`无法获取示例数据: ${response.statusText}`);
+        throw new Error(`无法获取示例数据（HTTP ${response.status} ${response.statusText}）`);
       }
       const blob = await response.blob();
       const file = new File([blob], 'demo_cohort.csv', { type: 'text/csv' });
       upload(file);
     } catch (err) {
-      console.error(err);
+      setDemoError(err instanceof Error ? err.message : '加载示例数据失败，请改用手动上传。');
     } finally {
       setDemoLoading(false);
     }
@@ -137,6 +143,17 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
           showIcon
           closable
           onClose={reset}
+          style={{ marginTop: 12 }}
+        />
+      )}
+
+      {demoError && (
+        <Alert
+          type="error"
+          message={demoError}
+          showIcon
+          closable
+          onClose={() => setDemoError(null)}
           style={{ marginTop: 12 }}
         />
       )}

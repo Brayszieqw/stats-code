@@ -10,7 +10,8 @@
 // (Requirement 8.5).
 //
 // Invariants (mirrors the Rust contract):
-//  - matching is pure: basename + (Windows) strip ".exe", then compare;
+//  - matching is pure: basename + strip a known executable suffix
+//    (.exe/.bat/.cmd/.com — on every platform), then compare;
 //  - Windows comparison is case-insensitive, Unix is case-sensitive;
 //  - forbidden shared libraries are blocked too (Requirement 8.4).
 
@@ -72,13 +73,21 @@ export function basename(s: string): string {
   return lastSep === -1 ? trimmed : trimmed.slice(lastSep + 1);
 }
 
-/** Normalize a command: basename, then strip a `.exe` suffix on Windows. */
+/** Executable suffixes stripped during normalization, on every platform. */
+const STRIPPED_EXECUTABLE_SUFFIXES = ['.exe', '.bat', '.cmd', '.com'] as const;
+
+/**
+ * Normalize a command: basename, then strip a known executable suffix
+ * (case-insensitive). Stripping is deliberately platform-independent: a
+ * Windows-style `python.exe` must not slip past the sentinel just because
+ * the process happens to run on Linux/macOS (S2).
+ */
 export function normalizeCommand(s: string): string {
-  let name = basename(s);
-  if (IS_WINDOWS && name.length >= 4) {
-    const suffix = name.slice(name.length - 4);
-    if (suffix.toLowerCase() === '.exe') {
-      name = name.slice(0, name.length - 4);
+  const name = basename(s);
+  const lower = name.toLowerCase();
+  for (const suffix of STRIPPED_EXECUTABLE_SUFFIXES) {
+    if (lower.length > suffix.length && lower.endsWith(suffix)) {
+      return name.slice(0, name.length - suffix.length);
     }
   }
   return name;

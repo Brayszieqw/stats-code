@@ -15,7 +15,7 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
-  it('OPTIONS /api/sessions preflight → 204 with CORS headers (not 404)', async () => {
+  it('OPTIONS /api/sessions preflight from a loopback origin → 204 echoing the origin (S1)', async () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({
       method: 'OPTIONS',
@@ -27,7 +27,8 @@ describe('HTTP contract routes', () => {
       },
     });
     expect(res.statusCode).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(String(res.headers['vary']).toLowerCase()).toContain('origin');
     expect(String(res.headers['access-control-allow-methods'])).toContain('OPTIONS');
     expect(String(res.headers['access-control-allow-methods'])).toContain('POST');
     expect(String(res.headers['access-control-allow-headers']).toLowerCase()).toContain('content-type');
@@ -35,20 +36,71 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
-  it('OPTIONS /api/health preflight → 204 (any /api/* path)', async () => {
+  it('OPTIONS /api/health without an Origin → 204 and no CORS headers (any /api/* path)', async () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({ method: 'OPTIONS', url: '/api/health' });
     expect(res.statusCode).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
     await app.close();
   });
 
-  it('GET responses still carry CORS allow headers', async () => {
+  it('GET responses echo a loopback origin — never * (S1)', async () => {
     const app = buildRouter({ state: makeState() });
-    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { origin: 'http://127.0.0.1:8080' },
+    });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['access-control-allow-origin']).toBe('*');
-    expect(String(res.headers['access-control-allow-methods'])).toContain('GET');
+    expect(res.headers['access-control-allow-origin']).toBe('http://127.0.0.1:8080');
+    expect(String(res.headers['vary']).toLowerCase()).toContain('origin');
+    await app.close();
+  });
+
+  it('cross-origin preflight is refused without CORS headers (S1)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/sessions',
+      headers: {
+        origin: 'https://evil.example.com',
+        'access-control-request-method': 'POST',
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    await app.close();
+  });
+
+  it('cross-origin state-changing request → 403 ForbiddenOrigin, no side effect (S1)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: { origin: 'https://evil.example.com' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error_code).toBe('ForbiddenOrigin');
+    const list = await app.inject({ method: 'GET', url: '/api/sessions' });
+    expect(list.json()).toEqual([]);
+    await app.close();
+  });
+
+  it('loopback-origin POST still works; cross-origin GET gets no CORS headers (S1)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: { origin: 'http://127.0.0.1:8080' },
+    });
+    expect(ok.statusCode).toBe(201);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { origin: 'https://evil.example.com' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
     await app.close();
   });
 
@@ -183,7 +235,7 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
-  it('POST messages with no text → 413', async () => {
+  it('POST messages with no text → 422 SkillInvalidArgs (D6)', async () => {
     const app = buildRouter({ state: makeState() });
     const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
     const res = await app.inject({
@@ -191,7 +243,21 @@ describe('HTTP contract routes', () => {
       url: `/api/sessions/${created.id}/messages`,
       payload: {},
     });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error_code).toBe('SkillInvalidArgs');
+    await app.close();
+  });
+
+  it('POST messages over the length ceiling still → 413 MessageTooLong (D6)', async () => {
+    const app = buildRouter({ state: makeState() });
+    const created = (await app.inject({ method: 'POST', url: '/api/sessions' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/messages`,
+      payload: { text: 'x'.repeat(8001) },
+    });
     expect(res.statusCode).toBe(413);
+    expect(res.json().error_code).toBe('MessageTooLong');
     await app.close();
   });
 
@@ -365,11 +431,11 @@ describe('HTTP contract routes', () => {
       await app.close();
     });
 
-    it('falls back to index.html for an unknown asset-looking path', async () => {
+    it('unknown /assets/* path → 404, not the SPA shell (D14)', async () => {
       const app = spaApp();
       const res = await app.inject({ method: 'GET', url: '/assets/missing.js' });
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error_code).toBe('NotFound');
       await app.close();
     });
 

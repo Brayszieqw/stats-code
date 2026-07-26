@@ -627,11 +627,24 @@ function renderPower(payload: Record<string, unknown>) {
   const alpha = num('alpha');
   const method = typeof payload.method === 'string' ? payload.method : null;
   const converged = payload.converged;
-  const totalN = num('total_n') ?? (requiredN !== null ? requiredN * 2 : null);
+  // `required_n` is a TOTAL for the one-sample design and PER ARM for the
+  // two-group designs (engine: stats/power.ts). Labelling it "每组样本量" and
+  // doubling it for the total therefore reported twice the real requirement on
+  // the one-proportion path. Read the engine's own total and let the method
+  // decide the label; only fall back to doubling for a two-arm design.
+  const singleGroupDesign = method === 'one_proportion';
+  const totalN = num('total_n')
+    ?? (requiredN === null ? null : singleGroupDesign ? requiredN : requiredN * 2);
 
   const rows: Array<{ label: string; value: string; strong?: boolean }> = [
-    { label: '每组样本量', value: requiredN !== null ? String(Math.ceil(requiredN)) : '-', strong: true },
-    { label: '两组合计', value: totalN !== null ? String(Math.ceil(totalN)) : '-', strong: true },
+    ...(singleGroupDesign
+      ? []
+      : [{ label: '每组样本量', value: requiredN !== null ? String(Math.ceil(requiredN)) : '-', strong: true }]),
+    {
+      label: singleGroupDesign ? '所需样本量' : '两组合计',
+      value: totalN !== null ? String(Math.ceil(totalN)) : '-',
+      strong: true,
+    },
     { label: '实际功效', value: fmtNum(achievedPower) },
     { label: '效应量', value: fmtNum(effectSize) },
     { label: '显著性水平 α', value: fmtNum(alpha) },
@@ -831,8 +844,14 @@ export function ThreeLineTable({ markdown, skillResult, filterKeyword = '' }: Th
                     </td>
                     <td style={{ textAlign: 'right' }}>{fmtNum(coeff.beta)}</td>
                     <td style={{ textAlign: 'right' }}>{fmtNum(coeff.standardError)}</td>
-                    {estValue !== null && (
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtNum(estValue)}</td>
+                    {/* The header renders this column when ANY row has an
+                        effect estimate, so every row must emit the cell — a row
+                        whose OR/HR overflowed to Infinity (complete separation)
+                        otherwise shifted its CI and p value one column left. */}
+                    {(isLogistic || isCox) && (
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                        {estValue === null ? '-' : fmtNum(estValue)}
+                      </td>
                     )}
                     <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
                       [{fmtNum(coeff.ciLower)}, {fmtNum(coeff.ciUpper)}]

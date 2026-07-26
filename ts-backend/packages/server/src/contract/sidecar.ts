@@ -28,6 +28,12 @@ export const algorithmEntry = z.object({
   id: z.string(),
   display_name: z.string(),
   iterative: z.boolean(),
+  /**
+   * True when the algorithm is runnable from the shipped UI/HTTP surface;
+   * false = engine-level verified only (parity/oracle), no run entry point
+   * yet (G2 分层标注).
+   */
+  ui_runnable: z.boolean(),
   coverage: bySoftware(coverageValue),
   reference: bySoftware(referenceImpl),
 });

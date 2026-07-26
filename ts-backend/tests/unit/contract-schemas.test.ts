@@ -141,6 +141,7 @@ describe('sidecar/coverage schema validation', () => {
           id: 'tableone',
           display_name: 'Table One',
           iterative: false,
+          ui_runnable: true,
           coverage: { R: 'live', SAS: 'recorded', Python: 'live', SPSS: 'none' },
           reference: { R: { callable: 'tableone::CreateTableOne', package: 'tableone', version: '0.13.2' } },
         },

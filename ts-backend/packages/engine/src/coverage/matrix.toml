@@ -16,6 +16,14 @@
 ###   sidecar_only  -- Sidecar Code Generator emits a snippet but no
 ###                    automated parity assertion exists.
 ###   none          -- No Sidecar snippet, no parity assertion.
+###
+### ui_runnable (G2 capability layering):
+###   true  -- the algorithm has an actual run path in the shipped product
+###            (skill-runner dispatch + web configurator; the power designs
+###            count as runnable via the merged `power` skill).
+###   false -- engine-level verified only: parity/oracle coverage exists but
+###            no UI/HTTP entry point can execute it yet. Keep this honest —
+###            it is what stops the matrix from overclaiming capability.
 
 schema_version = 1
 release_version = "0.0.0-build-injected"
@@ -27,6 +35,7 @@ release_version = "0.0.0-build-injected"
 id = "tableone"
 display_name = "Table One"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -45,6 +54,7 @@ SPSS   = { proc = "FREQUENCIES;DESCRIPTIVES", version = "29.0.1" }
 id = "ttest"
 display_name = "t-test"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -63,6 +73,7 @@ SPSS   = { proc = "T-TEST",              version = "29.0.1" }
 id = "anova"
 display_name = "ANOVA"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -81,6 +92,7 @@ SPSS   = { proc = "UNIANOVA",       version = "29.0.1" }
 id = "nonparametric"
 display_name = "Non-parametric Tests"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -99,6 +111,7 @@ SPSS   = { proc = "NPAR TESTS",            version = "29.0.1" }
 id = "correlation"
 display_name = "Correlation"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -117,6 +130,7 @@ SPSS   = { proc = "CORRELATIONS",    version = "29.0.1" }
 id = "standardization"
 display_name = "Standardization"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "sidecar_only"
 SAS = "recorded"
@@ -135,6 +149,7 @@ SPSS   = { proc = "n/a",                      version = "29.0.1" }
 id = "or_rr"
 display_name = "OR / RR"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -153,6 +168,7 @@ SPSS   = { proc = "CROSSTABS /STATISTICS=RISK CMH", version = "29.0.1" }
 id = "attributable_risk"
 display_name = "Attributable Risk"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "sidecar_only"
 SAS = "recorded"
@@ -171,6 +187,7 @@ SPSS   = { proc = "n/a",           version = "29.0.1" }
 id = "kaplan_meier"
 display_name = "Kaplan-Meier Survival"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -189,6 +206,7 @@ SPSS   = { proc = "KM",              version = "29.0.1" }
 id = "cox"
 display_name = "Cox Proportional Hazards"
 iterative = true
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -207,6 +225,7 @@ SPSS   = { proc = "COXREG",          version = "29.0.1" }
 id = "life_table"
 display_name = "Life Table"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "sidecar_only"
 SAS = "recorded"
@@ -225,6 +244,7 @@ SPSS   = { proc = "SURVIVAL",      version = "29.0.1" }
 id = "linear"
 display_name = "Linear Regression"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -243,6 +263,7 @@ SPSS   = { proc = "REGRESSION",      version = "29.0.1" }
 id = "logistic"
 display_name = "Logistic Regression"
 iterative = true
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -261,6 +282,7 @@ SPSS   = { proc = "LOGISTIC REGRESSION", version = "29.0.1" }
 id = "power_single_arm"
 display_name = "Power / Sample Size (Single-Arm)"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -279,6 +301,7 @@ SPSS   = { proc = "n/a",                  version = "29.0.1" }
 id = "power_phase2"
 display_name = "Power / Sample Size (Phase 2)"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "sidecar_only"
 SAS = "recorded"
@@ -297,6 +320,7 @@ SPSS   = { proc = "n/a",             version = "29.0.1" }
 id = "power_phase3"
 display_name = "Power / Sample Size (Phase 3)"
 iterative = false
+ui_runnable = true
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"
@@ -315,6 +339,7 @@ SPSS   = { proc = "n/a",               version = "29.0.1" }
 id = "diagnostic_roc"
 display_name = "Diagnostic-test ROC"
 iterative = false
+ui_runnable = false
 [algorithm.coverage]
 R = "live"
 SAS = "recorded"

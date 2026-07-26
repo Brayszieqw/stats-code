@@ -5,7 +5,7 @@
  * Validates: Requirements 9.5, 14.4
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { postMessageFetch, ApiError } from '../api/client';
 import type {
   ChoicePrompt,
@@ -134,13 +134,41 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
     }
   }, []);
 
+  /**
+   * Leaving a session ends its stream. `AppShell` keeps one instance of this
+   * hook alive across every session, so without this the previous session's
+   * stream kept writing: its 3-second timer could raise 「网络连接异常」 over the
+   * session the user just opened, and `isStreaming` stayed true so the new
+   * session showed 「分析执行中」 for work that was not its own.
+   */
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      clearErrorTimer();
+      timeoutErrorRef.current = false;
+      setStatus('idle');
+      setError(null);
+    };
+  }, [sessionId, clearErrorTimer]);
+
   const sendMessage = useCallback(
     (text: string) => {
       if (!sessionId || !text.trim()) return;
 
-      // Cancel any in-flight stream
+      // Cancel any in-flight stream. The aborted request's own catch bails out
+      // early (it is no longer current), so the bubble it left behind is closed
+      // out here instead — otherwise an interrupted skill sat at 「正在执行」
+      // forever.
       if (abortRef.current) {
         abortRef.current.abort();
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.role === 'agent' && msg.content.includes('[正在执行:')
+              ? { ...msg, content: finalizeExecutingLine(msg.content, '[已中断]') }
+              : msg,
+          ),
+        );
       }
 
       // Reset error state on new send attempt (network recovery)

@@ -7,7 +7,7 @@
 // numerical stability, then the max_eta is added back into the log partial
 // likelihood term.
 
-import { chiSquareP } from '../math/distributions.js';
+import { chiSquareP, normalCdf } from '../math/distributions.js';
 import {
   dot,
   invertMatrix,
@@ -121,18 +121,10 @@ function validateCoxObservations(observations: readonly CoxObservation[]): numbe
   return p;
 }
 
-/** Standard normal two-sided p-value (matches 2*(1 - Φ(|z|))). */
-function normalCdfAbramowitz(x: number): number {
-  const a = Math.abs(x);
-  const t = 1 / (1 + 0.2316419 * a);
-  const density = Math.exp(-0.5 * a * a) / 2.5066282746310002;
-  const approx =
-    1 -
-    density *
-      t *
-      (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return x >= 0 ? approx : 1 - approx;
-}
+// Wald p-values use the shared `normalCdf` from math/distributions. A private
+// Abramowitz-Stegun copy used to live here; it lost all significant digits in
+// the tail and reported p = 0 past |z|≈9, so a fix to the shared kernel never
+// reached Cox.
 
 /** Compute (logPL, gradient, information) with the Efron tie approximation. */
 export function coxPartialStats(observations: readonly CoxObservation[], beta: readonly number[]): CoxPartialStats {
@@ -464,7 +456,7 @@ export function coxRegression(observations: readonly CoxObservation[]): CoxResul
         ? 0
         : Math.sign(beta) * Number.POSITIVE_INFINITY
       : beta / stdError;
-    const pValue = Math.min(1, Math.max(0, 2 * (1 - normalCdfAbramowitz(Math.abs(z)))));
+    const pValue = Math.min(1, Math.max(0, 2 * normalCdf(-Math.abs(z))));
     return {
       index,
       beta,

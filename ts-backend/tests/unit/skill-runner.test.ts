@@ -14,6 +14,7 @@ import {
   SkillRegistry,
   SkillRunner,
   SkillRunErrorException,
+  isInputRejectionError,
   type SkillContext,
   type DatasetSummary,
 } from '@stats-code/server';
@@ -956,5 +957,48 @@ describe('regression dummy encoding for categorical predictors', () => {
     // Cox 无截距：只有 2 个哑变量项
     expect(payload.coefficients.map((c) => c.term)).toEqual(['smoke=former', 'smoke=never']);
     expect(payload.coefficients.every((c) => c.reference === 'current')).toBe(true);
+  });
+});
+
+describe('ttest group ordering (O2)', () => {
+  const reg = SkillRegistry.withDefaults();
+  const runner = new SkillRunner(reg);
+
+  it('orders groups by label, not first appearance, so the sign matches R/SPSS', async () => {
+    // B appears first in the data; sorted order must still be [A, B] and the
+    // difference mean(A) - mean(B) = 11 - 21 = -10 (t negative), matching the
+    // level-sorted convention of R/SPSS. |t|, p, df are direction-invariant.
+    const ctx = ctxFor(
+      'score,arm\n20,B\n21,B\n22,B\n10,A\n11,A\n12,A\n',
+      [num('score'), cat('arm')],
+    );
+    const result = await runner.run(reg.get('ttest')!, {
+      group: 'arm',
+      testVar: 'score',
+      dataset_id: 'ds-1',
+    }, ctx);
+    const payload = result.payload as {
+      groups: Array<{ label: string; mean: number }>;
+      mean_diff: number;
+      t_statistic: number;
+    };
+    expect(payload.groups.map((g) => g.label)).toEqual(['A', 'B']);
+    expect(payload.mean_diff).toBeCloseTo(-10, 12);
+    expect(payload.t_statistic).toBeLessThan(0);
+  });
+});
+
+describe('isInputRejectionError (D15 classification)', () => {
+  it('accepts hand-thrown plain Errors and rejects defects/OS failures', () => {
+    expect(isInputRejectionError(new Error('T test requires exactly two non-empty groups'))).toBe(true);
+    expect(isInputRejectionError(new TypeError('x is not a function'))).toBe(false);
+    expect(isInputRejectionError(new RangeError('out of range'))).toBe(false);
+    expect(isInputRejectionError('not an error')).toBe(false);
+    // fs-style errno errors are plain Error at runtime but carry code/syscall —
+    // the user's input cannot fix ENOENT, so they must stay execution_failed.
+    const enoent = new Error('ENOENT: no such file or directory');
+    (enoent as NodeJS.ErrnoException).code = 'ENOENT';
+    (enoent as NodeJS.ErrnoException).syscall = 'open';
+    expect(isInputRejectionError(enoent)).toBe(false);
   });
 });

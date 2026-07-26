@@ -104,6 +104,29 @@ describe('HTTP contract routes', () => {
     await app.close();
   });
 
+  it('non-loopback Host → 403 ForbiddenHost before any handler (DNS-rebinding, S1)', async () => {
+    const app = buildRouter({ state: makeState() });
+    // A rebound hostname arrives with no Origin (browser thinks same-origin),
+    // so the Host gate is the only line of defense.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: 'evil.example.com:8080' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error_code).toBe('ForbiddenHost');
+    await app.close();
+  });
+
+  it('IPv4/IPv6/named loopback Hosts are all accepted (S1)', async () => {
+    const app = buildRouter({ state: makeState() });
+    for (const host of ['127.0.0.1:8080', 'localhost:5173', '[::1]:8080', 'localhost']) {
+      const res = await app.inject({ method: 'GET', url: '/api/health', headers: { host } });
+      expect(res.statusCode).toBe(200);
+    }
+    await app.close();
+  });
+
   it('POST /api/sessions → 201 with a session DTO', async () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({ method: 'POST', url: '/api/sessions' });

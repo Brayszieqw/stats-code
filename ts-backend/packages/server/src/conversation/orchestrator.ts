@@ -310,7 +310,11 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     };
   }
 
-  function buildMissingArgsPrompt(desc: SkillDescriptor, missing: string[]): ChoicePrompt {
+  function buildMissingArgsPrompt(
+    desc: SkillDescriptor,
+    missing: string[],
+    datasets: readonly { dataset_id: string; file_name: string }[],
+  ): ChoicePrompt {
     const properties = (desc.inputSchema.properties as Record<string, { description?: string }> | undefined) ?? {};
     // Do NOT turn raw parameter names into clickable options (e.g. option_id
     // "dataset_id" with label "数据集 ID") — users click them and the system
@@ -319,6 +323,28 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       const description = properties[arg]?.description;
       return description && description.length > 0 ? description : arg;
     });
+    // dataset_id can only be missing here when the session has no datasets
+    // (otherwise addSessionDatasetDefault bound the latest one). Never ask a
+    // user to type a UUID (O3): tell them to upload; if datasets somehow exist,
+    // name them — a file name beats an opaque ID.
+    if (missing.includes('dataset_id')) {
+      const otherLabels = labels.filter((_, i) => missing[i] !== 'dataset_id');
+      const otherPart = otherLabels.length > 0 ? `另外还需要：${otherLabels.join('、')}。` : '';
+      const question = datasets.length === 0
+        ? `执行「${desc.displayName}」需要数据。当前会话还没有数据集——请先在页面上方的上传区上传 ` +
+          `CSV/TSV 文件（上传后无需填写任何 ID，我会自动使用最新上传的数据）。${otherPart}`
+        : `执行「${desc.displayName}」需要指定数据集。当前会话已有：` +
+          `${datasets.map((d) => `「${d.file_name}」`).join('、')}，` +
+          `请直接回复要使用的文件名。${otherPart}`;
+      return {
+        prompt_id: randomUUID(),
+        question,
+        options: [],
+        multi_select: false,
+        allow_custom_text: true,
+        recommendation: null,
+      };
+    }
     return {
       prompt_id: randomUUID(),
       question:
@@ -491,7 +517,22 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     return { intent: parseIntentResponse(text) };
   }
 
-  function decideAction(intent: IntentResult, settings: SessionSettings): Action {
+  /** Session datasets for prompt building; empty on any lookup failure. */
+  async function sessionDatasets(
+    sessionId: string,
+  ): Promise<readonly { dataset_id: string; file_name: string }[]> {
+    try {
+      return (await sessionStore.get(sessionId)).datasets ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  function decideAction(
+    intent: IntentResult,
+    settings: SessionSettings,
+    datasets: readonly { dataset_id: string; file_name: string }[],
+  ): Action {
     if (intent.skill_ids.length === 0) {
       const text =
         intent.text_response ??
@@ -510,7 +551,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       if (missing.length === 0) {
         return { kind: 'run_skill', skillId, args: intent.resolved_args };
       }
-      return { kind: 'ask_choice', prompt: buildMissingArgsPrompt(desc, missing) };
+      return { kind: 'ask_choice', prompt: buildMissingArgsPrompt(desc, missing, datasets) };
     }
     return { kind: 'ask_choice', prompt: buildSkillChoicePrompt(intent.skill_ids) };
   }
@@ -564,7 +605,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       const offline = heuristicIntent(input.text);
       if (offline) {
         const intent = await finalizeIntent(sessionId, offline, input.text);
-        const action = decideAction(intent, input.settings);
+        const action = decideAction(intent, input.settings, await sessionDatasets(sessionId));
         yield* emitAction(sessionId, action, input, null);
         yield { type: 'done' };
         return;
@@ -604,7 +645,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     }
 
     const intent = await finalizeIntent(sessionId, intentBase, input.text);
-    const action = decideAction(intent, input.settings);
+    const action = decideAction(intent, input.settings, await sessionDatasets(sessionId));
     yield* emitAction(sessionId, action, input, provider);
     yield { type: 'done' };
   }

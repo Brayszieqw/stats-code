@@ -1012,12 +1012,31 @@ function runTableOne(headers: string[], rows: string[][], args: Record<string, u
   };
 }
 
+/**
+ * Input rejections (engine gates, column extraction) are hand-thrown plain
+ * `Error`s with user-actionable messages → invalid_args (422, D15). Runtime
+ * defects (TypeError/RangeError subclasses) and OS-level failures (errno-style
+ * `code`/`syscall` on a plain Error, e.g. fs ENOENT) stay execution_failed
+ * (500): an fs error is not something the user's input can fix.
+ */
+export function isInputRejectionError(err: unknown): boolean {
+  if (!(err instanceof Error) || err.constructor !== Error) return false;
+  const errnoLike = err as NodeJS.ErrnoException;
+  return typeof errnoLike.code !== 'string' && typeof errnoLike.syscall !== 'string';
+}
+
 function runTtest(headers: string[], rows: string[][], args: Record<string, unknown>): Record<string, unknown> {
   const group = asString(args.group, 'group');
   const testVar = asString(args.testVar, 'testVar');
   const alpha = args.alpha !== undefined ? Number(args.alpha) : 0.05;
   const buckets = numericValuesByGroup(headers, rows, group, testVar);
-  const entries = [...buckets.entries()].filter(([, values]) => values.length > 0);
+  // Sort by group label (same rule as the anova skill) instead of keeping
+  // data-first-appearance order: R/SPSS order factor levels, so this keeps the
+  // sign of t / mean_diff aligned with what users see there (O2). |t|, p and
+  // df are direction-invariant; the payload's `groups` still declares order.
+  const entries = [...buckets.entries()]
+    .filter(([, values]) => values.length > 0)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   if (entries.length !== 2) {
     throw new Error(`T test requires exactly two non-empty groups in ${group}; got ${entries.length}`);
   }
@@ -1081,17 +1100,11 @@ export class SkillRunner {
       return result;
     } catch (err) {
       if (err instanceof SkillRunErrorException) throw err;
-      // Hand-thrown validation errors — the engine's input gates and the
-      // column-extraction helpers all throw plain `Error` with a clear,
-      // user-actionable message (single group, zero variance, collinearity,
-      // non-numeric text, …) — are input rejections → invalid_args (422 at the
-      // route, D15). Genuine defects surface as TypeError/RangeError/etc. and
-      // stay execution_failed (500).
-      if (err instanceof Error && err.constructor === Error) {
+      if (isInputRejectionError(err)) {
         throw new SkillRunErrorException({
           kind: 'invalid_args',
           missing: [],
-          message: err.message.slice(0, MAX_DIAGNOSTIC_CHARS),
+          message: (err as Error).message.slice(0, MAX_DIAGNOSTIC_CHARS),
         });
       }
       const excerpt = String((err as Error).message ?? err).slice(0, MAX_DIAGNOSTIC_CHARS);

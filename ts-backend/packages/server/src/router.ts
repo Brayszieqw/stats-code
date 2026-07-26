@@ -257,6 +257,20 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0] ?? req.url;
     if (!path.startsWith('/api/')) return;
+
+    // DNS-rebinding defense (S1 残余闭环): a rebound hostname reaches this
+    // server with Host: attacker.tld and NO Origin header (the browser deems
+    // it same-origin), so the Origin checks below never fire. The service only
+    // ever binds loopback, so any non-loopback Host is hostile or misrouted.
+    const hostHeader = req.headers.host;
+    const hostName = typeof hostHeader === 'string' ? hostHeader.trim() : '';
+    if (!LOOPBACK_ORIGIN.test(`http://${hostName}`)) {
+      return reply.code(403).send({
+        error_code: 'ForbiddenHost',
+        message: '非本机 Host 的请求被拒绝：本地 API 仅接受 127.0.0.1/localhost 访问。',
+      });
+    }
+
     const origin =
       typeof req.headers.origin === 'string' && req.headers.origin.length > 0
         ? req.headers.origin

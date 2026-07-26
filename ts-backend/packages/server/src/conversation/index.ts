@@ -49,7 +49,7 @@ export {
   detectRiskSignals,
   type DetectRiskSignalsOptions,
 } from './risk-signals.js';
-export { SkillRunner, type SkillRunnerOptions } from './skill-runner.js';
+export { SkillRunner, isInputRejectionError, type SkillRunnerOptions } from './skill-runner.js';
 export {
   auditDataset,
   type AuditDatasetInput,

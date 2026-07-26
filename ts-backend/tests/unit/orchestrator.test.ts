@@ -133,6 +133,17 @@ describe('orchestrator decision table (Requirements 7.2–7.6)', () => {
     expect(prompt.prompt.allow_custom_text).toBe(true);
   });
 
+  it('missing dataset in an empty session guides to upload instead of asking for a UUID (O3)', async () => {
+    const { orchestrator } = buildHarness(
+      mockLlm('{"skill_ids":["ttest"],"resolved_args":{},"has_query_intent":true,"text_response":null}'),
+    );
+    const events = await collect(orchestrator.handleMessage('s', { text: 't 检验', settings: settings() }));
+    expect(events[0].type).toBe('choice_prompt');
+    const prompt = (events[0] as { type: 'choice_prompt'; prompt: { question: string } }).prompt;
+    expect(prompt.question).toContain('上传');
+    expect(prompt.question).not.toContain('数据集 ID');
+  });
+
   it('multiple skills → choice_prompt then done', async () => {
     const { orchestrator } = buildHarness(
       mockLlm('{"skill_ids":["model_linear","model_logistic"],"resolved_args":{},"has_query_intent":true,"text_response":null}'),

@@ -117,6 +117,7 @@ export {
   skillToAlgorithm,
   SkillRegistry,
   SkillRunner,
+  isInputRejectionError,
   SkillRunErrorException,
   createFsDatasetStore,
   defaultDatasetRoot,

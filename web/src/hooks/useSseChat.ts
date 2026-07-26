@@ -23,8 +23,38 @@ export interface ChatMessage {
   content: string;
   choicePrompt?: ChoicePrompt;
   skillResult?: SkillResult;
+  /**
+   * Methodology tip from SSE `interpretation` (deterministic method note ± short LLM tip).
+   * Not a numeric reading of skill_result — numbers live in skillResult / result_contract.
+   */
   interpretation?: string;
+  /** Last skill id announced via skill_call (for status chips / labels). */
+  lastSkillId?: string;
   timestamp: Date;
+}
+
+/** Human labels for skill_call status text (mirrors backend SkillRegistry displayName). */
+const SKILL_DISPLAY_NAMES: Record<string, string> = {
+  tableone: '基线特征表',
+  ttest: 'T 检验',
+  anova: '单因素方差分析',
+  correlation: '相关分析',
+  model_linear: '线性回归',
+  model_logistic: 'Logistic 回归',
+  model_cox: 'Cox 回归',
+  survival_km: 'Kaplan-Meier 生存',
+  power: '功效/样本量',
+  inspect: '数据概览',
+};
+
+function skillLabel(skillId: string): string {
+  return SKILL_DISPLAY_NAMES[skillId] ?? skillId;
+}
+
+/** Replace the last in-progress skill marker so bubbles don't freeze as "正在执行". */
+function finalizeExecutingLine(content: string, replacement: string): string {
+  if (!content.includes('[正在执行:')) return content;
+  return content.replace(/(^|\n)\[正在执行: [^\]]+\](?![\s\S]*\[正在执行:)/, `$1${replacement}`);
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'streaming' | 'error';
@@ -86,6 +116,16 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
   const abortRef = useRef<AbortController | null>(null);
   // Timer for 3-second network error detection
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * True only while the currently-set `error` was produced by the 3-second
+   * "still connecting" timeout guess below — never by a real server-pushed
+   * SSE `error` event or a fetch rejection. Those can only land once
+   * `status` is already 'streaming' (i.e. after the first-byte handler
+   * below has already consumed/reset this flag), so gating the auto-clear
+   * on this flag lets us recycle the timeout's false alarm on recovery
+   * without ever discarding a genuine server error.
+   */
+  const timeoutErrorRef = useRef(false);
 
   const clearErrorTimer = useCallback(() => {
     if (errorTimerRef.current) {
@@ -105,6 +145,7 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
 
       // Reset error state on new send attempt (network recovery)
       setError(null);
+      timeoutErrorRef.current = false;
       clearErrorTimer();
 
       // Add user message
@@ -143,6 +184,9 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
               error_code: 'LlmUnavailable',
               message: '网络连接异常，请检查网络后重试',
             };
+            // Mark this as the timeout's own guess so a later successful
+            // first byte on this same request knows it is safe to retract.
+            timeoutErrorRef.current = true;
             setError(errorPayload);
             return 'error';
           }
@@ -154,6 +198,18 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
         .then((response) => {
           if (!isCurrent()) return;
           clearErrorTimer();
+          // Recover from a slow-connection false alarm: the 3s timer above
+          // may have already flipped status to 'error' and set a
+          // LlmUnavailable error before the first byte arrived. Since the
+          // stream is now actually succeeding, retract *only* that guessed
+          // error — never a server-pushed SSE `error` event or a fetch
+          // rejection, because those set `error` from other call sites that
+          // leave `timeoutErrorRef.current` false (R14.4 recovery, R8.3
+          // race guard via isCurrent()).
+          if (timeoutErrorRef.current) {
+            timeoutErrorRef.current = false;
+            setError(null);
+          }
           setStatus('streaming');
 
           if (!response.body) {
@@ -266,14 +322,16 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
       }
 
       case 'skill_call': {
-        // Show skill call as a text notification in the agent message
+        // Backend: { skill_id, args } — show Chinese label; keep id for debugging.
         const callInfo = JSON.parse(data) as { skill_id: string; args: unknown };
+        const label = skillLabel(callInfo.skill_id);
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === agentMsgId
               ? {
                   ...msg,
-                  content: msg.content + `\n[正在执行: ${callInfo.skill_id}]`,
+                  lastSkillId: callInfo.skill_id,
+                  content: msg.content + `\n[正在执行: ${label}]`,
                 }
               : msg,
           ),
@@ -282,17 +340,24 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
       }
 
       case 'skill_result': {
+        // Payload is the SkillResult object itself (not nested under result).
         const result = JSON.parse(data) as SkillResult;
         setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === agentMsgId ? { ...msg, skillResult: result } : msg,
-          ),
+          prev.map((msg) => {
+            if (msg.id !== agentMsgId) return msg;
+            const label = skillLabel(msg.lastSkillId ?? 'skill');
+            return {
+              ...msg,
+              skillResult: result,
+              content: finalizeExecutingLine(msg.content, `[已完成: ${label}]`),
+            };
+          }),
         );
         break;
       }
 
       case 'interpretation': {
-        // Backend wraps interpretation in { text: "..." } envelope
+        // Backend envelope: { text } — methodology tip; see ChatMessage.interpretation.
         const parsed = JSON.parse(data) as { text: string };
         const interpretation = parsed.text;
         setMessages((prev) =>
@@ -309,6 +374,20 @@ export function useSseChat(sessionId: string): UseSseChatReturn {
         const errorPayload = JSON.parse(data) as ErrorPayload;
         setError(errorPayload);
         setStatus('error');
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id !== agentMsgId) return msg;
+            const label = skillLabel(msg.lastSkillId ?? 'skill');
+            const short = errorPayload.message.slice(0, 80);
+            return {
+              ...msg,
+              content: finalizeExecutingLine(
+                msg.content,
+                `[失败: ${label}] ${short}`,
+              ),
+            };
+          }),
+        );
         break;
       }
 

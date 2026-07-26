@@ -9,7 +9,7 @@
  * Validates: Requirements 4.1, 4.2, 4.3, 4.4
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Drawer, Grid, Layout, Tag, Typography } from 'antd';
 import {
   AreaChartOutlined,
@@ -23,6 +23,7 @@ import { SimpleSidebar } from './simple/SimpleSidebar';
 import { ModeToggle } from '../components/ModeToggle';
 import { AssistantPanel } from './pro/AssistantPanel';
 import { AnalysisWorkspace, type WorkspaceView } from './pro/AnalysisWorkspace';
+import type { ReportArtifact } from './pro/ReportViewer';
 import { DatasetUploader } from '../components/DatasetUploader';
 import { AnalysisPreflightModal } from '../components/AnalysisPreflightModal';
 import { ResearchProtocolDrawer } from '../components/ResearchProtocolDrawer';
@@ -30,6 +31,7 @@ import { ResearchWorkflowBar } from '../components/ResearchWorkflowBar';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { SessionIntegrityAlert } from '../components/SessionIntegrityAlert';
 import { useLatestAnalysis } from '../hooks/useLatestAnalysis';
+import { methodShortLabel } from '../lib/displayLabels';
 import { runSkill, ApiError } from '../api/client';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
@@ -62,6 +64,24 @@ export function mergeWorkspaceMessages(
       return byTime === 0 ? left.index - right.index : byTime;
     })
     .map(({ message }) => message);
+}
+
+function findPreviousUserPrompt(messages: ChatMessage[], beforeMessageId?: string): string | null {
+  const messageIndex = beforeMessageId
+    ? messages.findIndex((message) => message.id === beforeMessageId)
+    : messages.length;
+  const startIndex = messageIndex < 0 ? messages.length - 1 : messageIndex - 1;
+  for (let index = startIndex; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role === 'user' && message.content.trim()) {
+      return message.content.trim();
+    }
+  }
+  return null;
+}
+
+function hasSkillResult(message: ChatMessage | null): message is ChatMessage & { skillResult: SkillResult } {
+  return Boolean(message?.skillResult);
 }
 
 export interface ProModeViewProps {
@@ -120,6 +140,7 @@ export function ProModeView({
   const [planApprovalRunning, setPlanApprovalRunning] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('report');
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const activeSessionIdRef = useRef(sessionId);
   const directRunRequestRef = useRef(0);
   const preflightRequestRef = useRef(0);
@@ -127,7 +148,7 @@ export function ProModeView({
   activeSessionIdRef.current = sessionId;
 
   // 会话切换时重置本地派生状态，避免上个会话的数据集选择/直跑结果串台。
-  useEffect(() => {
+  useLayoutEffect(() => {
     directRunAbortRef.current?.abort();
     directRunAbortRef.current = null;
     directRunRequestRef.current += 1;
@@ -149,6 +170,7 @@ export function ProModeView({
     setPlanApprovalRunning(false);
     setWorkspaceView('report');
     setWorkspaceOpen(false);
+    setSelectedMessageId(null);
   }, [sessionId]);
 
   // 仅 1 个数据集时自动选中，避免用户必须再点 Tag 才出现分析配置器。
@@ -176,16 +198,19 @@ export function ProModeView({
       skillResult: directRunResult,
       timestamp: resultTimestamp,
     };
-    if (!directRunPrompt.trim()) return [resultMessage];
-    return [
-      {
-        id: `direct-run-question-${runId}`,
-        role: 'user',
-        content: directRunPrompt,
-        timestamp: directRunStartedAt ?? resultTimestamp,
-      },
-      resultMessage,
-    ];
+    // Do not inject the configurator prompt as a fake user bubble — that looks
+    // like the user wrote an LLM prompt and can imply LLM computed the numbers.
+    const algorithmId = directRunResult.analysis?.algorithm_id;
+    const methodLabel = algorithmId ? methodShortLabel(algorithmId) : '统计分析';
+    const planCard: ChatMessage = {
+      id: `direct-run-plan-${runId}`,
+      role: 'agent',
+      content:
+        `已提交结构化分析方案 #${runId.slice(0, 8)}（${methodLabel}）。` +
+        '统计数值由本机确定性引擎生成，不是大模型推算。',
+      timestamp: directRunStartedAt ?? resultTimestamp,
+    };
+    return [planCard, resultMessage];
   }, [directRunCompletedAt, directRunPrompt, directRunResult, directRunStartedAt]);
 
   const workspaceMessages = useMemo(() => {
@@ -196,23 +221,55 @@ export function ProModeView({
     );
   }, [chat.messages, directRunMessages, directRunResult?.analysis?.run_id]);
 
-  const { result } = useLatestAnalysis(workspaceMessages);
+  const { result: latestResult, resultMessage: latestResultMessage } = useLatestAnalysis(workspaceMessages);
+  const pinnedMessage = useMemo(
+    () => selectedMessageId
+      ? workspaceMessages.find((message) => message.id === selectedMessageId) ?? null
+      : null,
+    [selectedMessageId, workspaceMessages],
+  );
+  const pinnedArtifact: ReportArtifact | null = hasSkillResult(pinnedMessage)
+    ? { resultMessage: pinnedMessage }
+    : null;
+  const result = pinnedArtifact?.resultMessage.skillResult ?? latestResult;
+  const latestArtifactKey = latestResultMessage?.id ?? null;
+  useLayoutEffect(() => {
+    setSelectedMessageId(null);
+  }, [latestArtifactKey]);
+  const isViewingHistorical = Boolean(
+    pinnedArtifact && pinnedArtifact.resultMessage.id !== latestResultMessage?.id,
+  );
   const analysis = result?.analysis ?? null;
   const analysisDataset = useMemo(
     () => (analysis ? datasets.find((dataset) => dataset.dataset_id === analysis.dataset_id) ?? null : null),
     [analysis, datasets],
   );
-  const latestUserPrompt = useMemo(() => {
-    for (let i = workspaceMessages.length - 1; i >= 0; i--) {
-      const msg = workspaceMessages[i];
-      if (msg?.role === 'user' && msg.content.trim()) return msg.content.trim();
-    }
-    return '尚未提出研究问题';
-  }, [workspaceMessages]);
+  const currentUserPrompt = useMemo(
+    () => findPreviousUserPrompt(workspaceMessages) ?? '尚未提出研究问题',
+    [workspaceMessages],
+  );
+  const latestArtifactPrompt = useMemo(
+    () => (
+      latestResultMessage
+        ? findPreviousUserPrompt(workspaceMessages, latestResultMessage.id)
+        : findPreviousUserPrompt(workspaceMessages)
+    ) ?? '尚未提出研究问题',
+    [latestResultMessage, workspaceMessages],
+  );
+  const historicalUserPrompt = useMemo(
+    () => selectedMessageId
+      ? findPreviousUserPrompt(workspaceMessages, selectedMessageId)
+      : null,
+    [selectedMessageId, workspaceMessages],
+  );
+  const workspaceTitle = pinnedArtifact
+    ? historicalUserPrompt ?? '历史分析结果'
+    : latestArtifactPrompt;
 
   const handleSelect = (ds: DatasetSummary | null) => {
     setSelectedDataset(ds);
     if (ds) setLastProfiledDataset(ds);
+    setSelectedMessageId(null);
     setDirectRunResult(null);
     setDirectRunPrompt('');
     setDirectRunStartedAt(null);
@@ -337,6 +394,21 @@ export function ProModeView({
     }
   };
 
+  // Chat gate errors: surface the correct drawer/panel instead of a dead-end banner.
+  useEffect(() => {
+    const code = chat.error?.error_code;
+    if (code === 'ResearchProtocolRequired' || code === 'ResearchVersionConflict') {
+      setProtocolDrawerOpen(true);
+    }
+    if (
+      code === 'ResearchApprovalRequired'
+      || code === 'ResearchApprovalStale'
+      || code === 'ResearchAuditBlocked'
+    ) {
+      setWorkspaceOpen(true);
+    }
+  }, [chat.error?.error_code]);
+
   const handleInspectorRunComplete = (skillResult: SkillResult, runSessionId: string) => {
     if (activeSessionIdRef.current !== runSessionId) return;
     setDirectRunPrompt('');
@@ -349,7 +421,8 @@ export function ProModeView({
     void sessionList.refresh();
   };
 
-  const handleOpenResult = (view: 'report' | 'chart' | 'code') => {
+  const handleOpenResult = (view: 'report' | 'chart' | 'code', messageId: string) => {
+    setSelectedMessageId(messageId === latestResultMessage?.id ? null : messageId);
     setWorkspaceView(view);
     setWorkspaceOpen(true);
   };
@@ -377,10 +450,14 @@ export function ProModeView({
       && approval.protocol_approval_id === protocol.approval_id
     )) ?? null;
   }, [activeDataset, controller.analysisPlanApprovals, controller.researchProtocol]);
-  const artifactDataset = workspaceView === 'data' ? activeDataset : analysisDataset;
-  const docTitle = analysisDataset?.file_name ?? activeDataset?.file_name ?? '分析报告';
+  const artifactDataset = pinnedArtifact || workspaceView !== 'data'
+    ? analysisDataset
+    : activeDataset;
+  const docTitle = analysis?.algorithm_id === 'power'
+    ? '功效分析'
+    : analysisDataset?.file_name ?? activeDataset?.file_name ?? '分析报告';
   const isWorking = directRunRunning || chat.isStreaming;
-  const statusLabel = isWorking ? '分析执行中' : analysis ? '结果已生成' : activeDataset ? '数据已就绪' : '等待研究问题';
+  const statusLabel = isWorking ? '分析执行中' : result ? '结果已生成' : activeDataset ? '数据已就绪' : '等待研究问题';
 
   const sidebarWidth = screens.xxl ? 270 : 248;
   const workspaceWidth = screens.xxl ? 520 : 480;
@@ -404,16 +481,20 @@ export function ProModeView({
       view={workspaceView}
       onViewChange={setWorkspaceView}
       onClose={() => setWorkspaceOpen(false)}
-      title={latestUserPrompt}
+      title={workspaceTitle}
       messages={workspaceMessages}
       selectedDataset={selectedDataset}
       artifactDataset={artifactDataset}
       analysisDataset={analysisDataset}
       analysis={analysis}
+      hasResult={Boolean(result)}
       sessionId={sessionId}
       isArchived={isArchived}
       isRunning={directRunRunning}
       runError={directRunError}
+      pinnedArtifact={pinnedArtifact}
+      isViewingHistorical={isViewingHistorical}
+      onReturnToLatest={() => setSelectedMessageId(null)}
       onConfiguredRun={handleConfiguredRun}
       onInspectorRunComplete={handleInspectorRunComplete}
     />
@@ -490,7 +571,7 @@ export function ProModeView({
               />
             ) : null}
             <div className="pro-thread-heading">
-              <strong title={latestUserPrompt}>{latestUserPrompt === '尚未提出研究问题' ? '专业统计分析' : latestUserPrompt}</strong>
+              <strong title={currentUserPrompt}>{currentUserPrompt === '尚未提出研究问题' ? '专业统计分析' : currentUserPrompt}</strong>
               <span className={isWorking ? 'is-working' : ''} aria-live="polite">
                 <i aria-hidden /> {statusLabel} · {docTitle}
               </span>
@@ -560,8 +641,10 @@ export function ProModeView({
               </Button>
               );
             })}
-            {analysis ? (
-              <Tag className="pro-method-tag">{analysis.algorithm_id.replace(/^model_/, '').replace(/_/g, ' ')}</Tag>
+            {/* 契约上 algorithm_id 必填，但历史会话里实测存在缺该字段的记录；
+                缺失时不显示方法胶囊，而不是渲染一个「未知」标签。 */}
+            {analysis?.algorithm_id ? (
+              <Tag className="pro-method-tag">{methodShortLabel(analysis.algorithm_id)}</Tag>
             ) : null}
           </div>
 
@@ -571,7 +654,7 @@ export function ProModeView({
             auditStatus={currentAudit?.status ?? null}
             planApproved={Boolean(currentPlanApproval)}
             isRunning={isWorking}
-            resultReady={Boolean(analysis)}
+            resultReady={Boolean(result)}
             onOpenProtocol={() => setProtocolDrawerOpen(true)}
           />
 
@@ -592,6 +675,11 @@ export function ProModeView({
                   modelLabel={model}
                   onOpenDatasetPicker={() => setUploaderOpen(true)}
                   onOpenSettings={onOpenSettings}
+                  onOpenProtocol={() => setProtocolDrawerOpen(true)}
+                  onOpenInspector={() => {
+                    setWorkspaceOpen(true);
+                    setWorkspaceView('report');
+                  }}
                   onOpenVoiceInput={() => setVoiceDrawerOpen(true)}
                   onOpenResult={handleOpenResult}
                 />

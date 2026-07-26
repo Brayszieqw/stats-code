@@ -273,9 +273,52 @@ export function createResearchWorkflowService(
       assertSafeArgs(input.args);
       const session = await options.sessionStore.get(input.sessionId);
       requireActive(session);
-      const protocol = requireApprovedProtocol(session);
       const descriptor = resolveDescriptor(options.registry, input.skillId);
       if (!descriptor) throw new ResearchWorkflowError('SkillInvalidArgs', `未知统计方法：${input.skillId}`, 422);
+
+      // Read-only dataset description: no protocol / plan gates.
+      // Lets chat answer "描述变量与缺失" without the full research ceremony.
+      if (descriptor.skillId === 'inspect') {
+        const summary = findDataset(session, input.datasetId);
+        const args = normalizedRunArgs(input.args);
+        const bytes = await options.datasetStore.readRawById(summary.dataset_id);
+        const startedAt = now().toISOString();
+        const rawResult = await options.runner.run(
+          descriptor,
+          { ...args, dataset_id: summary.dataset_id },
+          { datasetBytes: bytes, datasetSummary: summary },
+        );
+        const finishedAt = now().toISOString();
+        const resultRecord = rawResult && typeof rawResult === 'object'
+          ? rawResult as Record<string, unknown>
+          : { payload: rawResult };
+        const analysis = resultRecord.analysis && typeof resultRecord.analysis === 'object'
+          ? resultRecord.analysis as Record<string, unknown>
+          : {};
+        const runId = typeof analysis.run_id === 'string' ? analysis.run_id : randomUUID();
+        const result = {
+          ...resultRecord,
+          analysis: {
+            ...analysis,
+            run_id: runId,
+            research_workflow: {
+              gate: 'exempt',
+              reason: 'inspect_read_only',
+            },
+          },
+        };
+        await options.sessionStore.appendSkillRun(input.sessionId, {
+          run_id: runId,
+          skill_id: descriptor.skillId,
+          args: { ...args, dataset_id: summary.dataset_id },
+          started_at: startedAt,
+          finished_at: finishedAt,
+          outcome: { Ok: result as never },
+        });
+        return result;
+      }
+
+      const protocol = requireApprovedProtocol(session);
       const summary = findDataset(session, input.datasetId);
       const args = normalizedRunArgs(input.args);
       const specHash = runSpecSha256(descriptor.skillId, summary.dataset_id, args);
@@ -388,9 +431,29 @@ export function createResearchWorkflowService(
           ? resultRecord.analysis as Record<string, unknown>
           : {};
         const runId = typeof analysis.run_id === 'string' ? analysis.run_id : randomUUID();
+        /**
+         * 非 Output-Level 技能（power）在 skill-runner 里 analysis 为 null，
+         * 因为 skillToAlgorithm('power') 按设计返回 null（它不进算法覆盖矩阵）。
+         * 此处过去只补 run_id 与审批链，结果元数据缺 algorithm_id / dataset_id /
+         * run_status —— 前端因此把工件判为「数据快照不可用」、禁用审计快照导出，
+         * 方法胶囊也拿不到标签（真机验收 power 记为 UI_FAIL）。
+         *
+         * 补齐展示与导出所需的最小身份字段，且不改变覆盖矩阵语义：
+         * algorithm_id 沿用 skill_id，dataset_sha256 保持 null 以诚实反映
+         * 「本次分析并未读取数据集内容」。已有字段一律优先，不覆盖引擎输出。
+         */
+        const identityDefaults: Record<string, unknown> = {
+          algorithm_id: descriptor.skillId,
+          dataset_id: summary.dataset_id,
+          dataset_sha256: null,
+          columns: [],
+          params: args,
+          run_status: 'completed',
+        };
         const result = {
           ...resultRecord,
           analysis: {
+            ...identityDefaults,
             ...analysis,
             run_id: runId,
             plan_id: approval.plan_id,

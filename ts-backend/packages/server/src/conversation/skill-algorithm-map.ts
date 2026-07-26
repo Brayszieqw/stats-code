@@ -28,6 +28,10 @@ export function skillToAlgorithm(skillId: string): AlgorithmId | null {
       return 'cox';
     case 'survival_km':
       return 'kaplan_meier';
+    case 'correlation':
+      return 'correlation';
+    case 'anova':
+      return 'anova';
     default:
       return null;
   }

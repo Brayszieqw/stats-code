@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "dist/.typecheck.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../engine/tsconfig.typecheck.json" }
+  ]
+}

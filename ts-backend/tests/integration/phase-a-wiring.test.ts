@@ -44,14 +44,15 @@ describe('Phase A — production defaultState() wiring', () => {
     await app.close();
   });
 
-  it('POST /api/snapshot/export is wired (unknown run → 500)', async () => {
+  it('POST /api/snapshot/export is wired (unknown run → 404 RunNotFound)', async () => {
     const app = buildRouter({ state: defaultState() });
     const res = await app.inject({
       method: 'POST',
       url: '/api/snapshot/export',
       payload: { run_id: 'run-1', destination: 'out.zip' },
     });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error_code).toBe('RunNotFound');
     await app.close();
   });
 });

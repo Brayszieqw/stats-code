@@ -28,6 +28,7 @@ import {
   type SkillRun,
 } from '../state.js';
 import { domain } from '../contract/index.js';
+import { sanitizeTitleText } from '../title-text.js';
 import {
   protocolContentSha256,
   protocolStateSha256,
@@ -69,7 +70,7 @@ function deriveTitle(session: Session): string {
     if ('User' in msg) {
       const content = msg.User.content;
       if ('Text' in content) {
-        const text = content.Text.trim();
+        const text = sanitizeTitleText(content.Text);
         if (text.length > 0) {
           return [...text].slice(0, TITLE_MAX_CHARS).join('');
         }

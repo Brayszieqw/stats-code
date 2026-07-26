@@ -12,11 +12,16 @@ import fc from 'fast-check';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { snapshot } from '@stats-code/engine';
 
-const { exportSnapshot, executeReplay, ReplayError, sha256Hex } = snapshot;
+const {
+  exportSnapshot,
+  executeReplay,
+  extractSnapshotZipBytes,
+  ReplayError,
+  sha256Hex,
+} = snapshot;
 type RunSnapshot = Parameters<typeof exportSnapshot>[0];
 
 const tmpDirs: string[] = [];
@@ -74,11 +79,7 @@ function exportAndExtract(run: RunSnapshot): string {
   const zip = join(dir, 'snap.zip');
   exportSnapshot(run, zip);
   const ex = join(dir, 'extracted');
-  execFileSync('powershell', [
-    '-NoProfile',
-    '-Command',
-    `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${ex}' -Force`,
-  ]);
+  extractSnapshotZipBytes(readFileSync(zip), ex);
   return ex;
 }
 

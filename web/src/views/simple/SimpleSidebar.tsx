@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { Button, Drawer, Empty, Input, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Drawer, Empty, Input, Space, Tag, Typography } from 'antd';
 import {
   EditOutlined,
   SearchOutlined,
@@ -128,6 +128,7 @@ export function SimpleSidebar({
   const [query, setQuery] = useState('');
   const deletingSessionIdsRef = useRef(new Set<string>());
   const [deletingSessionIds, setDeletingSessionIds] = useState<Set<string>>(() => new Set());
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [purging, setPurging] = useState(false);
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
 
@@ -153,20 +154,30 @@ export function SimpleSidebar({
     closePanel();
   };
 
-  const handleDeleteSession = (sid: string) => {
+  const handleDeleteSession = async (sid: string): Promise<void> => {
     if (!onDeleteSession || deletingSessionIdsRef.current.has(sid)) {
       return;
     }
     deletingSessionIdsRef.current.add(sid);
     setDeletingSessionIds((prev) => new Set(prev).add(sid));
-    void Promise.resolve(onDeleteSession(sid)).finally(() => {
+    setDeleteError(null);
+    try {
+      await onDeleteSession(sid);
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : '删除会话失败，请稍后重试',
+      );
+      await sessionList.refresh().catch(() => undefined);
+    } finally {
       deletingSessionIdsRef.current.delete(sid);
       setDeletingSessionIds((prev) => {
         const next = new Set(prev);
         next.delete(sid);
         return next;
       });
-    });
+    }
   };
 
   return (
@@ -202,6 +213,18 @@ export function SimpleSidebar({
         <div className="stats-sidebar__section-label" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#9aa7b4', fontSize: 12 }}>
           <HistoryOutlined /> 历史会话
         </div>
+
+        {deleteError && activePanel !== 'search' ? (
+          <Alert
+            type="error"
+            showIcon
+            closable
+            role="alert"
+            message={deleteError}
+            onClose={() => setDeleteError(null)}
+            style={{ margin: '4px 0 8px' }}
+          />
+        ) : null}
 
         {error ? (
           <div style={{ padding: '8px 10px' }} role="note">
@@ -265,7 +288,7 @@ export function SimpleSidebar({
                     aria-label={`删除会话: ${s.title}`}
                     disabled={deleting}
                     loading={deleting}
-                    onClick={() => handleDeleteSession(s.id)}
+                    onClick={() => void handleDeleteSession(s.id)}
                     style={{ flexShrink: 0 }}
                   />
                 ) : null}
@@ -335,6 +358,16 @@ export function SimpleSidebar({
           <Button icon={<ReloadOutlined />} onClick={() => void sessionList.refresh()} block>
             刷新历史
           </Button>
+          {deleteError ? (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              role="alert"
+              message={deleteError}
+              onClose={() => setDeleteError(null)}
+            />
+          ) : null}
           {filteredSessions.length === 0 ? (
             <Empty description={sessions.length === 0 ? '暂无历史会话' : '没有匹配的会话'} />
           ) : (
@@ -380,7 +413,7 @@ export function SimpleSidebar({
                         aria-label={`删除会话: ${session.title}`}
                         disabled={deleting}
                         loading={deleting}
-                        onClick={() => handleDeleteSession(session.id)}
+                        onClick={() => void handleDeleteSession(session.id)}
                       />
                     ) : null}
                   </div>

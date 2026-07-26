@@ -62,4 +62,29 @@ describe('ErrorBanner', () => {
       screen.queryByText(/您可以尝试修改变量选择或换用其他统计方法/),
     ).not.toBeInTheDocument();
   });
+
+  it('offers protocol action for ResearchProtocolRequired', () => {
+    const onOpenProtocol = vi.fn();
+    render(
+      <ErrorBanner
+        error={err('ResearchProtocolRequired', '必须先审批研究协议')}
+        onOpenProtocol={onOpenProtocol}
+      />,
+    );
+    expect(screen.getByText(/填写并审批研究协议/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /去填写研究协议/ }));
+    expect(onOpenProtocol).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers inspector action for ResearchApprovalRequired', () => {
+    const onOpenInspector = vi.fn();
+    render(
+      <ErrorBanner
+        error={err('ResearchApprovalRequired', '方案未批准')}
+        onOpenInspector={onOpenInspector}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /去完成审批/ }));
+    expect(onOpenInspector).toHaveBeenCalledTimes(1);
+  });
 });

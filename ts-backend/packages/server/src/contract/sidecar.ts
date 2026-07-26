@@ -67,6 +67,11 @@ export type SidecarRenderRequest = z.infer<typeof sidecarRenderRequest>;
 export const snapshotExportRequest = z.object({
   run_id: z.string(),
   destination: z.string(),
+  /**
+   * SPA 下载模式：导出完成后以 application/zip 流回浏览器。
+   * 缺省 false，保持契约测试与桌面侧 JSON 响应不变。
+   */
+  download: z.boolean().optional().default(false),
 });
 export type SnapshotExportRequest = z.infer<typeof snapshotExportRequest>;
 

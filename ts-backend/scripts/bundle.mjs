@@ -10,10 +10,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { ensureBuilt } from './ensure-built.mjs';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
+
+const buildCode = ensureBuilt();
+if (buildCode !== 0) {
+  throw new Error(`backend build guard failed with exit ${buildCode}`);
+}
 
 const enginePkg = require(resolve(root, 'packages/engine/package.json'));
 const version = enginePkg.version ?? '0.0.0';

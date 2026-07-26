@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { Card, Typography, Space, Tag } from 'antd';
+import { Card, Typography, Space, Tag, Empty } from 'antd';
 import { AreaChartOutlined } from '@ant-design/icons';
 import type { SkillResult } from '../api/types';
 import { fmtNum, fmtP, normalizeCoefficients, termHintsFromAnalysis } from '../lib/coeffFields';
@@ -461,7 +461,17 @@ export function StatsChartRenderer({ skillResult }: StatsChartRendererProps) {
   }, [skillResult]);
 
   if (!chartOption) {
-    return null;
+    return (
+      <Card
+        className="glass-panel stats-chart-card"
+        style={{ marginTop: 12, textAlign: 'center' }}
+      >
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={<Text type="secondary">当前分析暂无可用图表</Text>}
+        />
+      </Card>
+    );
   }
 
   return (

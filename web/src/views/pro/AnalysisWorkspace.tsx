@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { Alert, Button, Collapse, Segmented, Tag } from 'antd';
 import {
   AreaChartOutlined,
@@ -10,8 +10,9 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { AnalysisConfigurator } from '../../components/AnalysisConfigurator';
-import { ReportViewer } from './ReportViewer';
+import { ReportViewer, type ReportArtifact } from './ReportViewer';
 import { CodePanel } from './CodePanel';
+import { methodShortLabel } from '../../lib/displayLabels';
 import type { ChatMessage } from '../../hooks/useSseChat';
 import type { AnalysisResultMeta, DatasetSummary, RunRequest, SkillResult } from '../../api/types';
 
@@ -27,10 +28,14 @@ export interface AnalysisWorkspaceProps {
   artifactDataset: DatasetSummary | null;
   analysisDataset: DatasetSummary | null;
   analysis: AnalysisResultMeta | null;
+  hasResult: boolean;
   sessionId: string;
   isArchived: boolean;
   isRunning: boolean;
   runError: string | null;
+  pinnedArtifact: ReportArtifact | null;
+  isViewingHistorical: boolean;
+  onReturnToLatest: () => void;
   onConfiguredRun: (request: RunRequest, promptText: string) => Promise<void>;
   onInspectorRunComplete: (result: SkillResult, sessionId: string) => void;
 }
@@ -49,10 +54,14 @@ export function AnalysisWorkspace({
   artifactDataset,
   analysisDataset,
   analysis,
+  hasResult,
   sessionId,
   isArchived,
   isRunning,
   runError,
+  pinnedArtifact,
+  isViewingHistorical,
+  onReturnToLatest,
   onConfiguredRun,
   onInspectorRunComplete,
 }: AnalysisWorkspaceProps) {
@@ -60,12 +69,22 @@ export function AnalysisWorkspace({
     selectedDataset && (!analysis || analysis.dataset_id !== selectedDataset.dataset_id),
   );
   const [configOpen, setConfigOpen] = useState(needsConfiguration);
+  const provenanceLabel = analysis?.algorithm_id === 'power'
+    ? '设计阶段计算 · 未使用数据集'
+    : analysisDataset?.file_name ?? '数据快照不可用';
+  const historicalAnalysis = pinnedArtifact?.resultMessage.skillResult?.analysis;
+  const historicalMethod = historicalAnalysis?.algorithm_id
+    ? methodShortLabel(historicalAnalysis.algorithm_id)
+    : '统计分析';
+  const historicalReference = historicalAnalysis?.run_id
+    ? `运行 ${historicalAnalysis.run_id.slice(0, 8)}`
+    : '工件';
 
   // Auto-open when a new dataset still needs its first run; collapse after a
   // successful binding so the report stays primary. Re-open is always one click.
-  useEffect(() => {
-    setConfigOpen(needsConfiguration);
-  }, [analysis?.run_id, needsConfiguration, selectedDataset?.dataset_id]);
+  useLayoutEffect(() => {
+    if (!isViewingHistorical) setConfigOpen(needsConfiguration);
+  }, [analysis?.run_id, isViewingHistorical, needsConfiguration, selectedDataset?.dataset_id]);
 
   const openConfiguration = () => setConfigOpen(true);
 
@@ -76,7 +95,7 @@ export function AnalysisWorkspace({
           <span className="pro-workspace-panel__eyebrow">Workspace</span>
           <strong title={title}>{title}</strong>
           <small>
-            {analysis ? `${analysis.run_id.slice(0, 8)} · ${analysisDataset?.file_name ?? '数据快照不可用'}` : '等待分析结果'}
+            {analysis ? `${analysis.run_id.slice(0, 8)} · ${provenanceLabel}` : hasResult ? '结果已生成' : '等待分析结果'}
           </small>
         </div>
         <Button
@@ -105,6 +124,20 @@ export function AnalysisWorkspace({
       </div>
 
       <div className={`pro-workspace-panel__body ${view === 'code' ? 'is-code' : ''}`}>
+        {isViewingHistorical && pinnedArtifact ? (
+          <Alert
+            className="pro-workspace-panel__historical-notice"
+            type="info"
+            showIcon
+            message={`正在查看历史${historicalReference}（${historicalMethod}）`}
+            description="这不是最新结果。"
+            action={
+              <Button size="small" type="link" onClick={onReturnToLatest}>
+                回到最新结果
+              </Button>
+            }
+          />
+        ) : null}
         {view === 'code' ? (
           <section className="pro-workspace-code" aria-label="可复现代码">
             <CodePanel
@@ -117,7 +150,7 @@ export function AnalysisWorkspace({
           </section>
         ) : (
           <>
-            {selectedDataset ? (
+            {selectedDataset && !isViewingHistorical ? (
               <>
                 {analysis && !configOpen ? (
                   <Button
@@ -166,7 +199,12 @@ export function AnalysisWorkspace({
               <Alert type="error" showIcon message="运行失败" description={runError} className="pro-run-alert" />
             ) : null}
             {analysis ? <Tag className="pro-workspace-run-tag"><AreaChartOutlined /> 结果已绑定当前运行</Tag> : null}
-            <ReportViewer messages={messages} selectedDataset={artifactDataset} activeView={view} />
+            <ReportViewer
+              messages={messages}
+              selectedDataset={artifactDataset}
+              activeView={view}
+              pinnedArtifact={pinnedArtifact}
+            />
           </>
         )}
       </div>

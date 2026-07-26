@@ -287,7 +287,14 @@ export interface ResultContractEstimate {
   estimate: number;
   ci_95: { lower: number; upper: number } | null;
   p_value: number | null;
-  effect_unit: 'Beta' | 'OR' | 'HR' | 'Mean difference' | 'Median survival';
+  effect_unit:
+    | 'Beta'
+    | 'OR'
+    | 'HR'
+    | 'Mean difference'
+    | 'Median survival'
+    | 'Correlation coefficient'
+    | 'Eta squared';
   adjustment: 'adjusted' | 'unadjusted' | 'descriptive';
 }
 
@@ -431,12 +438,22 @@ export interface ErrorPayload {
 // ---------------------------------------------------------------------------
 // Agent Event (SSE stream)
 // ---------------------------------------------------------------------------
+//
+// Wire format (POST /api/sessions/:sid/messages, text/event-stream):
+//   event: text_delta|choice_prompt|skill_call|skill_result|interpretation|error|done
+//   data:  JSON (see serializeSseFrame in ts-backend packages/server/src/sse.ts)
+//
+// Contract stability note (2026-07):
+//   Backend conversation upgrades (method notes, column sanitization, heuristic
+//   args) keep the same event names and JSON envelopes. Frontend must not parse
+//   interpretation as numeric result reading — numbers live in skill_result.
 
 export type AgentEvent =
   | { TextDelta: string }
   | { ChoicePrompt: ChoicePrompt }
   | { SkillCall: { skill_id: string; args: unknown } }
   | { SkillResult: SkillResult }
+  /** Methodology tip string (deterministic method note ± optional LLM tip). */
   | { Interpretation: string }
   | { Error: ErrorPayload }
   | 'Done';

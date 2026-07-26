@@ -45,6 +45,30 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Minimal valid-looking zip bytes for SPA download path tests. */
+function zipDownloadResponse(
+  filename: string,
+  snapshotPath: string,
+  sha256 = 'a'.repeat(64),
+): Response {
+  // Local file header signature + padding — size > 22 so integrity check passes.
+  const bytes = new Uint8Array(64);
+  bytes[0] = 0x50;
+  bytes[1] = 0x4b;
+  bytes[2] = 0x03;
+  bytes[3] = 0x04;
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Length': String(bytes.byteLength),
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'X-Snapshot-Path': snapshotPath,
+      'X-Snapshot-Sha256': sha256,
+    },
+  });
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -100,23 +124,16 @@ describe('ExportSnapshotButton — disabled UX gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('ExportSnapshotButton — success', () => {
-  it('issues the request and renders a success toast naming the snapshot path', async () => {
-    const fetchImpl = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const decoded = JSON.parse(init?.body as string) as Record<
-          string,
-          unknown
-        >;
-        expect(decoded).toEqual({
-          run_id: 'run-9',
-          destination: 'C:/exports/run-9.zip',
-        });
-        return jsonResponse({
-          snapshot_path: 'C:/exports/run-9.zip',
-          sha256: 'a'.repeat(64),
-        });
-      },
-    );
+  it('GETs the zip file route and shows browser-download success feedback', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      expect(url).toBe('/api/snapshot/files/run-9');
+      expect(init?.method ?? 'GET').toBe('GET');
+      return zipDownloadResponse(
+        'snapshot-run-9.zip',
+        'D:/app/exports/snapshot-run-9.zip',
+      );
+    });
 
     render(
       <ExportSnapshotButton
@@ -138,8 +155,10 @@ describe('ExportSnapshotButton — success', () => {
     });
 
     const toast = screen.getByTestId('export-snapshot-toast-success');
-    expect(toast.textContent).toContain('C:/exports/run-9.zip');
+    expect(toast.textContent).toMatch(/已下载到本机|下载栏|下载/);
+    expect(toast.textContent).toMatch(/snapshot-run-9\.zip/);
     expect(toast.getAttribute('role')).toBe('status');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -153,8 +172,10 @@ describe('ExportSnapshotButton — 409 RunNotCompleted toast', () => {
     // would be disabled. To exercise the 7.8 path we pretend the SPA briefly
     // believes the run is completed (e.g. status flipped in flight) and the
     // server is the authoritative arbiter that refuses with HTTP 409.
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse(
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      expect(url).toContain('/api/snapshot/files/run-10');
+      return jsonResponse(
         {
           error_code: 'RunNotCompleted',
           message:
@@ -162,8 +183,8 @@ describe('ExportSnapshotButton — 409 RunNotCompleted toast', () => {
           actual_status: 'running',
         },
         409,
-      ),
-    );
+      );
+    });
 
     render(
       <ExportSnapshotButton
@@ -186,7 +207,7 @@ describe('ExportSnapshotButton — 409 RunNotCompleted toast', () => {
 
     const toast = screen.getByTestId('export-snapshot-toast-error');
     expect(toast.getAttribute('data-error-code')).toBe('RunNotCompleted');
-    expect(toast.textContent).toContain('running');
+    expect(toast.textContent).toMatch(/running|已完成/);
     expect(toast.getAttribute('role')).toBe('alert');
   });
 });
@@ -233,9 +254,9 @@ describe('ExportSnapshotButton — 413 PayloadTooLarge toast', () => {
 
     const toast = screen.getByTestId('export-snapshot-toast-error');
     expect(toast.getAttribute('data-error-code')).toBe('PayloadTooLarge');
-    // Both numbers must appear in the user-facing copy.
-    expect(toast.textContent).toContain(String(measured));
-    expect(toast.textContent).toContain(String(ceiling));
+    // 中文呈现用 MB；同时保留量级信息便于用户判断。
+    expect(toast.textContent).toMatch(/60\.0 MB|62914560/);
+    expect(toast.textContent).toMatch(/50\.0 MB|52428800/);
   });
 });
 
@@ -273,7 +294,7 @@ describe('ExportSnapshotButton — generic error toast', () => {
 
     const toast = screen.getByTestId('export-snapshot-toast-error');
     expect(toast.getAttribute('data-error-code')).toBe('InternalError');
-    expect(toast.textContent).toContain('InternalError');
+    // 用户可见文案用中文 + 服务端 message，error_code 只在 data 属性
     expect(toast.textContent).toContain('manifest hash mismatch');
   });
 });
@@ -315,14 +336,15 @@ describe('ExportSnapshotButton — loading flag', () => {
     await waitFor(() => {
       expect(button).toBeDisabled();
     });
-    expect(button.textContent).toMatch(/导出中/);
+    expect(button.textContent).toMatch(/正在打包|导出/);
 
     await act(async () => {
       resolveFetch?.(
-        jsonResponse({
-          snapshot_path: 'C:/exports/run-13.zip',
-          sha256: 'b'.repeat(64),
-        }),
+        zipDownloadResponse(
+          'snapshot-run-13.zip',
+          'C:/exports/run-13.zip',
+          'b'.repeat(64),
+        ),
       );
       await Promise.resolve();
     });

@@ -12,9 +12,9 @@
     "packages/engine"
   ],
   "scripts": {
-    "build": "node scripts/embed-matrix.mjs && node scripts/embed-templates.mjs && tsc --build",
-    "clean": "tsc --build --clean",
-    "typecheck": "tsc --build --noEmit",
+    "build": "node scripts/ensure-built.mjs --force",
+    "clean": "tsc --build --clean && tsc --build packages/api/tsconfig.typecheck.json --clean",
+    "typecheck": "node scripts/ensure-built.mjs && tsc -p packages/engine/tsconfig.typecheck.json --noEmit && tsc -p packages/server/tsconfig.typecheck.json --noEmit && tsc -p packages/api/tsconfig.typecheck.json --noEmit",
     "lint": "eslint . --ext .ts",
     "ensure-built": "node scripts/ensure-built.mjs",
     "test": "vitest run",

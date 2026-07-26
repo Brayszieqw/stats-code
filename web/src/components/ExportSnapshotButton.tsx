@@ -1,54 +1,33 @@
 /**
- * ExportSnapshotButton — SPA control that drives `POST /api/snapshot/export`.
+ * ExportSnapshotButton — 报告区「审计与复现」导出控件。
  *
- * The button is the user-facing trigger of Requirement 7.1 ("Export Audit
- * Snapshot" on a `completed` run). The visible disable rule is a UX gate
- * only: the agent-server is the authoritative authority for the run-status
- * (Requirement 7.8) and 50 MB ceiling (Requirement 7.7) checks. The button
- * therefore:
- *
- *   - is `disabled` whenever `runStatus !== 'completed'`, so the common case
- *     (a still-running analysis) cannot fire a request that the server is
- *     guaranteed to refuse;
- *   - fires `useSnapshotExport().exportSnapshot({ run_id, destination })`
- *     on click and shows an in-flight indicator while the promise is
- *     unsettled;
- *   - on success renders an inline `role="status"` toast that names the
- *     resulting snapshot path (Requirement 7.1 — the user-visible feedback
- *     of a completed export);
- *   - on `RunNotCompleted` renders an inline `role="alert"` toast that
- *     identifies the actual run status (Requirement 7.8 — the refusal must
- *     identify the actual status);
- *   - on `PayloadTooLarge` renders an inline `role="alert"` toast that
- *     identifies the measured bytes and the 50 MB ceiling (Requirement
- *     7.7 — the refusal must identify the measured payload and the ceiling);
- *   - on any other error code renders an inline `role="alert"` toast that
- *     surfaces the server's error code and message verbatim.
- *
- * The toasts are rendered in-DOM rather than through a global notification
- * portal so the component's tests can assert on them deterministically and
- * so the Stats Code SPA does not pull in a notification provider for one
- * site. The visual style is intentionally minimal; the analysis-result view
- * styles `.export-snapshot-toast-*` selectors.
+ * 视觉对齐原 AI 设计语言：`result-contract` 面板（左色条、衬线标题、纸面底）。
+ * 交互：仅 completed 可点；成功后触发浏览器下载 + 可关闭中文反馈；
+ * 失败用 role="alert" 中文说明（服务端仍是权威门禁）。
  *
  * Validates: Requirements 7.1, 7.7, 7.8
  */
 
-import { useCallback, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement } from 'react';
+import { Alert, Button, Space, Typography } from 'antd';
+import {
+  CopyOutlined,
+  DownloadOutlined,
+  FolderOpenOutlined,
+  SafetyCertificateOutlined,
+} from '@ant-design/icons';
 
 import {
   useSnapshotExport,
   type SnapshotExportError,
 } from '../hooks/useSnapshotExport';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+const { Text } = Typography;
 
 export interface ExportSnapshotButtonProps {
   /** Identifier of the analysis run to export. */
   runId: string;
-  /** User-selected destination path for the resulting `.zip`. */
+  /** Server-side write destination (basename is fine; SPA also downloads the zip). */
   destination: string;
   /**
    * Status of the run as known to the SPA. The button is enabled only
@@ -63,102 +42,285 @@ export interface ExportSnapshotButtonProps {
   fetchImpl?: typeof fetch;
 }
 
-// ---------------------------------------------------------------------------
-// Toast helpers
-// ---------------------------------------------------------------------------
+function basenameOf(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1] || path;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /**
- * Render the human-readable refusal message for a given typed error.
- *
- * For `PayloadTooLarge` the message must identify both the measured byte
- * count and the 50 MB ceiling (Requirement 7.7); for `RunNotCompleted` it
- * must identify the actual status (Requirement 7.8). When the server omits
- * a structured field (defensive against schema drift), we fall back to the
- * server's `message` so the user still sees a meaningful refusal rather
- * than a blank toast.
+ * 中文拒绝文案。服务端仍返回结构化字段；这里只负责呈现。
  */
 function describeError(error: SnapshotExportError): string {
   if (error.errorCode === 'PayloadTooLarge') {
     if (
-      error.measuredBytes !== undefined &&
-      error.ceilingBytes !== undefined
+      error.measuredBytes !== undefined
+      && error.ceilingBytes !== undefined
     ) {
-      return `Snapshot too large: measured ${error.measuredBytes} bytes, ceiling ${error.ceilingBytes} bytes.`;
+      return `审计包过大：实测 ${formatBytes(error.measuredBytes)}，上限 ${formatBytes(error.ceilingBytes)}。请精简工件后重试。`;
     }
-    return error.message;
+    return error.message || '审计包超过 50 MB 上限，无法导出。';
   }
   if (error.errorCode === 'RunNotCompleted') {
     if (error.actualStatus !== undefined) {
-      return `Cannot export: run status is "${error.actualStatus}", expected "completed".`;
+      return `当前运行状态为「${error.actualStatus}」，仅「已完成」的分析可导出审计快照。`;
     }
-    return error.message;
+    return error.message || '分析尚未完成，无法导出审计快照。';
   }
-  return `${error.errorCode}: ${error.message}`;
+  if (error.errorCode === 'RunNotFound') {
+    return error.message
+      || '找不到该次分析的导出记录（后端重启后会清空）。请重新运行分析后再导出。';
+  }
+  if (error.errorCode === 'SnapshotUnavailable') {
+    return '审计导出服务未就绪，请确认后端已启动。';
+  }
+  if (error.errorCode === 'NetworkError') {
+    const m = error.message || '';
+    if (/failed to fetch|ECONNREFUSED|network/i.test(m)) {
+      return '无法连接后端（8080）。请先启动 Stats 后端，再重新运行分析后导出。';
+    }
+    return `网络异常：${m}`;
+  }
+  if (error.errorCode === 'FetchUnavailable') {
+    return '当前环境无法发起导出请求。';
+  }
+  if (error.errorCode === 'HTTP_500' || error.errorCode === 'InternalError') {
+    if (/run not found/i.test(error.message || '')) {
+      return '找不到该次分析的导出记录（后端重启后会清空）。请重新运行分析后再导出。';
+    }
+    return error.message && !/^Snapshot export failed with HTTP/i.test(error.message)
+      ? error.message
+      : '导出失败：服务端内部错误。请确认后端已启动，并重新运行分析后再试。';
+  }
+  if (error.errorCode.startsWith('HTTP_')) {
+    return error.message && !/^Snapshot export failed with HTTP/i.test(error.message)
+      ? error.message
+      : `导出失败（HTTP ${error.errorCode.replace('HTTP_', '')}）。请确认后端在线后重试。`;
+  }
+  return error.message
+    ? error.message
+    : `导出失败（${error.errorCode}）`;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function disabledHint(runStatus: string): string {
+  if (runStatus === 'completed') return '';
+  if (!runStatus) return '等待分析完成后可导出。';
+  return `当前状态「${runStatus}」· 仅已完成的运行可导出。`;
+}
 
 export function ExportSnapshotButton(
   props: ExportSnapshotButtonProps,
 ): ReactElement {
   const { runId, destination, runStatus, fetchImpl } = props;
 
-  const { state, exportSnapshot } = useSnapshotExport(fetchImpl);
+  const { state, exportSnapshot, clearFeedback, redownload } = useSnapshotExport(fetchImpl);
 
-  // Client-side UX gate (Requirement 7.1 / 7.8): the server is still
-  // authoritative, but a non-completed run guaranteeably yields a 409, so
-  // it is friendlier to disable the button.
   const isCompleted = runStatus === 'completed';
   const buttonDisabled = !isCompleted || state.loading;
+  const shortName = basenameOf(destination);
+  const hint = disabledHint(runStatus);
+  const [copyHint, setCopyHint] = useState<string | null>(null);
 
   const handleClick = useCallback(() => {
     if (buttonDisabled) return;
-    // Fire-and-forget: React's onClick does not await the promise.
-    void exportSnapshot({ run_id: runId, destination });
+    void exportSnapshot({ run_id: runId, destination, download: true });
   }, [buttonDisabled, exportSnapshot, runId, destination]);
 
-  const buttonLabel = state.loading ? '导出中…' : '导出审计快照';
+  const copyText = useCallback(async (text: string, okLabel: string) => {
+    if (!text || !navigator.clipboard?.writeText) {
+      setCopyHint('当前环境无法写入剪贴板');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyHint(okLabel);
+      window.setTimeout(() => setCopyHint(null), 2_500);
+    } catch {
+      setCopyHint('复制失败，请手动选择文本');
+    }
+  }, []);
+
+  const downloadName = state.downloadFilename
+    || (state.result ? basenameOf(state.result.snapshot_path) : shortName);
+
+  const buttonLabel = state.loading ? '正在打包…' : '下载审计快照';
 
   return (
-    <div
-      className="export-snapshot-button"
+    <section
+      className="export-audit-panel result-contract"
       data-testid="export-snapshot-button-root"
+      aria-label="审计与复现"
     >
-      <button
-        type="button"
-        className="export-snapshot-button-control"
-        data-testid="export-snapshot-button"
-        disabled={buttonDisabled}
-        aria-busy={state.loading}
-        onClick={handleClick}
-      >
-        {buttonLabel}
-      </button>
+      <div className="result-contract__header export-audit-panel__header">
+        <strong>
+          <SafetyCertificateOutlined style={{ marginRight: 6 }} />
+          审计与复现
+        </strong>
+        <span>
+          运行
+          {' '}
+          {(runId || '').slice(0, 8) || '—'}
+          {' '}
+          · 可复核 zip
+        </span>
+      </div>
 
-      {state.result !== undefined && (
-        <div
+      <p className="export-audit-panel__lead">
+        导出本次运行的完整审计包（数据指纹、工作流、版本、方法覆盖与叙事材料），
+        用于复核与存档。统计数值由本机确定性引擎生成，不是大模型推算。
+      </p>
+
+      <div className="export-audit-panel__actions">
+        <Button
+          type="primary"
+          icon={<DownloadOutlined />}
+          className="export-snapshot-button-control"
+          data-testid="export-snapshot-button"
+          disabled={buttonDisabled}
+          loading={state.loading}
+          aria-busy={state.loading}
+          onClick={handleClick}
+        >
+          {buttonLabel}
+        </Button>
+        <Text type="secondary" className="export-audit-panel__filename">
+          {shortName}
+        </Text>
+      </div>
+
+      {hint ? (
+        <Text type="secondary" className="export-audit-panel__hint">
+          {hint}
+        </Text>
+      ) : null}
+
+      {state.result !== undefined ? (
+        <Alert
           className="export-snapshot-toast export-snapshot-toast-success"
           data-testid="export-snapshot-toast-success"
+          type="success"
+          showIcon
+          closable
+          onClose={clearFeedback}
           role="status"
-          aria-live="polite"
-        >
-          快照已保存到 {state.result.snapshot_path}
-        </div>
-      )}
+          message={state.browserDownloaded ? '已下载到本机' : '审计包已在服务端生成'}
+          description={(
+            <div className="export-audit-panel__success">
+              {state.browserDownloaded ? (
+                <>
+                  <p className="export-audit-panel__file-row">
+                    <FolderOpenOutlined aria-hidden />
+                    <span>
+                      文件名
+                      {' '}
+                      <code data-testid="export-download-filename">{downloadName}</code>
+                    </span>
+                  </p>
+                  <p>
+                    浏览器出于安全限制，网页无法显示真实磁盘路径。
+                    请到系统
+                    <strong>「下载」</strong>
+                    文件夹打开同名文件（Windows：
+                    <code>%USERPROFILE%\Downloads\{downloadName}</code>
+                    ），或点浏览器底部
+                    <strong>下载栏</strong>
+                    中的文件名。
+                    不要把文件名粘贴到地址栏打开。
+                  </p>
+                  <p className="export-audit-panel__sha">
+                    SHA-256
+                    {' '}
+                    <code>{state.result.sha256.slice(0, 16)}…</code>
+                  </p>
+                  <Space size={4} wrap>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<CopyOutlined />}
+                      onClick={() => void copyText(downloadName, '已复制文件名')}
+                    >
+                      复制文件名
+                    </Button>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<DownloadOutlined />}
+                      onClick={redownload}
+                    >
+                      再次下载
+                    </Button>
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={() => void copyText(
+                        state.result?.snapshot_path ?? '',
+                        '已复制服务端存档路径',
+                      )}
+                    >
+                      复制服务端存档路径
+                    </Button>
+                  </Space>
+                </>
+              ) : (
+                <>
+                  <p>
+                    文件已写入服务端运行目录（开发环境多为后端工作目录），
+                    <strong>不是</strong>
+                    浏览器「下载」文件夹：
+                  </p>
+                  <p className="export-audit-panel__path-block">
+                    <code data-testid="export-server-path">{state.result.snapshot_path}</code>
+                  </p>
+                  <p className="export-audit-panel__sha">
+                    SHA-256
+                    {' '}
+                    <code>{state.result.sha256.slice(0, 16)}…</code>
+                  </p>
+                  <Space size={4} wrap>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<CopyOutlined />}
+                      onClick={() => void copyText(
+                        state.result?.snapshot_path ?? '',
+                        '已复制完整路径',
+                      )}
+                    >
+                      复制完整路径
+                    </Button>
+                  </Space>
+                </>
+              )}
+              {copyHint ? (
+                <Text type="success" className="export-audit-panel__copy-hint" role="status">
+                  {copyHint}
+                </Text>
+              ) : null}
+            </div>
+          )}
+        />
+      ) : null}
 
-      {state.error !== undefined && (
-        <div
+      {state.error !== undefined ? (
+        <Alert
           className={`export-snapshot-toast export-snapshot-toast-error export-snapshot-toast-error-${state.error.errorCode}`}
           data-testid="export-snapshot-toast-error"
           data-error-code={state.error.errorCode}
+          type="error"
+          showIcon
+          closable
+          onClose={clearFeedback}
           role="alert"
-        >
-          {describeError(state.error)}
-        </div>
-      )}
-    </div>
+          message="导出失败"
+          description={describeError(state.error)}
+        />
+      ) : null}
+    </section>
   );
 }
 

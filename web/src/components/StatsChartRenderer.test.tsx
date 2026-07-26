@@ -27,6 +27,39 @@ beforeEach(() => {
   capturedOptions.length = 0;
 });
 
+describe('StatsChartRenderer unsupported chart state', () => {
+  it('shows an explicit empty state for a Table One result without chart data', () => {
+    const result: SkillResult = {
+      schema_version: '1.0',
+      payload: {
+        strata: 'disease',
+        continuous: ['age', 'bmi'],
+        categorical: ['sex'],
+        groups: [
+          {
+            label: '0',
+            n: 151,
+            continuous: [],
+            categorical: [],
+          },
+          {
+            label: '1',
+            n: 89,
+            continuous: [],
+            categorical: [],
+          },
+        ],
+      },
+      risk_signals: [],
+    };
+
+    render(<StatsChartRenderer skillResult={result} />);
+
+    expect(screen.getByText('当前分析暂无可用图表')).toBeInTheDocument();
+    expect(screen.queryByTestId('echarts-option')).not.toBeInTheDocument();
+  });
+});
+
 function latestOption(): CapturedOption {
   const option = capturedOptions[capturedOptions.length - 1];
   if (!option) throw new Error('ECharts option was not captured.');

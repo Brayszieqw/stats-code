@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Form, Select, Button, Card, Radio, Space, Typography, Tooltip, Row, Col } from 'antd';
+import { Form, Select, Button, Card, Radio, Space, Typography, Tooltip, Row, Col, Input } from 'antd';
 import {
   SettingOutlined,
   PlayCircleOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import type { DatasetSummary, RunRequest } from '../api/types';
+import { columnTypeLabel } from '../lib/displayLabels';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -15,12 +16,13 @@ export interface AnalysisConfiguratorProps {
   disabled?: boolean;
 }
 
-type AnalysisType = 'table_one' | 't_test' | 'survival' | 'regression';
+type AnalysisType = 'table_one' | 't_test' | 'anova' | 'correlation' | 'survival' | 'regression' | 'power';
 
 export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisConfiguratorProps) {
   const [form] = Form.useForm();
   const [analysisType, setAnalysisType] = useState<AnalysisType>('table_one');
   const [regressionType, setRegressionType] = useState<'linear' | 'logistic' | 'cox'>('linear');
+  const [correlationMethod, setCorrelationMethod] = useState<'pearson' | 'spearman'>('pearson');
 
   // Set default values when dataset changes
   useEffect(() => {
@@ -30,7 +32,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
   const allColumns = useMemo(() => {
     if (!summary) return [];
     return summary.columns.map((c) => ({
-      label: `${c.name} (${c.inferred_type})`,
+      label: `${c.name}（${columnTypeLabel(c.inferred_type)}）`,
       value: c.name,
       type: c.inferred_type,
     }));
@@ -59,7 +61,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           prompt += `- 分组变量为 "${group}"。\n`;
         }
         if (continuous && continuous.length > 0) {
-          prompt += `- 连续型数值变量包括: ${continuous.map((c: string) => `"${c}"`).join(', ')}，请采用均值±标准差或中位数(四分位距)描述，并执行组间差异性检验。\n`;
+          prompt += `- 连续型数值变量包括: ${continuous.map((c: string) => `"${c}"`).join(', ')}，请采用均值±标准差或中位数(四分位距)描述，并执行组间差异性检验（两组比较采用 Welch t 检验，三组及以上采用单因素方差分析 ANOVA；p 值未针对多重比较进行校正）。\n`;
         }
         if (categorical && categorical.length > 0) {
           prompt += `- 分类变量包括: ${categorical.map((c: string) => `"${c}"`).join(', ')}，请采用频数(百分比)描述，并执行卡方检验或 Fisher 精确检验。\n`;
@@ -86,6 +88,60 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           skill_id: 'ttest',
           dataset_id: summary.dataset_id,
           args: { group, testVar },
+        };
+        break;
+      }
+      case 'anova': {
+        const { group, testVar } = values;
+        prompt = `请对数据集 "${fileName}" 执行单因素方差分析 (One-way ANOVA)。\n`;
+        prompt += `- 分组自变量为 "${group}"（应包含两个及以上类别）。\n`;
+        prompt += `- 连续因变量为 "${testVar}"。\n`;
+        prompt += `请计算 F 统计量、自由度、p 值与效应量 η²，并输出组间比较结果表。`;
+        request = {
+          skill_id: 'anova',
+          dataset_id: summary.dataset_id,
+          args: { group, testVar },
+        };
+        break;
+      }
+      case 'correlation': {
+        const { x, y } = values;
+        const method = (values.corrMethod ?? correlationMethod) === 'spearman' ? 'spearman' : 'pearson';
+        const methodLabel = method === 'spearman' ? 'Spearman' : 'Pearson';
+        prompt = `请对数据集 "${fileName}" 执行 ${methodLabel} 相关分析。\n`;
+        prompt += `- 变量 X 为 "${x}"，变量 Y 为 "${y}"（均为连续型数值变量）。\n`;
+        prompt += `请计算相关系数 r、双侧 p 值与 95% 置信区间；相关不等于因果。`;
+        request = {
+          skill_id: 'correlation',
+          dataset_id: summary.dataset_id,
+          args: { x, y, method },
+        };
+        break;
+      }
+      case 'power': {
+        // 功效分析是设计阶段工具，不读数据集内容（服务端 power 分支只用
+        // test_type/effect_size/alpha/power 四个标量），但仍带上 dataset_id
+        // 以便运行记录与当前数据集绑定，保持审计链完整。
+        const { powerTestType, effectSize, alpha, targetPower } = values;
+        const testType = powerTestType ?? 'ttest';
+        const testLabel = testType === 'anova'
+          ? '单因素方差分析'
+          : testType === 'proportion'
+            ? '两组率比较'
+            : '两独立样本均值比较';
+        prompt = `请进行 ${testLabel} 的功效与样本量分析。\n`;
+        prompt += `- 预期效应量为 ${effectSize}（标准化差值）。\n`;
+        prompt += `- 显著性水平 α=${alpha ?? 0.05}，目标功效 1-β=${targetPower ?? 0.8}。\n`;
+        prompt += `请给出达到目标功效所需的每组样本量，并说明该估计依赖的假设。`;
+        request = {
+          skill_id: 'power',
+          dataset_id: summary.dataset_id,
+          args: {
+            test_type: testType,
+            effect_size: Number(effectSize),
+            alpha: alpha !== undefined && alpha !== null ? Number(alpha) : 0.05,
+            power: targetPower !== undefined && targetPower !== null ? Number(targetPower) : 0.8,
+          },
         };
         break;
       }
@@ -164,6 +220,10 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
         initialValues={{
           analysis_type: 'table_one',
           modelType: 'linear',
+          corrMethod: 'pearson',
+          powerTestType: 'ttest',
+          alpha: 0.05,
+          targetPower: 0.8,
         }}
       >
         {/* Step 1: Select Analysis Type */}
@@ -171,20 +231,34 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
           <Radio.Group
             optionType="button"
             buttonStyle="solid"
-            onChange={(e) => setAnalysisType(e.target.value)}
-            style={{ width: '100%', display: 'flex' }}
+            onChange={(e) => setAnalysisType(e.target.value as AnalysisType)}
+            style={{
+              width: '100%',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 0,
+            }}
           >
-            <Radio.Button value="table_one" style={{ flex: 1, textAlign: 'center' }}>
-              基线特征 (TableOne)
+            <Radio.Button value="table_one" style={{ textAlign: 'center' }}>
+              基线特征
             </Radio.Button>
-            <Radio.Button value="t_test" style={{ flex: 1, textAlign: 'center' }}>
-              T检验组间对比
+            <Radio.Button value="t_test" style={{ textAlign: 'center' }}>
+              T 检验
             </Radio.Button>
-            <Radio.Button value="survival" style={{ flex: 1, textAlign: 'center' }}>
-              KM生存分析
+            <Radio.Button value="anova" style={{ textAlign: 'center' }}>
+              方差分析
             </Radio.Button>
-            <Radio.Button value="regression" style={{ flex: 1, textAlign: 'center' }}>
-              回归建模分析
+            <Radio.Button value="correlation" style={{ textAlign: 'center' }}>
+              相关分析
+            </Radio.Button>
+            <Radio.Button value="survival" style={{ textAlign: 'center' }}>
+              KM 生存
+            </Radio.Button>
+            <Radio.Button value="regression" style={{ textAlign: 'center' }}>
+              回归建模
+            </Radio.Button>
+            <Radio.Button value="power" style={{ textAlign: 'center', gridColumn: '1 / -1' }}>
+              功效分析
             </Radio.Button>
           </Radio.Group>
         </Form.Item>
@@ -200,7 +274,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                     <Space size={4}>
                       <Text strong>分组比较变量 (Strata)</Text>
                       <Tooltip title="选填。根据该分类变量（如：治疗组/对照组）进行亚组对比与差异性检验。不选则展示全人群描述。">
-                        <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -249,7 +323,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                     <Space size={4}>
                       <Text strong>分组自变量 (Grouping Variable)</Text>
                       <Tooltip title="必填。必须是含有且仅含有两个类别的分类/文本型变量。">
-                        <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -276,6 +350,148 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
               </>
             )}
 
+            {/* One-way ANOVA — same field shape as t-test, ≥2 groups */}
+            {analysisType === 'anova' && (
+              <>
+                <Form.Item
+                  name="group"
+                  label={
+                    <Space size={4}>
+                      <Text strong>分组自变量 (Grouping Variable)</Text>
+                      <Tooltip title="必填。分类变量，至少包含两个组别（可多于两组）。">
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[{ required: true, message: '请选择分组变量' }]}
+                >
+                  <Select
+                    placeholder="请选择分组变量 (如 Arm: A/B/C)"
+                    options={allColumns}
+                    showSearch
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="testVar"
+                  label={<Text strong>连续因变量 (Outcome Variable)</Text>}
+                  rules={[{ required: true, message: '请选择连续因变量' }]}
+                >
+                  <Select
+                    placeholder="请选择连续数值型变量 (如 Score, BMI 等)"
+                    options={numericColumns}
+                    showSearch
+                  />
+                </Form.Item>
+              </>
+            )}
+
+            {/* Correlation Config */}
+            {analysisType === 'correlation' && (
+              <>
+                <Form.Item name="corrMethod" label={<Text strong>相关方法</Text>}>
+                  <Radio.Group
+                    onChange={(e) => setCorrelationMethod(e.target.value)}
+                    value={correlationMethod}
+                  >
+                    <Radio value="pearson">Pearson（线性）</Radio>
+                    <Radio value="spearman">Spearman（秩相关）</Radio>
+                  </Radio.Group>
+                </Form.Item>
+
+                <Form.Item
+                  name="x"
+                  label={<Text strong>变量 X</Text>}
+                  rules={[{ required: true, message: '请选择变量 X' }]}
+                >
+                  <Select
+                    placeholder="连续数值变量 X"
+                    options={numericColumns}
+                    showSearch
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="y"
+                  label={<Text strong>变量 Y</Text>}
+                  rules={[{ required: true, message: '请选择变量 Y' }]}
+                >
+                  <Select
+                    placeholder="连续数值变量 Y"
+                    options={numericColumns}
+                    showSearch
+                  />
+                </Form.Item>
+              </>
+            )}
+
+            {/* Power / sample-size Config — 设计阶段工具，不引用数据集列。 */}
+            {analysisType === 'power' && (
+              <>
+                <Form.Item
+                  name="powerTestType"
+                  label={
+                    <Space size={4}>
+                      <Text strong>检验类型</Text>
+                      <Tooltip title="决定样本量公式。均值比较与方差分析使用标准化差值；率比较以 p0=0.5 为基线换算。">
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[{ required: true, message: '请选择检验类型' }]}
+                >
+                  <Select
+                    options={[
+                      { label: '两独立样本均值比较（t 检验）', value: 'ttest' },
+                      { label: '多组均值比较（单因素方差分析）', value: 'anova' },
+                      { label: '两组率比较', value: 'proportion' },
+                    ]}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="effectSize"
+                  label={
+                    <Space size={4}>
+                      <Text strong>预期效应量</Text>
+                      <Tooltip title="标准化效应量（Cohen's d 量纲）。经验参考：0.2 小、0.5 中、0.8 大。应来自既往文献或临床最小重要差值，不要为凑样本量倒推。">
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[
+                    { required: true, message: '请输入预期效应量' },
+                    {
+                      validator: (_, value) =>
+                        value !== undefined && value !== null && Number(value) > 0
+                          ? Promise.resolve()
+                          : Promise.reject(new Error('效应量必须为正数')),
+                    },
+                  ]}
+                >
+                  <Input type="number" step="0.05" min="0" placeholder="如 0.5" />
+                </Form.Item>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item name="alpha" label={<Text strong>显著性水平 α</Text>}>
+                      <Input type="number" step="0.01" min="0" max="1" placeholder="0.05" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="targetPower" label={<Text strong>目标功效 1-β</Text>}>
+                      <Input type="number" step="0.05" min="0" max="1" placeholder="0.8" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Paragraph type="secondary" style={{ fontSize: 12, marginTop: -8 }}>
+                  功效分析只用上面四个参数，不读取数据集内容；样本量估计的可信度完全取决于
+                  效应量假设是否合理。
+                </Paragraph>
+              </>
+            )}
+
             {/* Survival Analysis Config */}
             {analysisType === 'survival' && (
               <>
@@ -297,7 +513,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                     <Space size={4}>
                       <Text strong>终点事件 / 删失状态 (Event / Status)</Text>
                       <Tooltip title="必填。0 表示生存或删失，1 表示终点事件发生（如死亡/复发）。">
-                        <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -316,7 +532,7 @@ export function AnalysisConfigurator({ summary, onSubmit, disabled }: AnalysisCo
                     <Space size={4}>
                       <Text strong>生存比较分组变量 (Strata Factor)</Text>
                       <Tooltip title="选填。根据该变量生成多条 Kaplan-Meier 曲线并执行 Log-rank 组间显著性比较。">
-                        <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <QuestionCircleOutlined style={{ color: 'var(--ink-300)' }} />
                       </Tooltip>
                     </Space>
                   }

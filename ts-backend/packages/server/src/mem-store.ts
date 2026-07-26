@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { StoreError, type AnalysisPlanApproval, type DatasetAudit, type Session, type SessionStore, type SessionSettings, type DatasetSummary, type SessionSummary, type Message, type ResearchProtocol, type SkillRun } from './state.js';
+import { sanitizeTitleText } from './title-text.js';
 
 const TITLE_MAX_CHARS = 20;
 const DEFAULT_TITLE = '新对话';
@@ -13,7 +14,7 @@ function deriveTitle(session: Session): string {
     if ('User' in msg) {
       const content = msg.User.content;
       if ('Text' in content) {
-        const text = content.Text.trim();
+        const text = sanitizeTitleText(content.Text);
         if (text.length > 0) {
           return [...text].slice(0, TITLE_MAX_CHARS).join('');
         }

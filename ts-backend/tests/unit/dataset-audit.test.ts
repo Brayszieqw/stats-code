@@ -180,6 +180,28 @@ describe('auditDataset', () => {
     expect(codes(result)).toContain('ANALYSIS_VALUE_MISSING');
   });
 
+  it('audits both selected correlation variables for missing columns and values', () => {
+    const missingColumn = audit([
+      'participant_id,x',
+      'P001,1',
+      'P002,2',
+    ].join('\n'), {
+      skillId: 'correlation',
+      args: { x: 'x', y: 'y' },
+    });
+    expect(codes(missingColumn)).toContain('ANALYSIS_COLUMN_MISSING');
+
+    const missingValue = audit([
+      'participant_id,x,y',
+      'P001,1,2',
+      'P002,2,',
+    ].join('\n'), {
+      skillId: 'correlation',
+      args: { x: 'x', y: 'y' },
+    });
+    expect(codes(missingValue)).toContain('ANALYSIS_VALUE_MISSING');
+  });
+
   it('blocks empty or malformed table structure and missing analysis columns', () => {
     const empty = audit('participant_id,fu_pt,death,age\n');
     expect(codes(empty)).toEqual(expect.arrayContaining(['DATASET_NO_ROWS', 'EVENT_NO_VARIATION']));

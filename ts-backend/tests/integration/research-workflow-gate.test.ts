@@ -17,6 +17,12 @@ const CLEAN_CSV = 'participant_id,y,x\nP001,1,1\nP002,2,2\nP003,3,3.1\nP004,4,3.
 const BLOCKED_CSV = 'participant_id,y,x\nP001,1,1\nP001,2,2\n';
 const DATASET_ID = '33333333-3333-4333-8333-333333333333';
 
+interface RunSpec {
+  skill_id: string;
+  dataset_id: string;
+  args: Record<string, unknown>;
+}
+
 function summary(csv: string): DatasetSummary {
   const bytes = new TextEncoder().encode(csv);
   return {
@@ -35,7 +41,10 @@ function summary(csv: string): DatasetSummary {
   };
 }
 
-function makeState(csv = CLEAN_CSV): AppState & { runnerSpy: ReturnType<typeof vi.spyOn> } {
+function makeState(csv = CLEAN_CSV): AppState & {
+  runnerSpy: ReturnType<typeof vi.spyOn>;
+  snapshotRegisterSpy: ReturnType<typeof vi.fn>;
+} {
   const bytes = new TextEncoder().encode(csv);
   const sessionStore = new MemSessionStore();
   const datasetStore: DatasetStore = {
@@ -45,14 +54,26 @@ function makeState(csv = CLEAN_CSV): AppState & { runnerSpy: ReturnType<typeof v
   const registry = SkillRegistry.withDefaults();
   const runner = new SkillRunner(registry);
   const runnerSpy = vi.spyOn(runner, 'run');
+  const snapshotRegisterSpy = vi.fn();
+  const snapshotRunRecorder = { register: snapshotRegisterSpy };
   const researchWorkflow = createResearchWorkflowService({
     sessionStore,
     datasetStore,
     registry,
     runner,
+    snapshotRunRecorder,
     now: () => new Date('2026-07-13T08:00:00.000Z'),
   });
-  return { sessionStore, datasetStore, skillRegistry: registry, skillRunner: runner, researchWorkflow, runnerSpy };
+  return {
+    sessionStore,
+    datasetStore,
+    skillRegistry: registry,
+    skillRunner: runner,
+    researchWorkflow,
+    runnerSpy,
+    snapshotRunRecorder,
+    snapshotRegisterSpy,
+  };
 }
 
 const protocol = {
@@ -74,7 +95,7 @@ const protocol = {
   sensitivity_analysis: '稳健性检查',
 } as const;
 
-const runSpec = {
+const runSpec: RunSpec = {
   skill_id: 'model_linear',
   dataset_id: DATASET_ID,
   args: { outcome: 'y', predictors: ['x'] },
@@ -105,7 +126,7 @@ async function seed(state: AppState) {
 async function auditPlan(
   app: ReturnType<typeof buildRouter>,
   sid: string,
-  spec: typeof runSpec,
+  spec: RunSpec,
   auditRoles?: Record<string, unknown>,
 ) {
   const response = await app.inject({
@@ -122,9 +143,9 @@ async function auditPlan(
   return response.json();
 }
 
-function approvalPayload(audit: Record<string, unknown>) {
+function approvalPayload(audit: Record<string, unknown>, spec: RunSpec = runSpec) {
   return {
-    ...runSpec,
+    ...spec,
     expected_protocol_version: 1,
     expected_audit_id: audit.audit_id,
     expected_audit_sha256: audit.audit_sha256,
@@ -135,12 +156,13 @@ function approvalPayload(audit: Record<string, unknown>) {
 async function approvePlan(
   app: ReturnType<typeof buildRouter>,
   sid: string,
+  spec: RunSpec = runSpec,
 ) {
-  const audit = await auditPlan(app, sid, runSpec);
+  const audit = await auditPlan(app, sid, spec);
   const response = await app.inject({
     method: 'POST',
     url: `/api/sessions/${sid}/analysis-plans/approve`,
-    payload: approvalPayload(audit),
+    payload: approvalPayload(audit, spec),
   });
   expect(response.statusCode).toBe(201);
   return { audit, approval: response.json() };
@@ -277,6 +299,42 @@ describe('server-enforced research workflow gate', () => {
     expect(changedArgs.statusCode).toBe(409);
     expect(changedArgs.json().error_code).toBe('ResearchApprovalStale');
     expect(state.runnerSpy).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it('fills identity metadata and registers a design-phase power run', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    const powerSpec: RunSpec = {
+      skill_id: 'power',
+      dataset_id: DATASET_ID,
+      args: { test_type: 'ttest', effect_size: 0.5, alpha: 0.05, power: 0.8 },
+    };
+
+    await app.inject({ method: 'PATCH', url: `/api/sessions/${sid}/protocol`, payload: protocol });
+    const { approval } = await approvePlan(app, sid, powerSpec);
+    const run = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: { ...powerSpec, plan_id: approval.plan_id },
+    });
+
+    expect(run.statusCode).toBe(200);
+    expect(run.json().analysis).toMatchObject({
+      algorithm_id: 'power',
+      dataset_id: DATASET_ID,
+      dataset_sha256: null,
+      columns: [],
+      params: powerSpec.args,
+      run_status: 'completed',
+      run_id: expect.any(String),
+    });
+    expect(state.snapshotRegisterSpy).toHaveBeenCalledWith(expect.objectContaining({
+      algorithmId: 'power',
+      result: expect.objectContaining({
+        analysis: expect.objectContaining({ algorithm_id: 'power', run_status: 'completed' }),
+      }),
+    }));
     await app.close();
   });
 
@@ -659,6 +717,46 @@ describe('server-enforced research workflow gate', () => {
     expect(right.json().analysis.plan_id).toBe(approval.plan_id);
     expect(state.runnerSpy).toHaveBeenCalledTimes(2);
     expect((await state.sessionStore.get(sid)).skill_runs).toHaveLength(2);
+    await app.close();
+  });
+
+  it('allows inspect without protocol or plan approval (read-only gate exempt)', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: {
+        skill_id: 'inspect',
+        dataset_id: DATASET_ID,
+        args: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(state.runnerSpy).toHaveBeenCalledTimes(1);
+    const body = response.json() as {
+      payload?: { row_count?: number };
+      analysis?: { research_workflow?: { gate?: string } };
+    };
+    expect(body.payload?.row_count).toBe(5);
+    expect(body.analysis?.research_workflow?.gate).toBe('exempt');
+    expect((await state.sessionStore.get(sid)).skill_runs).toHaveLength(1);
+    await app.close();
+  });
+
+  it('still rejects model_linear without protocol even after inspect is exempt', async () => {
+    const state = makeState();
+    const { app, sid } = await seed(state);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sid}/run`,
+      payload: runSpec,
+    });
+    expect(response.statusCode).toBe(428);
+    expect(response.json().error_code).toBe('ResearchProtocolRequired');
+    expect(state.runnerSpy).not.toHaveBeenCalled();
     await app.close();
   });
 });

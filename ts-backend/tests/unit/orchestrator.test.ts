@@ -345,6 +345,28 @@ describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () =
     );
   });
 
+  it('fills the session dataset when the LLM sends an empty dataset_id', async () => {
+    const llm = mockLlm([
+      '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"],"dataset_id":""},"has_query_intent":true,"text_response":null}',
+      '线性回归结果解读。',
+    ]);
+    const { orchestrator, sessionStore } = buildHarness(llm);
+    const session = await sessionStore.create();
+    await sessionStore.appendDataset(session.id, fixtureSummary());
+
+    const events = await collect(
+      orchestrator.handleMessage(session.id, { text: '对 y 做线性回归', settings: settings() }),
+    );
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        type: 'skill_call',
+        args: expect.objectContaining({ dataset_id: 'ds-1' }),
+      }),
+    );
+    expect(events.map((event) => event.type)).toContain('skill_result');
+  });
+
   async function runSingleSkill(decisionAssistant: boolean): Promise<AgentEvent[]> {
     // Intent recognition returns a resolved single skill; the interpretation
     // call returns plain text. Both come from the same mock LLM.
@@ -401,11 +423,14 @@ describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () =
       orchestrator.handleMessage(session.id, { text: '对 y 做线性回归', settings: settings() }),
     );
     const interpretation = events.find((event) => event.type === 'interpretation');
-    expect(interpretation).toEqual({
-      type: 'interpretation',
-      text: 'AI 仅提供方法学提示：请以本机结果卡中的效应量、置信区间、样本量和模型诊断为准；非随机研究中的关联不代表因果，也不构成诊疗建议。',
-    });
-    expect((interpretation as { text: string }).text).not.toMatch(/\p{Number}/u);
+    expect(interpretation?.type).toBe('interpretation');
+    const text = (interpretation as { type: 'interpretation'; text: string }).text;
+    // Unsafe model text is discarded; deterministic method note is used instead.
+    expect(text).toContain('线性回归');
+    expect(text).toContain('本机结果卡');
+    expect(text).not.toMatch(/\p{Number}/u);
+    expect(text).not.toContain('证明治疗有效');
+    expect(text).not.toContain('p=0.03');
 
     const interpretationRequest = requests[1]!;
     expect(interpretationRequest.messages[0]?.content).toContain('不得输出任何数值');
@@ -413,5 +438,22 @@ describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () =
     expect(Object.keys(interpreterInput).sort()).toEqual(['analysis_method', 'risk_signal_names']);
     expect(JSON.stringify(interpretationRequest.messages)).not.toContain('r_squared');
     expect(JSON.stringify(interpretationRequest.messages)).not.toContain('coefficients');
+  });
+
+  it('drops invented column names so the user is re-prompted instead of engine crash', async () => {
+    const { orchestrator, sessionStore } = buildHarness(
+      mockLlm(
+        '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"not_a_col","predictors":["also_fake"],"dataset_id":"ds-1"},"has_query_intent":true,"text_response":null}',
+      ),
+    );
+    const session = await sessionStore.create();
+    await sessionStore.appendDataset(session.id, fixtureSummary());
+
+    const events = await collect(
+      orchestrator.handleMessage(session.id, { text: '线性回归', settings: settings() }),
+    );
+    expect(events.map((e) => e.type)).toEqual(['choice_prompt', 'done']);
+    const prompt = events[0] as { type: 'choice_prompt'; prompt: { question: string } };
+    expect(prompt.prompt.question).toContain('线性回归');
   });
 });

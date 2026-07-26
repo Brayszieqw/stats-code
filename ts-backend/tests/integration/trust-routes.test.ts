@@ -170,7 +170,7 @@ describe('POST /api/snapshot/export (wired)', () => {
     await app.close();
   });
 
-  it('returns 500 for an unknown run id', async () => {
+  it('returns 404 RunNotFound for an unknown run id', async () => {
     const dir = freshTmp();
     const app = buildRouter({ state: wiredState() });
     const res = await app.inject({
@@ -178,7 +178,8 @@ describe('POST /api/snapshot/export (wired)', () => {
       url: '/api/snapshot/export',
       payload: { run_id: 'missing', destination: join(dir, 'x.zip') },
     });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error_code).toBe('RunNotFound');
     await app.close();
   });
 });

@@ -7,6 +7,8 @@
 // route (task 3.3) and the SPA fallback (task 3.4) are layered on separately.
 
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { sidecar as engineSidecar } from '@stats-code/engine';
 import {
@@ -30,6 +32,28 @@ import { protocolContentSha256, protocolStateSha256 } from './conversation/resea
 
 const AUDIO_BODY_LIMIT = 10 * 1024 * 1024;
 const DATASET_BODY_LIMIT = 70 * 1024 * 1024;
+
+/**
+ * Map snapshot export failures to stable SPA-facing error codes.
+ * "run not found" is expected after backend restart (in-memory registry), not a 500.
+ */
+function replySnapshotError(
+  reply: { code: (status: number) => { send: (body: Record<string, unknown>) => unknown } },
+  err: unknown,
+) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/run not found/i.test(message)) {
+    return reply.code(404).send({
+      error_code: 'RunNotFound',
+      message:
+        '找不到该次分析的导出记录（后端重启后内存记录会清空）。请重新运行分析后再导出审计快照。',
+    });
+  }
+  return reply.code(500).send({
+    error_code: 'InternalError',
+    message: message || '导出审计快照失败',
+  });
+}
 
 function userTextMessage(text: string): Message {
   return {
@@ -859,7 +883,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     }
   });
 
-  // POST /api/snapshot/export
+  // POST /api/snapshot/export — JSON materialize (default) or zip body (download:true).
   app.post('/api/snapshot/export', async (req, reply) => {
     if (!state.snapshotProvider) {
       return reply.code(503).send({ error_code: 'SnapshotUnavailable', message: 'snapshot provider not configured' });
@@ -870,9 +894,56 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     }
     try {
       const resp = await state.snapshotProvider.export(parsed.data.run_id, parsed.data.destination);
+      // Prefer GET /api/snapshot/files/:runId for SPA downloads (Content-Length + proxy-friendly).
+      // POST download:true kept as fallback with explicit Content-Length.
+      if (parsed.data.download) {
+        const bytes = readFileSync(resp.snapshot_path);
+        const filename = basename(resp.snapshot_path) || `snapshot-${parsed.data.run_id}.zip`;
+        return reply
+          .header('Content-Type', 'application/zip')
+          .header('Content-Length', String(bytes.byteLength))
+          .header('Content-Disposition', `attachment; filename="${filename}"`)
+          .header('X-Snapshot-Path', resp.snapshot_path)
+          .header('X-Snapshot-Sha256', resp.sha256)
+          .send(bytes);
+      }
       return reply.send(resp);
     } catch (err) {
-      return reply.code(500).send({ error_code: 'InternalError', message: (err as Error).message });
+      return replySnapshotError(reply, err);
+    }
+  });
+
+  /**
+   * GET /api/snapshot/files/:runId — SPA-safe download.
+   * Materializes a zip under `<cwd>/exports/` then streams with Content-Length
+   * so Vite proxy / Chrome do not truncate the body (avoids ERR_CONNECTION_CLOSED
+   * on half-written downloads).
+   */
+  app.get<{ Params: { runId: string } }>('/api/snapshot/files/:runId', async (req, reply) => {
+    if (!state.snapshotProvider) {
+      return reply.code(503).send({ error_code: 'SnapshotUnavailable', message: 'snapshot provider not configured' });
+    }
+    const runId = req.params.runId?.trim();
+    if (!runId || !/^[0-9a-fA-F-]{8,64}$/.test(runId)) {
+      return reply.code(400).send({ error_code: 'InvalidRequest', message: '运行 ID 无效' });
+    }
+    try {
+      const exportsDir = join(process.cwd(), 'exports');
+      mkdirSync(exportsDir, { recursive: true });
+      const destination = join(exportsDir, `snapshot-${runId}.zip`);
+      const resp = await state.snapshotProvider.export(runId, destination);
+      const bytes = readFileSync(resp.snapshot_path);
+      const filename = basename(resp.snapshot_path) || `snapshot-${runId}.zip`;
+      return reply
+        .header('Content-Type', 'application/zip')
+        .header('Content-Length', String(bytes.byteLength))
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .header('Cache-Control', 'no-store')
+        .header('X-Snapshot-Path', resp.snapshot_path)
+        .header('X-Snapshot-Sha256', resp.sha256)
+        .send(bytes);
+    } catch (err) {
+      return replySnapshotError(reply, err);
     }
   });
 

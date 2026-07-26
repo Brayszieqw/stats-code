@@ -71,10 +71,15 @@ export {
 } from './research-integrity.js';
 export {
   createOrchestrator,
+  buildMethodNote,
   type OrchestratorDeps,
   type IntentResult,
 } from './orchestrator.js';
-export { heuristicIntent } from './heuristic-intent.js';
+export {
+  heuristicIntent,
+  extractArgsFromText,
+  mergeMissingArgs,
+} from './heuristic-intent.js';
 export {
   transcribeAudio,
   SpeechTranscribeError,

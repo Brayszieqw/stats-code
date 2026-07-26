@@ -22,7 +22,11 @@ import type {
 import type { LlmEvent, LlmProvider, LlmRequest } from './llm-provider.js';
 import type { SkillDescriptor, SkillRegistry } from './skill-registry.js';
 import { SkillRunErrorException, type SkillResult } from './skill-runner-types.js';
-import { heuristicIntent } from './heuristic-intent.js';
+import {
+  extractArgsFromText,
+  heuristicIntent,
+  mergeMissingArgs,
+} from './heuristic-intent.js';
 import { ResearchWorkflowError } from './research-workflow.js';
 
 export interface OrchestratorDeps {
@@ -63,6 +67,54 @@ type Action =
 
 const SAFE_INTERPRETATION_FALLBACK =
   'AI 仅提供方法学提示：请以本机结果卡中的效应量、置信区间、样本量和模型诊断为准；非随机研究中的关联不代表因果，也不构成诊疗建议。';
+
+/** Column-like skill args that must exist on the bound dataset. */
+const COLUMN_SCALAR_ARGS = ['outcome', 'group', 'testVar', 'time', 'event', 'x', 'y'] as const;
+const COLUMN_ARRAY_ARGS = ['predictors', 'continuous', 'categorical'] as const;
+
+const METHOD_NOTES: Record<string, string> = {
+  tableone:
+    '基线特征表用于描述队列构成与组间可比性；组间差异不等于因果效应。请以本机结果卡中的频数、均数或中位数与标准化差异为准。',
+  ttest:
+    '两样本 t 检验比较连续变量的组间均值差异；请结合分布与方差齐性，并以本机结果卡的效应量与区间为准。',
+  anova:
+    '单因素方差分析比较多组连续结局均值；显著结果通常还需事后比较，数字以本机结果卡为准。',
+  correlation:
+    '相关分析描述两连续变量的线性或单调关联；相关不等于因果。数值请只看本机结果卡。',
+  model_linear:
+    '线性回归估计连续结局与预测变量的关联；请检查残差与共线性。数值效应请只看本机结果卡，勿依据文字叙述。',
+  model_logistic:
+    'Logistic 回归估计二分类结局的关联（比值比尺度）；观察性数据中的关联不代表因果。',
+  model_cox:
+    'Cox 模型估计风险比；请关注比例风险假设与事件信息是否充足。数值请只看本机结果卡。',
+  survival_km:
+    'Kaplan-Meier 描述生存过程；组间比较请结合 log-rank 与删失模式，避免过度外推。',
+  power: '功效或样本量属于设计阶段估计，不能替代正式分析结果。',
+  inspect: '以下为数据集结构摘要，尚未运行推断模型。',
+};
+
+const RISK_NOTES: Record<string, string> = {
+  VifTooHigh: '检测到多重共线性风险：考虑精简高度相关的自变量，并复核系数方向。',
+  CollinearityDetected: '设计矩阵提示共线性：先检查变量编码与重复信息。',
+  ModelConvergenceFailed: '模型未可靠收敛：检查结局编码、完全分离、尺度与复杂度，此时勿解读系数。',
+  SparseData: '事件或信息偏稀疏：估计不稳定，宜精简参数或增加信息后再解释。',
+  LowPower: '设计阶段功效可能不足：关联解读需更谨慎。',
+  PValueAboveAlpha: '主效应可能未达预设显著性阈值：结合区间估计与研究设计解读，避免反向“证明无效”。',
+};
+
+/** Deterministic, number-free method note (primary interpretation content). */
+export function buildMethodNote(
+  skillId: string,
+  riskSignals: readonly string[] | null | undefined,
+): string {
+  const base = METHOD_NOTES[skillId] ?? SAFE_INTERPRETATION_FALLBACK;
+  const signals = Array.isArray(riskSignals) ? riskSignals : [];
+  const riskLines = signals
+    .map((signal) => RISK_NOTES[signal])
+    .filter((line): line is string => typeof line === 'string' && line.length > 0);
+  const parts = [base, ...riskLines, '观察性研究中的关联不代表因果，也不构成诊疗建议。'];
+  return parts.join(' ');
+}
 
 function unsafeInterpretation(text: string): boolean {
   return text.length > 1200
@@ -143,7 +195,12 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     sessionId: string,
     intent: IntentResult,
   ): Promise<IntentResult> {
-    if (intent.skill_ids.length !== 1 || intent.resolved_args.dataset_id != null) {
+    // 空串/非字符串的 dataset_id 不算“已指定”（LLM 偶尔会返回 ""），仍回填会话
+    // 默认数据集，否则空 id 会带进研究门，报出“数据集不属于当前会话：”这种缺主语的错误。
+    const explicitDatasetId = intent.resolved_args.dataset_id;
+    const hasExplicitDatasetId =
+      typeof explicitDatasetId === 'string' && explicitDatasetId.trim().length > 0;
+    if (intent.skill_ids.length !== 1 || hasExplicitDatasetId) {
       return intent;
     }
     const desc = registry.get(intent.skill_ids[0]!);
@@ -167,10 +224,70 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     }
   }
 
+  /**
+   * Drop invented column names so missing-arg prompts re-fire instead of
+   * crashing the engine with "column not found".
+   */
+  async function sanitizeArgsAgainstDataset(
+    sessionId: string,
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    try {
+      const session = await sessionStore.get(sessionId);
+      const datasetId = typeof args.dataset_id === 'string' ? args.dataset_id : undefined;
+      const summary =
+        (datasetId ? session.datasets.find((d) => d.dataset_id === datasetId) : undefined) ??
+        session.datasets.at(-1);
+      if (!summary) return args;
+
+      const names = new Set(summary.columns.map((c) => c.name));
+      const next: Record<string, unknown> = { ...args };
+
+      for (const key of COLUMN_SCALAR_ARGS) {
+        const value = next[key];
+        if (typeof value === 'string' && value.length > 0 && !names.has(value)) {
+          delete next[key];
+        }
+      }
+      for (const key of COLUMN_ARRAY_ARGS) {
+        const value = next[key];
+        if (!Array.isArray(value)) continue;
+        const filtered = value.filter((item): item is string => typeof item === 'string' && names.has(item));
+        if (filtered.length === 0) delete next[key];
+        else next[key] = filtered;
+      }
+      return next;
+    } catch {
+      return args;
+    }
+  }
+
+  /** Enrich intent with free-text args + dataset default + column sanitization. */
+  async function finalizeIntent(sessionId: string, intent: IntentResult, userText: string): Promise<IntentResult> {
+    const withTextArgs: IntentResult = {
+      ...intent,
+      resolved_args: mergeMissingArgs(intent.resolved_args, extractArgsFromText(userText)),
+    };
+    const withDataset = await addSessionDatasetDefault(sessionId, withTextArgs);
+    return {
+      ...withDataset,
+      resolved_args: await sanitizeArgsAgainstDataset(sessionId, withDataset.resolved_args),
+    };
+  }
+
   function buildSkillDescriptions(): string {
     return registry
       .list()
-      .map((desc) => `- ${desc.skillId} (${desc.displayName}): 必需参数=[${requiredArgs(desc).join(', ')}]`)
+      .map((desc) => {
+        const required = requiredArgs(desc);
+        const props =
+          desc.inputSchema.properties && typeof desc.inputSchema.properties === 'object'
+            ? Object.keys(desc.inputSchema.properties as Record<string, unknown>)
+            : [];
+        const optional = props.filter((key) => !required.includes(key) && key !== 'dataset_id');
+        const optionalPart = optional.length > 0 ? `；可选=[${optional.join(', ')}]` : '';
+        return `- ${desc.skillId} (${desc.displayName}): 必需=[${required.join(', ')}]${optionalPart}`;
+      })
       .join('\n');
   }
 
@@ -403,6 +520,9 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     skillId: string,
     result: SkillResult,
   ): Promise<string> {
+    // Primary content is deterministic (stable, number-free, risk-aware).
+    // LLM may only add a short method tip; unsafe/empty output is discarded.
+    const methodNote = buildMethodNote(skillId, result.risk_signals);
     const displayName = registry.get(skillId)?.displayName ?? skillId;
     const request: LlmRequest = {
       messages: [
@@ -410,7 +530,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
           role: 'system',
           content:
             '你是 Stats Code 的方法学提示器。数值结果只在本机确定性结果卡中展示，你不会接收数值载荷。\n' +
-            '只说明分析方法的适用条件、假设检查和给定风险信号的处理方向。\n' +
+            '只补充分析方法的适用条件、假设检查和给定风险信号的处理方向（一两句即可）。\n' +
             '不得输出任何数值、p 值、效应大小、样本量或结果方向；不得声称显著、升高或降低。\n' +
             '不得给出诊断、治疗、用药或因果结论。观察性研究中的关联不代表因果。',
         },
@@ -428,9 +548,13 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
     const { text, errored } = await collectStreamText(provider.chatStream(request));
     const candidate = text.trim();
     if (errored || candidate.length === 0 || unsafeInterpretation(candidate)) {
-      return SAFE_INTERPRETATION_FALLBACK;
+      return methodNote;
     }
-    return candidate;
+    // Avoid duplicating the canned note when the model restates it.
+    if (candidate === methodNote || methodNote.includes(candidate)) {
+      return methodNote;
+    }
+    return `${methodNote}\n\n${candidate}`;
   }
 
   async function* handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent> {
@@ -439,7 +563,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       // Still allow offline keyword routing when chat LLM is not configured.
       const offline = heuristicIntent(input.text);
       if (offline) {
-        const intent = await addSessionDatasetDefault(sessionId, offline);
+        const intent = await finalizeIntent(sessionId, offline, input.text);
         const action = decideAction(intent, input.settings);
         yield* emitAction(sessionId, action, input, null);
         yield { type: 'done' };
@@ -479,7 +603,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
       intentBase = recognized.intent;
     }
 
-    const intent = await addSessionDatasetDefault(sessionId, intentBase);
+    const intent = await finalizeIntent(sessionId, intentBase, input.text);
     const action = decideAction(intent, input.settings);
     yield* emitAction(sessionId, action, input, provider);
     yield { type: 'done' };
@@ -526,7 +650,7 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
         } else {
           yield {
             type: 'interpretation',
-            text: SAFE_INTERPRETATION_FALLBACK,
+            text: buildMethodNote(action.skillId, result.risk_signals),
           };
         }
         // Decision-assistant follow-up (Requirement 8.4).

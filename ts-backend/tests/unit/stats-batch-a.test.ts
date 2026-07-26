@@ -146,6 +146,41 @@ describe('correlation', () => {
     expect(() => correlation.spearmanCorrelation([1, Number.NaN, 3], [1, 2, 3]))
       .toThrow(/finite values/);
   });
+
+  it('Pearson rejects a constant x column', () => {
+    expect(() => correlation.pearsonCorrelation([5, 5, 5, 5], [1, 2, 3, 4]))
+      .toThrow(/x.*non-zero variance/i);
+  });
+
+  it('Pearson rejects a constant y column', () => {
+    expect(() => correlation.pearsonCorrelation([1, 2, 3, 4], [7, 7, 7, 7]))
+      .toThrow(/y.*non-zero variance/i);
+  });
+
+  it('Pearson rejects when both columns are constant', () => {
+    expect(() => correlation.pearsonCorrelation([3, 3, 3, 3], [7, 7, 7, 7]))
+      .toThrow(/non-zero variance/i);
+  });
+
+  it('Spearman rejects a constant x column even though its ranks are also constant', () => {
+    expect(() => correlation.spearmanCorrelation([2, 2, 2, 2], [1, 2, 3, 4]))
+      .toThrow(/x.*non-zero variance/i);
+  });
+
+  it('Spearman rejects a constant y column', () => {
+    expect(() => correlation.spearmanCorrelation([1, 2, 3, 4], [9, 9, 9, 9]))
+      .toThrow(/y.*non-zero variance/i);
+  });
+
+  it('Spearman still handles tied (non-constant) data without throwing', () => {
+    const r = correlation.spearmanCorrelation([1, 2, 2, 3, 4], [1, 3, 2, 4, 5]);
+    expect(Number.isFinite(r.r)).toBe(true);
+    expect(r.r).toBeGreaterThan(0);
+  });
+
+  it('pearsonR itself still returns 0 on a constant column (unchanged low-level behavior)', () => {
+    expect(correlation.pearsonR([5, 5, 5, 5], [1, 2, 3, 4])).toBe(0);
+  });
 });
 
 describe('nonparametric', () => {

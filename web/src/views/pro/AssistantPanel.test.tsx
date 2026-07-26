@@ -162,7 +162,7 @@ describe('AssistantPanel (Requirements 8.2, 8.3, 8.5)', () => {
     );
 
     fireEvent.click(screen.getByLabelText('查看图表'));
-    expect(onOpenResult).toHaveBeenCalledWith('chart');
+    expect(onOpenResult).toHaveBeenCalledWith('chart', 'analysis-1');
     expect(screen.queryByTestId('analysis-result-view')).not.toBeInTheDocument();
   });
 });

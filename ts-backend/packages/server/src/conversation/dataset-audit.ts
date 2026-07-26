@@ -206,7 +206,7 @@ function requestedRoleFindings(
 }
 
 function analysisColumns(args: Record<string, unknown>): string[] {
-  const scalarKeys = ['outcome', 'time', 'event', 'group', 'testVar'] as const;
+  const scalarKeys = ['outcome', 'time', 'event', 'group', 'testVar', 'x', 'y'] as const;
   const arrayKeys = ['predictors', 'continuous', 'categorical'] as const;
   const columns: string[] = [];
   for (const key of scalarKeys) {

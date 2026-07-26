@@ -243,7 +243,8 @@ describe('useSnapshotExport — generic errors', () => {
     });
 
     expect(result.current.state.error?.errorCode).toBe('HTTP_500');
-    expect(result.current.state.error?.message).toContain('500');
+    // 中文兜底文案；errorCode 仍保留 HTTP_500 便于排障。
+    expect(result.current.state.error?.message).toMatch(/导出失败|服务端|后端/);
   });
 
   it('reports a NetworkError when fetch itself rejects', async () => {

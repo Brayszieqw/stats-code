@@ -50,7 +50,7 @@ export interface SessionController {
   approveAnalysisPlan: (input: AnalysisPlanApprovalRequest) => Promise<AnalysisPlanApproval>;
   /** Messages mapped from the loaded session; the shell syncs them into useSseChat. */
   initialMessages: ChatMessage[];
-  startNewSession: () => Promise<void>;
+  startNewSession: (force?: boolean) => Promise<void>;
   loadSession: (sid: string) => Promise<void>;
 }
 
@@ -62,11 +62,15 @@ function readUrlSessionId(): string | null {
   }
 }
 
-function writeUrlSessionId(sessionId: string): void {
+function writeUrlSessionId(sessionId: string | null): void {
   try {
     const url = new URL(window.location.href);
     if (url.searchParams.get('session_id') === sessionId) return;
-    url.searchParams.set('session_id', sessionId);
+    if (sessionId) {
+      url.searchParams.set('session_id', sessionId);
+    } else {
+      url.searchParams.delete('session_id');
+    }
     window.history.replaceState(window.history.state, '', url);
   } catch {
     // Embedded shells may not expose a mutable History API; session state still works in memory.
@@ -124,9 +128,10 @@ export function useSessionController(): SessionController {
     [applySession],
   );
 
-  const startNewSession = useCallback(async () => {
+  const startNewSession = useCallback(async (force = false) => {
     // Already on an empty shell — avoid churning session creates.
     if (
+      !force &&
       sessionId &&
       datasets.length === 0 &&
       initialMessages.length === 0 &&
@@ -146,7 +151,13 @@ export function useSessionController(): SessionController {
       applySession(session);
     } catch (err) {
       if (seq !== requestSeqRef.current) return;
-      setError(err instanceof Error ? err.message : '创建会话失败');
+      const message = err instanceof Error ? err.message : '创建会话失败';
+      setError(message);
+      if (force) {
+        // The old session was already deleted. Keep reload as a recovery path.
+        writeUrlSessionId(null);
+        throw err instanceof Error ? err : new Error(message);
+      }
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }

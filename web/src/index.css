@@ -9,10 +9,17 @@
 
 :root {
   /* ── 墨色系（文字）───────────────────────────────── */
+  /* 对比度按 WCAG AA 正文 4.5:1 校准，基准背景是 --paper-bright #fffefa，
+     并同时验证行 hover 后的实色 #edf0ef（sticky 首列用的不透明合成色）：
+       --ink-500 #4e5b6b → 纸 6.86 / hover 6.04
+       --ink-300 #5e6b7a → 纸 5.39 / hover 4.74
+     旧值 --ink-300 #98a2ab 只有 2.57，--ink-500 #687889 只有 4.49，两者都不
+     达标；这两个令牌覆盖全站 10–12px 的辅助说明文字（表格脚注、能力边界、
+     「对照组」标注等），是实测对比度失败最集中的来源。 */
   --ink-900: #172c42;   /* 主标题墨色 */
   --ink-700: #27394a;   /* 正文 */
-  --ink-500: #687889;   /* 次要文字 */
-  --ink-300: #98a2ab;   /* 弱化文字 */
+  --ink-500: #4e5b6b;   /* 次要文字 */
+  --ink-300: #5e6b7a;   /* 弱化文字 */
 
   /* ── 学术蓝（主色）───────────────────────────────── */
   --primary-color: #244f73;
@@ -250,40 +257,67 @@ body::before { content: none; }
   border-color: var(--paper-line-strong);
 }
 
-/* ═══ 学术三线表（期刊排版核心元素）═══════════════════ */
+/* ═══ 学术三线表（期刊排版核心元素）═══════════════════
+   border-collapse 改为 separate + sticky 表头/首列：
+   collapse 模式下相邻单元格的边框由「边框冲突解决算法」跨格计算，
+   position:sticky 的格子在滚动时会与折叠边框的绘制位置脱节（边框
+   不随格子一起平移）。separate 模式下每个单元格独立拥有自己的边框，
+   与 sticky 完全兼容，且本表从未使用竖线，不会因 separate 产生双线。
+   三条线因此改由「所有 th 底部细线 + 表头首行顶部粗线 + 表体末行
+   底部粗线」精确指派，rowSpan 单元格（legacy 分支纵跨两行表头的
+   「特征变量」「p 值」列）在 separate 模式下 border-bottom 天然落在
+   自身跨行盒子的底部，不需要额外规则。 */
 .three-line-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 16px 0;
   font-size: 13.5px;
   text-align: left;
   font-variant-numeric: tabular-nums; /* 数字等宽对齐 —— 期刊表格的灵魂 */
 }
 
+/* 限高必须小于「真正约束表格的那个滚动父级」的可视高度，否则 sticky 名存实亡：
+   表头只吸附在本容器顶部，而整个容器会被外层面板一起滚出视口，用户看到的是
+   一堆没有列名的数字。检查器侧栏 .pro-workspace-panel__body 实测可视高约
+   405px，旧值 min(70vh,640px)=458px 已经超过它。
+   --tlt-max-h 由最近的滚动上下文覆写（见 .pro-workspace-panel__body 一节），
+   默认值留给会话气泡等本身不限高的场景。 */
 .three-line-table-scroll {
   width: 100%;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: visible;
-  overscroll-behavior-inline: contain;
+  max-height: var(--tlt-max-h, min(70vh, 640px));
+  overflow: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(36, 79, 115, 0.35) transparent;
 }
 
+/* 侧栏检查器：容器自身可视高度的 ~62%，给工具条、摘要卡与折叠区留出余量，
+   保证表格连同吸附表头始终整体落在面板视口内。cqh 需要父级建立容器查询上下文，
+   这里改用面板高度的固定推导值（面板高度由 flex 布局决定，实测 405px 上下），
+   取 300px 是「够看 5–6 行 + 表头永不出界」的折中。 */
+.pro-workspace-panel__body {
+  --tlt-max-h: 300px;
+}
+
 .three-line-table--regression { min-width: 620px; }
-.three-line-table--grouped { min-width: 680px; }
+.three-line-table--grouped { min-width: 760px; } /* +80px：新增统一 p 值列 */
 
 .three-line-table th {
-  border-top: 2px solid var(--ink-900);
-  border-bottom: 1px solid var(--ink-900);
   padding: 10px 12px;
   font-weight: 600;
   color: var(--ink-900);
-  background: transparent;
+  background: var(--paper-bright);
   font-family: var(--font-serif);
   font-size: 12.5px;
   letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--ink-900); /* 表头下细线 */
+}
+
+.three-line-table thead tr:first-child th {
+  border-top: 2px solid var(--ink-900); /* 顶部粗线 */
 }
 
 .three-line-table td {
@@ -313,6 +347,19 @@ body::before { content: none; }
 
 .table-one-smd--summary { font-family: var(--font-sans); font-size: 10px; }
 
+.table-one-degenerate-flag {
+  color: var(--cinnabar);
+  cursor: help;
+}
+
+.table-one-footnote {
+  margin: 6px 2px 0;
+  color: var(--ink-300);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .three-line-table tbody tr {
   transition: background 0.15s ease;
 }
@@ -321,7 +368,7 @@ body::before { content: none; }
   background: var(--primary-wash);
 }
 
-.three-line-table tr:last-child td {
+.three-line-table tbody tr:last-child td {
   border-bottom: 2px solid var(--ink-900); /* 底部粗线 */
 }
 
@@ -329,6 +376,57 @@ body::before { content: none; }
 .three-line-table .sig {
   color: var(--cinnabar);
   font-weight: 600;
+}
+
+/* ── sticky 表头 + sticky 首列（吸附）───────────────────
+   thead 整体 sticky：两行表头作为一个组一起吸附在滚动容器顶部，
+   避免逐格 sticky 时需要手算第二行的 top 偏移。
+
+   首列吸附特意不用 `th:first-child` 选择器：legacy 分支表头第一行
+   「特征变量」用 rowSpan=2 纵跨两行，第二行（Overall/组名）的 DOM
+   first-child 其实是数据列，不是首列——first-child 选择器会认错格子。
+   改用显式 `.tlt-corner` 类标记真正的角格（TSX 里手动打上）。
+   tbody 里三个渲染分支的每一行第一个 <td> 都确实是行标签列，
+   `td:first-child` 在 tbody 场景下是安全的。 */
+.three-line-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.three-line-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--paper-bright); /* 滚动时必须不透明，否则右侧内容透视重叠 */
+}
+
+.three-line-table tbody tr:hover td:first-child {
+  /* --primary-wash rgba(36,79,115,0.08) 叠加在 --paper-bright #fffefa 上的
+     不透明合成色（sticky 首列需要纯色，半透明会透出下方滚过的行）：
+     R 36*.08+255*.92=237.48→237  G 79*.08+254*.92=240.00→240  B 115*.08+250*.92=239.2→239 */
+  background: #edf0ef;
+}
+
+.three-line-table .tlt-corner {
+  position: sticky;
+  left: 0;
+  z-index: 3; /* 角格：top(thead) + left 双吸附，层级最高 */
+}
+
+/* 打印/导出兜底：SPA 内未发现会光栅化此 DOM 的导出路径（审计快照走
+   后端 zip，不含表格截图），但保留对浏览器原生打印（Ctrl+P）的兜底，
+   避免限高把长表格裁成一屏。 */
+@media print {
+  .three-line-table-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+  .three-line-table thead,
+  .three-line-table td:first-child,
+  .three-line-table .tlt-corner {
+    position: static;
+  }
 }
 
 /* ═══ 消息气泡（对话区）═══════════════════════════════ */
@@ -1687,7 +1785,9 @@ body::before { content: none; }
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
-  color: #8a918c;
+  /* 10px 小字必须过 WCAG AA 正文 4.5:1。旧值 #8a918c 在纸色上 3.20、
+     在画布底 #f7f4ee 上只有 2.94；#626b67 分别是 5.45 / 5.01。 */
+  color: #626b67;
   font-size: 10px;
   line-height: 1.2;
 }
@@ -1985,6 +2085,13 @@ button.research-workflow__step { cursor: pointer; font-family: inherit; }
   scrollbar-color: rgba(36, 79, 115, 0.4) rgba(36, 79, 115, 0.06);
 }
 
+.pro-workspace-panel__historical-notice {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 10px;
+}
+
 .pro-workspace-panel__body::-webkit-scrollbar { width: 12px; }
 .pro-workspace-panel__body::-webkit-scrollbar-track { background: rgba(36, 79, 115, 0.05); }
 .pro-workspace-panel__body::-webkit-scrollbar-thumb {
@@ -2076,6 +2183,18 @@ button.research-workflow__step { cursor: pointer; font-family: inherit; }
   margin-bottom: 10px;
   border-radius: 8px;
   font-size: 11px;
+}
+
+/* 简易模式气泡内的信任层：sidecar + 审计面板纵向堆叠 */
+.analysis-result-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.analysis-result-view .export-audit-panel {
+  margin: 0;
 }
 
 .equivalent-code-sidecar {
@@ -2603,4 +2722,244 @@ button.research-workflow__step { cursor: pointer; font-family: inherit; }
   .stream-caret::after {
     animation: none;
   }
+}
+
+/* ═══ StatsTable 外壳（工具条 + 密度 + 全屏）═══════════
+   吸附与三线由 .three-line-table 规则集负责；本节只管外壳。
+   密度切换靠 [data-density] 控制副行可见性，不改表格 DOM，
+   因此会话气泡与检查器侧栏两处渲染共用同一套规则。 */
+.stats-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.stats-table__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+
+.stats-table__caption {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stats-table__caption strong {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--ink-900);
+}
+
+.stats-table__caption small {
+  color: var(--ink-300);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.stats-table__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stats-table__filter {
+  width: 150px;
+}
+
+/* 紧凑模式：隐藏每格的「有效 n · 缺失」副行与连续变量的口径说明。
+   长表（连续变量多）由此省下约 40% 高度。 */
+.stats-table[data-density='compact'] .table-one-cell-meta {
+  display: none;
+}
+
+.stats-table[data-density='compact'] .three-line-table td {
+  padding-block: 6px;
+}
+
+/* 独立成格的分类计数副行不能整格隐藏，否则该列塌陷失去对齐。 */
+.stats-table[data-density='compact'] .table-one-cell-meta--standalone {
+  display: table-cell;
+  font-size: 0; /* 收起文字但保留格子占位 */
+}
+
+/* 全屏：Modal 内解除 640px 上限，用视口高度换更多可见行。 */
+.stats-table-modal .three-line-table-scroll {
+  max-height: 78vh;
+}
+
+.stats-table-modal .stats-table__toolbar {
+  padding-top: 2px;
+}
+
+/* 审计与复现：对齐 result-contract 纸面语言，放在报告正文之后。 */
+.export-audit-panel {
+  margin: 18px 0 10px;
+}
+
+.export-audit-panel__header strong {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.export-audit-panel__header span {
+  font-size: 11px;
+}
+
+.export-audit-panel__lead {
+  margin: 0 0 12px;
+  color: var(--ink-700);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.export-audit-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.export-audit-panel__actions .ant-btn {
+  font-size: 13px;
+}
+
+.export-audit-panel__filename {
+  font-size: 11.5px !important;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.export-audit-panel__hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 11.5px !important;
+}
+
+.export-audit-panel .export-snapshot-toast {
+  margin-top: 12px;
+}
+
+.export-audit-panel__success p {
+  margin: 0 0 6px;
+  line-height: 1.55;
+  font-size: 12.5px;
+}
+
+.export-audit-panel__success code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(36, 79, 115, 0.08);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.export-audit-panel__file-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px !important;
+  color: var(--ink-900);
+  font-weight: 600;
+}
+
+.export-audit-panel__file-row .anticon {
+  margin-top: 3px;
+  color: var(--primary-color);
+}
+
+.export-audit-panel__path-block {
+  margin: 6px 0 8px !important;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--paper-line);
+}
+
+.export-audit-panel__path-block code {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.export-audit-panel__sha {
+  color: var(--ink-500);
+  font-size: 11.5px;
+}
+
+.export-audit-panel__copy-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px !important;
+}
+
+/* 聊天气泡：更紧凑，避免挤占会话阅读区 */
+.msg-bubble .export-audit-panel {
+  margin-top: 12px;
+  padding: 12px 13px;
+}
+
+.msg-bubble .export-audit-panel__header strong {
+  font-size: 13px;
+}
+
+.msg-bubble .export-audit-panel__lead {
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.msg-bubble .export-audit-panel__actions .ant-btn {
+  height: 30px;
+  padding-inline: 12px;
+  font-size: 12.5px;
+}
+
+.msg-bubble .export-audit-panel__filename {
+  font-size: 11px !important;
+}
+
+/* 折叠的审计材料：默认收起，标题需自解释。 */
+.report-audit-collapse {
+  margin-top: 4px;
+}
+
+.report-audit-collapse .ant-collapse-header {
+  padding-inline: 2px !important;
+}
+
+.report-audit-collapse__label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-900);
+}
+
+.report-audit-collapse__label strong {
+  display: block;
+  font-size: 12.5px;
+}
+
+.report-audit-collapse__label small {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-300);
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .stats-table__filter { width: 118px; }
+  .stats-table__caption small { display: none; }
+}
+
+@media print {
+  .stats-table__toolbar { display: none; }
+  .stats-table[data-density='compact'] .table-one-cell-meta { display: block; }
+  .report-audit-collapse .ant-collapse-content { display: block !important; height: auto !important; }
 }

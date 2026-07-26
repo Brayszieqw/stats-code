@@ -29,6 +29,32 @@ import { isSensitiveFieldName, looksLikeDirectIdentifier } from './sensitive-dat
 const MAX_DATASET_BYTES = 70 * 1024 * 1024; // 70 MiB
 const APP_DIR = 'stats-code';
 
+/**
+ * 低基数数值列判为 Categorical 的阈值。
+ *
+ * 临床数据里 0/1 编码的 disease、death 全是分类变量，但纯按「能否转成数字」
+ * 推断会一律得到 Numeric，于是 Table One 的自动变量分派把它们当连续变量算
+ * 均值±SD——「疾病均值 0.48」是没有意义的输出。
+ *
+ * 判据必须同时满足下面四条，任一不满足就保持 Numeric：
+ *  1. 全部取值都是整数。取值粗的连续量（人时 fu_pt 只有 0.33/0.42/… 八个
+ *     取值）会掉进任何纯基数阈值里，但小数点本身就说明它是测量值而非编码；
+ *     实测 demo_cohort.csv 的 fu_pt 正是被这条捞回 Numeric 的。
+ *  2. 去重后的非缺失取值不超过 MAX_LEVELS 个；
+ *  3. 非缺失行数至少 MIN_ROWS 行——否则 2 行的 age(42,37) 会因「只有 2 个
+ *     不同值」被误判；小样本下基数本身不携带信息；
+ *  4. 取值数严格少于非缺失行数（distinct < nonMissing），即真的出现过重复。
+ *     全部互不相同的列（连续测量值、序号）不可能是分类变量。
+ *
+ * MAX_LEVELS=6 而不是更宽：它覆盖 0/1、Likert 1–5、分期 I–IV 这些真正的
+ * 整数编码，同时把随访月数（demo_cohort 的 fu_time 有 8 个整数取值，是连续
+ * 时间）挡在外面。整数型连续量与整数型编码在数据上无法完全区分，这里选择
+ * 偏向保守——判成 Numeric 只是让用户手动把它挪到分类变量列表，而误判成
+ * Categorical 会让一个连续变量在 Table One 里变成一堆 n(%) 行。
+ */
+const CATEGORICAL_MAX_LEVELS = 6;
+const CATEGORICAL_MIN_ROWS = 20;
+
 export type { DatasetStore } from '../state.js';
 
 export interface FsDatasetStoreOptions {
@@ -125,6 +151,10 @@ function parseTextTable(
   }
   const missingCounts = new Array<number>(columnCount).fill(0);
   const numericCounts = new Array<number>(columnCount).fill(0);
+  // 每列非缺失取值的去重集合，用于低基数判定。一旦超过阈值就停止累积，
+  // 避免高基数列（如主键）在大文件上把整列值都留在内存里。
+  const distinctValues = Array.from({ length: columnCount }, () => new Set<string>());
+  const distinctOverflow = new Array<boolean>(columnCount).fill(false);
   let rowCount = 0;
   const preview_rows: Record<string, string | number>[] = [];
 
@@ -153,12 +183,35 @@ function parseTextTable(
       if (field !== '' && Number.isFinite(Number(field))) {
         numericCounts[idx] = (numericCounts[idx] ?? 0) + 1;
       }
+      if (!distinctOverflow[idx]) {
+        const seen = distinctValues[idx]!;
+        seen.add(field);
+        // 超过阈值就不可能判为低基数，清空集合止损（继续 add 只会白占内存）。
+        if (seen.size > CATEGORICAL_MAX_LEVELS) {
+          distinctOverflow[idx] = true;
+          seen.clear();
+        }
+      }
     }
   }
 
   const columns: ColumnSummary[] = headers.map((name, idx) => {
     const nonMissing = rowCount - missingCounts[idx]!;
-    const inferredType = nonMissing > 0 && numericCounts[idx] === nonMissing ? 'Numeric' : 'String';
+    const isNumeric = nonMissing > 0 && numericCounts[idx] === nonMissing;
+    const distinct = distinctOverflow[idx] ? Number.POSITIVE_INFINITY : distinctValues[idx]!.size;
+    // 低基数**整数**列（0/1 编码的 disease/death、分期、Likert）判为 Categorical，
+    // 让 Table One 用 n(%) 与卡方检验描述，而不是对它算均值±SD。
+    // 含小数的列一律留给 Numeric：小数点说明是测量值，不是分类编码。
+    const allIntegers = !distinctOverflow[idx]
+      && [...distinctValues[idx]!].every((value) => Number.isInteger(Number(value)));
+    const isLowCardinality = isNumeric
+      && allIntegers
+      && nonMissing >= CATEGORICAL_MIN_ROWS
+      && distinct <= CATEGORICAL_MAX_LEVELS
+      && distinct < nonMissing;
+    const inferredType = isNumeric
+      ? (isLowCardinality ? 'Categorical' : 'Numeric')
+      : 'String';
     return { name, inferred_type: inferredType, missing_count: missingCounts[idx]! };
   });
 

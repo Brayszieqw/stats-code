@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Layout, Alert, Button, Drawer, Empty, Space, Tag, Typography } from 'antd';
+import { FileProtectOutlined } from '@ant-design/icons';
 import { SimpleSidebar } from './simple/SimpleSidebar';
 import { WelcomeHero } from './simple/WelcomeHero';
 import { ModeToggle } from '../components/ModeToggle';
@@ -20,11 +21,13 @@ import { ChatInputBar } from '../components/ChatInputBar';
 import { DatasetUploader } from '../components/DatasetUploader';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { SessionIntegrityAlert } from '../components/SessionIntegrityAlert';
+import { ResearchProtocolDrawer } from '../components/ResearchProtocolDrawer';
 import type { SessionController } from '../hooks/useSessionController';
 import type { UseSseChatReturn } from '../hooks/useSseChat';
 import type { UseSessionListReturn } from '../hooks/useSessionList';
 import type { ViewMode } from '../hooks/useModePreference';
-import type { ChoiceAnswer, DatasetSummary } from '../api/types';
+import type { ChoiceAnswer, DatasetSummary, ResearchProtocolInput } from '../api/types';
+import { ApiError } from '../api/client';
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
@@ -67,6 +70,35 @@ export function SimpleModeView({
   const [datasetDrawerOpen, setDatasetDrawerOpen] = useState(false);
   const [voiceDrawerOpen, setVoiceDrawerOpen] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [protocolDrawerOpen, setProtocolDrawerOpen] = useState(false);
+  const [protocolSaving, setProtocolSaving] = useState(false);
+  const [protocolError, setProtocolError] = useState<string | null>(null);
+
+  // Auto-open protocol drawer when chat hits the protocol gate (demo-safe path).
+  useEffect(() => {
+    if (error?.error_code === 'ResearchProtocolRequired' || error?.error_code === 'ResearchVersionConflict') {
+      setProtocolDrawerOpen(true);
+    }
+  }, [error?.error_code]);
+
+  const handleSaveProtocol = async (input: ResearchProtocolInput) => {
+    setProtocolSaving(true);
+    setProtocolError(null);
+    try {
+      await controller.saveResearchProtocol(input);
+      setProtocolDrawerOpen(false);
+    } catch (err) {
+      setProtocolError(
+        err instanceof ApiError
+          ? err.payload.message
+          : err instanceof Error
+            ? err.message
+            : '研究协议保存失败',
+      );
+    } finally {
+      setProtocolSaving(false);
+    }
+  };
 
   const isWelcome = messages.length === 0;
   const selectedDataset = useMemo(
@@ -121,7 +153,17 @@ export function SimpleModeView({
 
       <Content className="stats-canvas">
         {/* 右上角模式切换 */}
-        <div className="stats-mode-toggle">
+        <div className="stats-mode-toggle" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button
+            type="text"
+            size="small"
+            icon={<FileProtectOutlined />}
+            disabled={isArchived}
+            aria-label="打开研究协议"
+            onClick={() => setProtocolDrawerOpen(true)}
+          >
+            协议
+          </Button>
           <ModeToggle mode={mode} onChange={onModeChange} />
         </div>
 
@@ -159,7 +201,12 @@ export function SimpleModeView({
           <div className="stats-conversation" aria-label="对话区">
             <div className="stats-conversation__stream" aria-label="消息列表">
               <MessageList messages={messages} onChoiceSubmit={onChoiceSubmit} disabled={isArchived} />
-              <ErrorBanner error={error} onRetry={onRetry} />
+              <ErrorBanner
+                error={error}
+                onRetry={onRetry}
+                onOpenProtocol={() => setProtocolDrawerOpen(true)}
+                onOpenInspector={() => onModeChange('pro')}
+              />
             </div>
 
             <div className="stats-conversation__composer">
@@ -250,6 +297,18 @@ export function SimpleModeView({
             />
           </Space>
         </Drawer>
+
+        <ResearchProtocolDrawer
+          open={protocolDrawerOpen}
+          protocol={controller.researchProtocol}
+          saving={protocolSaving}
+          error={protocolError}
+          onClose={() => {
+            if (!protocolSaving) setProtocolDrawerOpen(false);
+          }}
+          onCompile={controller.compileResearchProtocol}
+          onSave={handleSaveProtocol}
+        />
       </Content>
     </Layout>
   );

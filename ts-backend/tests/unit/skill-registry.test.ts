@@ -11,6 +11,8 @@ import { SkillRegistry } from '@stats-code/server';
 const EXPECTED_ORDER = [
   'tableone',
   'ttest',
+  'anova',
+  'correlation',
   'model_linear',
   'model_logistic',
   'model_cox',
@@ -20,9 +22,9 @@ const EXPECTED_ORDER = [
 ];
 
 describe('SkillRegistry.withDefaults (Requirements 4.1, 4.2, 4.3, 4.7)', () => {
-  it('exposes the 8 expected skills in insertion order', () => {
+  it('exposes the expected skills in insertion order', () => {
     const reg = SkillRegistry.withDefaults();
-    expect(reg.size).toBe(8);
+    expect(reg.size).toBe(EXPECTED_ORDER.length);
     expect(reg.list().map((d) => d.skillId)).toEqual(EXPECTED_ORDER);
   });
 

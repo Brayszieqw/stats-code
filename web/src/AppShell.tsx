@@ -103,10 +103,12 @@ export function AppShell() {
       deletingSessionIds.current.add(sid);
       try {
         await deleteSession(sid);
+        // Once deletion succeeds, follow-up UI reconciliation must not turn it
+        // into a retryable deletion error.
         if (sid === controller.sessionId) {
-          await controller.startNewSession();
+          await controller.startNewSession(true).catch(() => undefined);
         }
-        await sessionList.refresh();
+        await sessionList.refresh().catch(() => undefined);
       } finally {
         deletingSessionIds.current.delete(sid);
       }

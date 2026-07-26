@@ -4,43 +4,37 @@
  * 在对话流中渲染错误信息卡片，包含错误码、可读消息与建议下一步动作。
  *
  * 特殊行为：
- * - LLM_UNAVAILABLE: 显示"重试"按钮，点击后以原请求参数重发，
- *   重试期间禁用按钮以防止重复触发 (R14.2)。
- * - SKILL_EXECUTION_FAILED / SKILL_INVALID_ARGS: 显示引导文本，
- *   建议用户修改输入或尝试其他统计方法 (R14.3)。
+ * - LLM_UNAVAILABLE: 显示"重试"按钮
+ * - ResearchProtocolRequired: 引导打开研究协议
+ * - ResearchApprovalRequired / Stale / AuditBlocked: 引导检查器审批路径
+ * - SKILL_*: 引导修改输入或换方法
  *
  * Validates: Requirements 14.1, 14.2, 14.3
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Space, Typography } from 'antd';
 import {
   ReloadOutlined,
   CloseOutlined,
   ExclamationCircleOutlined,
+  FileProtectOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import type { ErrorPayload, ErrorCode } from '../api/types';
 
 const { Text, Paragraph } = Typography;
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface ErrorBannerProps {
-  /** 错误载荷，null 时不渲染 */
   error: ErrorPayload | null;
-  /** 重试回调（用于 LLM_UNAVAILABLE 场景） */
   onRetry?: () => void;
-  /** 关闭/忽略错误回调 */
   onDismiss?: () => void;
+  /** Open research protocol drawer / form */
+  onOpenProtocol?: () => void;
+  /** Open analysis inspector / switch to Pro for plan approval */
+  onOpenInspector?: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** 根据错误码生成建议下一步动作文本 */
 function getSuggestedAction(errorCode: ErrorCode): string {
   switch (errorCode) {
     case 'LlmUnavailable':
@@ -69,22 +63,50 @@ function getSuggestedAction(errorCode: ErrorCode): string {
       return '会话不存在，请刷新页面或创建新会话。';
     case 'InvalidChoice':
       return '请从给定选项中选择。';
+    case 'ResearchProtocolRequired':
+      return '请先填写并审批研究协议（研究问题、设计、结局等），再继续分析或描述性之外的统计任务。';
+    case 'ResearchApprovalRequired':
+      return '协议审批后，还需在「检查器 → 分析设置」配置方案，点击「批准方案并运行」。聊天不会自动绕过该门禁。';
+    case 'ResearchApprovalStale':
+      return '已批准方案与当前协议/数据/参数不一致，请在检查器中重新审计并批准。';
+    case 'ResearchAuditBlocked':
+      return '数据审计发现阻断项，请根据审计结果修正数据或变量角色后再试。';
+    case 'ResearchVersionConflict':
+      return '协议版本冲突，请重新打开协议并基于最新版本保存/审批。';
     default:
-      return '请稍后重试或联系支持。';
+      return '请按提示处理，或切换到专业模式使用可视化配置。';
   }
 }
 
-/** 判断是否为 SKILL 相关错误（需要引导修改输入） */
 function isSkillError(errorCode: ErrorCode): boolean {
   return errorCode === 'SkillExecutionFailed' || errorCode === 'SkillInvalidArgs';
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function needsProtocolAction(errorCode: ErrorCode): boolean {
+  return errorCode === 'ResearchProtocolRequired' || errorCode === 'ResearchVersionConflict';
+}
 
-export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
+function needsInspectorAction(errorCode: ErrorCode): boolean {
+  return (
+    errorCode === 'ResearchApprovalRequired'
+    || errorCode === 'ResearchApprovalStale'
+    || errorCode === 'ResearchAuditBlocked'
+  );
+}
+
+export function ErrorBanner({
+  error,
+  onRetry,
+  onDismiss,
+  onOpenProtocol,
+  onOpenInspector,
+}: ErrorBannerProps) {
   const [retrying, setRetrying] = useState(false);
+
+  // Reset retry lock when the error payload changes or clears.
+  useEffect(() => {
+    setRetrying(false);
+  }, [error?.error_code, error?.message]);
 
   if (!error) return null;
 
@@ -92,21 +114,42 @@ export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
   const isSkill = isSkillError(error.error_code);
   const suggestedAction = getSuggestedAction(error.error_code);
 
-  const handleRetry = async () => {
+  const handleRetry = () => {
     if (!onRetry || retrying) return;
     setRetrying(true);
-    try {
-      onRetry();
-    } finally {
-      // 保持 disabled 状态直到外部通过新渲染重置
-      // 如果外部 error 被清除，组件将卸载
-      // 如果外部需要重置状态，可通过 key prop 重新挂载
-      setRetrying(false);
-    }
+    onRetry();
+    // Keep disabled until parent clears/replaces `error` (see effect above).
   };
 
-  // 构建操作按钮
   const actions: React.ReactNode[] = [];
+
+  if (needsProtocolAction(error.error_code) && onOpenProtocol) {
+    actions.push(
+      <Button
+        key="protocol"
+        type="primary"
+        size="small"
+        icon={<FileProtectOutlined />}
+        onClick={onOpenProtocol}
+      >
+        去填写研究协议
+      </Button>,
+    );
+  }
+
+  if (needsInspectorAction(error.error_code) && onOpenInspector) {
+    actions.push(
+      <Button
+        key="inspector"
+        type="primary"
+        size="small"
+        icon={<ExperimentOutlined />}
+        onClick={onOpenInspector}
+      >
+        去完成审批
+      </Button>,
+    );
+  }
 
   if (isLlmUnavailable && onRetry) {
     actions.push(
@@ -146,7 +189,6 @@ export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
       style={{ marginTop: 8, marginBottom: 8 }}
       message={
         <Space direction="vertical" size={4} style={{ width: '100%' }}>
-          {/* 错误码 + 消息 */}
           <div>
             <Text code style={{ fontSize: 11, marginRight: 8 }}>
               {error.error_code}
@@ -154,18 +196,16 @@ export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
             <Text>{error.message}</Text>
           </div>
 
-          {/* 建议下一步动作 */}
           <Text type="secondary" style={{ fontSize: 12 }}>
             {suggestedAction}
           </Text>
 
-          {/* SKILL 错误引导文本 */}
           {isSkill && (
             <Paragraph
               type="warning"
               style={{ fontSize: 12, marginBottom: 0, marginTop: 4 }}
             >
-              💡 您可以尝试修改变量选择或换用其他统计方法，系统将为您提供可选方案。
+              您可以尝试修改变量选择或换用其他统计方法，系统将为您提供可选方案。
             </Paragraph>
           )}
         </Space>

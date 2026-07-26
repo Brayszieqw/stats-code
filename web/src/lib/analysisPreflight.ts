@@ -1,4 +1,5 @@
 import type { DatasetSummary, ResearchProtocol, RunRequest } from '../api/types';
+import { humanizeIdentifier } from './displayLabels';
 
 export const ANALYSIS_TRUST_STATEMENT = '本机确定性引擎 · 数值非 LLM 生成 · 可审计';
 
@@ -35,10 +36,13 @@ export interface AnalysisPreflight {
 const METHOD_LABELS: Record<string, string> = {
   tableone: '基线特征表（Table One）',
   ttest: '双独立样本 T 检验',
+  anova: '单因素方差分析',
+  correlation: '相关分析',
   survival_km: 'Kaplan–Meier 生存分析',
   model_linear: '多元线性回归',
   model_logistic: 'Logistic 回归',
   model_cox: 'Cox 比例风险回归',
+  power: '功效与样本量分析',
 };
 
 function requestArgs(request: RunRequest): Record<string, unknown> {
@@ -55,15 +59,21 @@ function collectStrings(value: unknown): string[] {
 
 function selectedVariables(request: RunRequest): string[] {
   const args = requestArgs(request);
+  // 功效分析是设计阶段工具，参数全是标量（test_type/effect_size/alpha/power），
+  // 不引用任何数据列。显式返回空数组，而不是靠默认分支查不到 outcome/predictors
+  // 碰巧得到空结果。
+  if (request.skill_id === 'power') return [];
   const orderedKeys = request.skill_id === 'tableone'
     ? ['group', 'continuous', 'categorical']
-    : request.skill_id === 'ttest'
+    : request.skill_id === 'ttest' || request.skill_id === 'anova'
       ? ['group', 'testVar']
-      : request.skill_id === 'survival_km'
-        ? ['time', 'event', 'group']
-        : request.skill_id === 'model_cox'
-          ? ['time', 'event', 'predictors']
-          : ['outcome', 'predictors'];
+      : request.skill_id === 'correlation'
+        ? ['x', 'y']
+        : request.skill_id === 'survival_km'
+          ? ['time', 'event', 'group']
+          : request.skill_id === 'model_cox'
+            ? ['time', 'event', 'predictors']
+            : ['outcome', 'predictors'];
 
   return [...new Set(orderedKeys.flatMap((key) => collectStrings(args[key])))];
 }
@@ -166,13 +176,13 @@ export function buildAnalysisPreflight(
       warnings.push({
         code: 'protocol-method-mismatch',
         severity: 'high',
-        message: `本次${METHOD_LABELS[request.skill_id] ?? request.skill_id}与已审批协议的方法或目标估计量不一致，请修订协议，或确认本次仅为预先声明的次要分析。`,
+        message: `本次${(METHOD_LABELS[request.skill_id] ?? humanizeIdentifier(request.skill_id))}与已审批协议的方法或目标估计量不一致，请修订协议，或确认本次仅为预先声明的次要分析。`,
       });
     }
   }
 
   return {
-    methodLabel: METHOD_LABELS[request.skill_id] ?? request.skill_id,
+    methodLabel: (METHOD_LABELS[request.skill_id] ?? humanizeIdentifier(request.skill_id)),
     datasetName: dataset.file_name,
     rowCount: dataset.row_count,
     variables,

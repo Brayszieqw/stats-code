@@ -65,6 +65,8 @@ const mocks = vi.hoisted(() => {
       refresh: vi.fn(async () => {}),
     },
     sessionList: { sessions: [], loading: false, error: null, refresh: vi.fn(async () => {}) },
+    deleteSession: vi.fn(async (_sessionId: string) => {}),
+    simpleOnDeleteSession: null as null | ((sessionId: string) => void | Promise<void>),
   };
 });
 
@@ -83,10 +85,17 @@ vi.mock('./hooks/useLlmStatus', () => ({
 vi.mock('./hooks/useSessionList', () => ({
   useSessionList: () => mocks.sessionList,
 }));
+vi.mock('./api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/client')>();
+  return { ...actual, deleteSession: mocks.deleteSession };
+});
 
 // Stub the heavy views with light markers so we can assert which renders.
 vi.mock('./views/SimpleModeView', () => ({
-  SimpleModeView: () => <div data-testid="simple-view" />,
+  SimpleModeView: (props: { onDeleteSession?: (sessionId: string) => void | Promise<void> }) => {
+    mocks.simpleOnDeleteSession = props.onDeleteSession ?? null;
+    return <div data-testid="simple-view" />;
+  },
 }));
 vi.mock('./views/ProModeView', () => ({
   ProModeView: () => <div data-testid="pro-view" />,
@@ -103,6 +112,13 @@ beforeEach(() => {
   mocks.controller.error = null;
   mocks.chat.messages = [];
   mocks.llm.configured = true;
+  mocks.simpleOnDeleteSession = null;
+  mocks.deleteSession.mockReset();
+  mocks.deleteSession.mockResolvedValue(undefined);
+  mocks.controller.startNewSession.mockReset();
+  mocks.controller.startNewSession.mockResolvedValue(undefined);
+  mocks.sessionList.refresh.mockReset();
+  mocks.sessionList.refresh.mockResolvedValue(undefined);
 });
 
 describe('AppShell unit (Requirements 1.3, 2.7)', () => {
@@ -138,6 +154,27 @@ describe('AppShell unit (Requirements 1.3, 2.7)', () => {
     render(<AppShell />);
     expect(mocks.chat.setMessages).toHaveBeenCalledWith(mocks.controller.initialMessages);
     mocks.controller.initialMessages = [];
+  });
+
+  it('does not report a deletion failure after the session was already deleted', async () => {
+    mocks.controller.startNewSession.mockRejectedValueOnce(new Error('new session failed'));
+    mocks.sessionList.refresh.mockRejectedValueOnce(new Error('refresh failed'));
+    render(<AppShell />);
+
+    expect(mocks.simpleOnDeleteSession).not.toBeNull();
+    await expect(mocks.simpleOnDeleteSession!('s1')).resolves.toBeUndefined();
+    expect(mocks.deleteSession).toHaveBeenCalledWith('s1');
+    expect(mocks.controller.startNewSession).toHaveBeenCalledWith(true);
+  });
+
+  it('still rejects when the delete request itself fails', async () => {
+    mocks.deleteSession.mockRejectedValueOnce(new Error('delete failed'));
+    render(<AppShell />);
+
+    expect(mocks.simpleOnDeleteSession).not.toBeNull();
+    await expect(mocks.simpleOnDeleteSession!('s1')).rejects.toThrow('delete failed');
+    expect(mocks.controller.startNewSession).not.toHaveBeenCalled();
+    expect(mocks.sessionList.refresh).not.toHaveBeenCalled();
   });
 });
 

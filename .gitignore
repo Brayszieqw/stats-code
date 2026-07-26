@@ -41,6 +41,15 @@ fix_antigravity.ps1
 /implementation_plan.md
 /task.md
 
+# Local research / review archives (kept outside Git)
+/R3-审批门审查报告-2026-07-14.md
+/代码审查-R5审批链-2026-07-14.md
+/代码审查-R4replay-2026-07-14.md
+/代码审查-R1前端R2数值-2026-07-13.md
+/参赛与Stats-Code升级总结.md
+/核心结论.docx
+/流行病学与统计学智能体研究报告.docx
+
 # Non-project directories
 .claude/
 .codex-backups/

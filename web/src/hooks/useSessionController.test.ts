@@ -133,6 +133,35 @@ describe('useSessionController (Requirements 2.6, 9.2, 9.3, 9.6)', () => {
     expect(result.current.sessionId).toBe('first');
   });
 
+  it('startNewSession can replace an empty shell after it was deleted', async () => {
+    createSessionMock
+      .mockResolvedValueOnce(makeSession({ id: 'first' }))
+      .mockResolvedValueOnce(makeSession({ id: 'second' }));
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.sessionId).toBe('first'));
+
+    await act(async () => {
+      await result.current.startNewSession(true);
+    });
+
+    expect(createSessionMock).toHaveBeenCalledTimes(2);
+    expect(result.current.sessionId).toBe('second');
+  });
+
+  it('keeps reload recoverable when replacing a deleted session fails', async () => {
+    createSessionMock.mockResolvedValueOnce(makeSession({ id: 'deleted-session' }));
+    const { result } = renderHook(() => useSessionController());
+    await waitFor(() => expect(result.current.sessionId).toBe('deleted-session'));
+    createSessionMock.mockRejectedValueOnce(new Error('replacement failed'));
+
+    await act(async () => {
+      await expect(result.current.startNewSession(true)).rejects.toThrow('replacement failed');
+    });
+
+    expect(result.current.error).toBe('replacement failed');
+    expect(new URL(window.location.href).searchParams.has('session_id')).toBe(false);
+  });
+
   it('startNewSession creates a fresh session after one with content (R2.6)', async () => {
     createSessionMock.mockResolvedValueOnce(
       makeSession({

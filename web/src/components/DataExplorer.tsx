@@ -8,6 +8,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import type { DatasetSummary, ColumnSummary } from '../api/types';
+import { detectPrimaryKey, PRIMARY_KEY_NAME_EXAMPLES } from '../lib/primaryKeyHint';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -27,10 +28,10 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  Numeric: '数值型 (Numeric)',
-  Categorical: '分类 (Categorical)',
-  Date: '日期型 (Date)',
-  String: '文本型 (String)',
+  Numeric: '数值型',
+  Categorical: '分类型',
+  Date: '日期型',
+  String: '文本型',
 };
 
 export function DataExplorer({ summary, previewRows, compact = false }: DataExplorerProps) {
@@ -153,6 +154,11 @@ export function DataExplorer({ summary, previewRows, compact = false }: DataExpl
     return [];
   }, [previewRows]);
   const hasPreviewRows = previewDataSource.length > 0;
+  // summary 在这一行必非 null（第 38 行的空态分支已提前返回）。
+  const primaryKey = useMemo(
+    () => detectPrimaryKey(summary.columns.map((column) => column.name)),
+    [summary],
+  );
 
   return (
     <Space className="data-explorer" direction="vertical" size={20} style={{ width: '100%' }}>
@@ -178,6 +184,24 @@ export function DataExplorer({ summary, previewRows, compact = false }: DataExpl
         icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
         style={{ background: 'rgba(82, 196, 26, 0.04)', borderColor: 'rgba(82, 196, 26, 0.2)' }}
       />
+
+      {/* 主键提示前移到上传即刻：服务端只在审批阶段抛 PRIMARY_KEY_UNBOUND，
+          用户此时已白配完一整套变量。这里只提示不阻断，门禁仍由服务端把关。 */}
+      {!primaryKey.resolved ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="未识别到主键列，正式分析将在审批阶段被阻断"
+          description={
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary">
+                系统需要一列唯一标识每条观测记录，才能确认分析单位。请把标识列改名为
+                {' '}{PRIMARY_KEY_NAME_EXAMPLES}{' '}之一（大小写、空格与连字符不敏感），重新上传即可。
+              </Text>
+            </div>
+          }
+        />
+      ) : null}
 
       {/* Grid of basic health metrics */}
       <Row gutter={[16, 16]}>

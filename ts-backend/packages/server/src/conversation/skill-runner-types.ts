@@ -21,7 +21,14 @@ export interface ResultContractEstimate {
   estimate: number;
   ci_95: { lower: number; upper: number } | null;
   p_value: number | null;
-  effect_unit: 'Beta' | 'OR' | 'HR' | 'Mean difference' | 'Median survival';
+  effect_unit:
+    | 'Beta'
+    | 'OR'
+    | 'HR'
+    | 'Mean difference'
+    | 'Median survival'
+    | 'Correlation coefficient'
+    | 'Eta squared';
   adjustment: 'adjusted' | 'unadjusted' | 'descriptive';
 }
 

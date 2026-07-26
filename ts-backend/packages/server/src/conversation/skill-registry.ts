@@ -58,11 +58,10 @@ export class SkillRegistry {
   }
 
   /**
-   * Pre-populated registry with the minimum skill set (Requirement 4.1):
-   * tableone, ttest, model_linear, model_logistic, model_cox, survival_km,
-   * power, inspect.
-   * The four output-level skills use algorithm invokers; power/inspect are
-   * native invokers (wired by the SkillRunner factory, not here).
+   * Pre-populated registry with the default skill set:
+   * tableone, ttest, anova, correlation, model_*, survival_km, power, inspect.
+   * Output-level skills use algorithm invokers; power/inspect are native
+   * invokers (wired by the SkillRunner factory, not here).
    */
   static withDefaults(): SkillRegistry {
     const reg = new SkillRegistry();
@@ -87,6 +86,7 @@ export class SkillRegistry {
           groups: { type: 'array' },
           standardized_differences: { type: 'object' },
           categorical_tests: { type: 'array' },
+          continuous_tests: { type: 'array' },
         },
       },
       invoker: { kind: 'algorithm', algorithmId: 'tableone' },
@@ -115,6 +115,58 @@ export class SkillRegistry {
         },
       },
       invoker: { kind: 'algorithm', algorithmId: 'ttest' },
+    });
+
+    reg.register({
+      skillId: 'anova',
+      displayName: '单因素方差分析',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group: { type: 'string', description: '分组变量列名（≥2 组）' },
+          testVar: { type: 'string', description: '待比较的连续变量列名' },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['group', 'testVar', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          method: { type: 'string' },
+          f_statistic: { type: 'number' },
+          p_value: { type: 'number' },
+          eta_squared: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'anova' },
+    });
+
+    reg.register({
+      skillId: 'correlation',
+      displayName: '相关分析',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          x: { type: 'string', description: '连续变量 X 列名' },
+          y: { type: 'string', description: '连续变量 Y 列名' },
+          method: {
+            type: 'string',
+            description: '相关方法：pearson（默认）或 spearman',
+          },
+          dataset_id: { type: 'string', description: '数据集 ID' },
+        },
+        required: ['x', 'y', 'dataset_id'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          method: { type: 'string' },
+          r: { type: 'number' },
+          p_value: { type: 'number' },
+          n: { type: 'number' },
+        },
+      },
+      invoker: { kind: 'algorithm', algorithmId: 'correlation' },
     });
 
     reg.register({

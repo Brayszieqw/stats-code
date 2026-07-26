@@ -118,10 +118,109 @@ function asOptionalStringArray(value: unknown, name: string): string[] {
   return asStringArray(value, name);
 }
 
-/** Build the [intercept, ...predictors] design matrix from the dataset. */
-function designMatrix(headers: string[], rows: string[][], predictors: string[]): number[][] {
-  const cols = predictors.map((p) => numericColumn(headers, rows, p));
-  return rows.map((_, i) => [1, ...cols.map((c) => c[i]!)]);
+/**
+ * 分类预测变量的哑变量（one-hot，drop-first）上限。
+ *
+ * 每个水平吃掉一个自由度，水平过多会让设计矩阵接近秩亏、系数不可解释。
+ * 12 个水平（→11 个哑变量）已经覆盖绝大多数临床分组；超限直接报错，
+ * 而不是悄悄截断水平——截断会让部分观测被无声归到参考组，是数据造假。
+ */
+const DUMMY_MAX_LEVELS = 12;
+
+interface DesignTerm {
+  /** 展示用 term 名：数值列即列名，哑变量为 `列名=水平`。 */
+  term: string;
+  /** 哑变量的参考水平；数值列为 null。 */
+  reference: string | null;
+}
+
+/**
+ * 构建含哑变量编码的设计矩阵。
+ *
+ * 此前 designMatrix 直接对每个预测变量调 numericColumn，遇到 smoke
+ * (never/former/current) 会抛 `non-numeric value in column smoke`——用户在
+ * 前端选了分类变量做回归就整个跑不起来。这里按列的实际取值决定编码方式：
+ *
+ *  - 全部可转数字 → 原样作为一列连续预测变量（与旧行为逐字节一致）；
+ *  - 否则视为分类 → drop-first one-hot：按水平名排序后取第一个作参考水平，
+ *    其余每个水平出一列 0/1 指示变量，term 命名 `列名=水平`。
+ *
+ * 选「排序后第一个」作参考而不是「出现频次最高」：前者只依赖数据取值集合，
+ * 同一份数据无论行序如何都得到同一个参考水平，可复现；频次最高在并列时
+ * 需要额外破并规则，且行序变化会改变模型输出。参考水平会写进每个系数的
+ * reference 字段，前端系数表已有展示位（coeffFields.ts 的 reference）。
+ *
+ * 空值一律报错而不是当作独立水平：缺失该由协议的缺失策略处理，
+ * 静默把空串编码成一个「空水平」会让模型多出一个无意义的对照组。
+ */
+function encodedDesignMatrix(
+  headers: string[],
+  rows: string[][],
+  predictors: string[],
+): { matrix: number[][]; terms: DesignTerm[] } {
+  const columns: Array<{ values: number[]; terms: DesignTerm[] }> = predictors.map((predictor) => {
+    const idx = columnIndex(headers, predictor);
+    const raw = rows.map((row, rowIndex) => {
+      const value = row[idx]?.trim() ?? '';
+      if (value.length === 0) {
+        throw new Error(`missing value in column ${predictor} at data row ${rowIndex + 1}`);
+      }
+      return value;
+    });
+
+    const allNumeric = raw.every((value) => Number.isFinite(Number(value)));
+    if (allNumeric) {
+      return {
+        values: raw.map(Number),
+        terms: [{ term: predictor, reference: null }],
+      };
+    }
+
+    const levels = [...new Set(raw)].sort();
+    if (levels.length < 2) {
+      throw new Error(`categorical predictor ${predictor} has no variation (single level ${levels[0]}).`);
+    }
+    if (levels.length > DUMMY_MAX_LEVELS) {
+      throw new Error(
+        `categorical predictor ${predictor} has ${levels.length} levels (limit ${DUMMY_MAX_LEVELS}); collapse levels before modelling.`,
+      );
+    }
+    const reference = levels[0]!;
+    const dummyLevels = levels.slice(1);
+    return {
+      // 逐行展开成 dummyLevels.length 个 0/1 值，稍后按行重组。
+      values: rows.flatMap((_, rowIndex) => dummyLevels.map((level) => (raw[rowIndex] === level ? 1 : 0))),
+      terms: dummyLevels.map((level) => ({ term: `${predictor}=${level}`, reference })),
+    };
+  });
+
+  const terms = columns.flatMap((column) => column.terms);
+  const matrix = rows.map((_, rowIndex) => {
+    const row: number[] = [1];
+    for (const column of columns) {
+      const width = column.terms.length;
+      for (let offset = 0; offset < width; offset += 1) {
+        row.push(column.values[rowIndex * width + offset]!);
+      }
+    }
+    return row;
+  });
+  return { matrix, terms };
+}
+
+/** Attach term names and reference levels produced by encodedDesignMatrix. */
+function withDesignTerms<T extends object>(
+  coefficients: readonly T[],
+  terms: readonly DesignTerm[],
+): Array<T & { term: string; reference: string | null }> {
+  // 系数顺序是 [intercept, ...terms]；截距没有参考水平。
+  const named: DesignTerm[] = [{ term: '(Intercept)', reference: null }, ...terms];
+  return coefficients.map((coeff, index) => {
+    const fallback = named[index] ?? { term: `β${index}`, reference: null };
+    const existing = (coeff as { term?: unknown }).term;
+    const term = typeof existing === 'string' && existing.length > 0 ? existing : fallback.term;
+    return { ...coeff, term, reference: fallback.reference };
+  });
 }
 
 const COLLINEARITY_CONDITION_WARNING = 30;
@@ -257,22 +356,6 @@ function logisticSeparationDiagnostic(
   };
 }
 
-/** Attach human-readable term names: intercept first, then predictors in order. */
-function withCoefficientTerms<T extends object>(
-  coefficients: readonly T[],
-  predictors: readonly string[],
-): Array<T & { term: string }> {
-  const terms = ['(Intercept)', ...predictors];
-  return coefficients.map((coeff, index) => {
-    const existing = (coeff as { term?: unknown }).term;
-    const term =
-      typeof existing === 'string' && existing.length > 0
-        ? existing
-        : (terms[index] ?? `β${index}`);
-    return { ...coeff, term };
-  });
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -297,13 +380,15 @@ function selectedRunVariables(
   });
   const variables = skillId === 'tableone'
     ? strings(args.group, args.continuous, args.categorical)
-    : skillId === 'ttest'
+    : skillId === 'ttest' || skillId === 'anova'
       ? strings(args.group, args.testVar)
-      : skillId === 'survival_km'
-        ? strings(args.time, args.event, args.group)
-        : skillId === 'model_cox'
-          ? strings(args.time, args.event, args.predictors)
-          : strings(args.outcome, args.predictors);
+      : skillId === 'correlation'
+        ? strings(args.x, args.y)
+        : skillId === 'survival_km'
+          ? strings(args.time, args.event, args.group)
+          : skillId === 'model_cox'
+            ? strings(args.time, args.event, args.predictors)
+            : strings(args.outcome, args.predictors);
   return [...new Set(variables.length > 0 ? variables : ctx.datasetSummary.columns.map((column) => column.name))];
 }
 
@@ -401,6 +486,34 @@ function contractEstimates(
       adjustment: 'unadjusted',
     }];
   }
+  if (skillId === 'correlation') {
+    const estimate = finiteNumber(payload, 'r');
+    if (estimate === null) return [];
+    const lower = finiteNumber(payload, 'ci_lower');
+    const upper = finiteNumber(payload, 'ci_upper');
+    const x = typeof args.x === 'string' ? args.x : 'x';
+    const y = typeof args.y === 'string' ? args.y : 'y';
+    return [{
+      term: `${x}~${y}`,
+      estimate,
+      ci_95: lower !== null && upper !== null ? { lower, upper } : null,
+      p_value: finiteNumber(payload, 'p_value'),
+      effect_unit: 'Correlation coefficient',
+      adjustment: 'unadjusted',
+    }];
+  }
+  if (skillId === 'anova') {
+    const estimate = finiteNumber(payload, 'eta_squared');
+    if (estimate === null) return [];
+    return [{
+      term: typeof args.testVar === 'string' ? args.testVar : 'eta_squared',
+      estimate,
+      ci_95: null,
+      p_value: finiteNumber(payload, 'p_value'),
+      effect_unit: 'Eta squared',
+      adjustment: 'unadjusted',
+    }];
+  }
   if (skillId === 'survival_km') {
     const estimate = finiteNumber(payload, 'median_survival');
     return estimate === null ? [] : [{
@@ -460,9 +573,21 @@ function assumptionDiagnostics(
     }
   }
   const definitions: Record<string, Array<[string, string]>> = {
+    tableone: [
+      ['tableone-continuous-normality', '连续变量组间检验的正态性未在当前运行中自动检验。'],
+      ['tableone-continuous-variance', '连续变量组间检验的方差结构未在当前运行中自动诊断；两组比较使用 Welch 校正。'],
+      ['tableone-multiple-comparisons', 'Table One 对多个变量同时进行组间检验，p 值未做多重比较校正，仅供描述性参考，不应据此得出主分析结论。'],
+    ],
     ttest: [
       ['ttest-normality', '正态性未在当前运行中自动检验。'],
       ['ttest-variance', '方差结构未在当前运行中自动诊断；当前方法使用 Welch 校正。'],
+    ],
+    anova: [
+      ['anova-normality', '组内正态性未在当前运行中自动检验。'],
+      ['anova-homogeneity', '方差齐性未在当前运行中自动诊断。'],
+    ],
+    correlation: [
+      ['correlation-linearity', '线性相关假设未在当前运行中自动诊断；Spearman 对单调关系更稳健。'],
     ],
     linear: [
       ['linear-linearity', '线性关系未在当前运行中自动诊断。'],
@@ -692,6 +817,147 @@ function tableOneCategoricalTests(
   });
 }
 
+const CONTINUOUS_TEST_REASON = {
+  strata_self: '分组变量自身不进行组间差异检验。',
+  insufficient_groups: '有效组数（该变量非缺失观测所在的组）不足 2 个，未计算组间差异检验。',
+  underpowered_group: '至少一个参与组该变量的非缺失观测数小于 2，无法估计组内方差，未计算检验。',
+  degenerate: '检验统计量或 p 值数值退化（如组内方差为零导致标准误退化），结果不可解释。',
+} as const;
+
+/**
+ * Continuous-variable group-difference tests for Table One: Welch's t-test for
+ * exactly 2 effective groups, one-way ANOVA for ≥3. Reuses the same
+ * (label, indexes) pairs that built `groups`/the displayed n — NEVER
+ * `numericValuesByGroup`, which independently rebuilds groups and would let the
+ * test's N drift from the table's displayed n (see file header note above
+ * `numericValuesByGroup`). The non-missing filter mirrors
+ * `stats.tableone.summarizeContinuous`'s `v !== null && Number.isFinite(v)`
+ * predicate exactly, so `group_ns` is provably consistent with each group's
+ * displayed continuous summary `n`.
+ *
+ * Both engine calls are wrapped in try/catch: `welchTtest` throws (rather than
+ * returning a degenerate result) when both groups have zero variance — this is
+ * an empirically confirmed engine behavior (see task report), not a guess —
+ * and `oneWayAnova` throws on some structurally-invalid inputs that our
+ * pre-checks already rule out, but the guard stays as defense in depth so one
+ * variable's numeric edge case never fails the entire tableone run.
+ */
+function tableOneContinuousTests(
+  headers: string[],
+  rows: string[][],
+  groupEntries: Array<{ label: string; indexes: number[] }>,
+  groups: TableOneGroupSummary[],
+  continuous: string[],
+  strata: string | null,
+) {
+  const groupLabels = groups.map((group) => group.label);
+
+  const notComputed = (
+    variable: string,
+    groupNs: number[],
+    reason: string,
+    degenerate: boolean,
+  ) => ({
+    variable,
+    status: 'not_computed' as const,
+    method: null,
+    statistic: null,
+    degrees_of_freedom: null,
+    degrees_of_freedom_denominator: null,
+    p_value: null,
+    groups: groupLabels,
+    group_ns: groupNs,
+    degenerate,
+    reason,
+  });
+
+  return continuous.map((variable) => {
+    // group_ns is read directly from the already-computed table summaries
+    // (the exact values rendered in `groups[].continuous`), not recomputed
+    // independently, so it cannot drift from the displayed per-group n.
+    const groupNs = groups.map((group) =>
+      group.continuous.find((summary) => summary.variable === variable)?.n ?? 0);
+
+    if (variable === strata) {
+      return {
+        variable,
+        status: 'not_applicable' as const,
+        method: null,
+        statistic: null,
+        degrees_of_freedom: null,
+        degrees_of_freedom_denominator: null,
+        p_value: null,
+        groups: groupLabels,
+        group_ns: groupNs,
+        degenerate: false,
+        reason: CONTINUOUS_TEST_REASON.strata_self,
+      };
+    }
+
+    // Recompute the exact filtered arrays `summarizeContinuous` used for this
+    // variable, per group, from the SAME groupIndexes as the table.
+    const perGroupValues = groupEntries.map(({ label, indexes }) => {
+      const raw = nullableNumericColumn(headers, rows, variable, indexes);
+      const values = raw.filter((v): v is number => v !== null && Number.isFinite(v));
+      return { label, values };
+    });
+    const effective = perGroupValues.filter((entry) => entry.values.length >= 1);
+
+    if (effective.length < 2) {
+      return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.insufficient_groups, false);
+    }
+    if (effective.some((entry) => entry.values.length < 2)) {
+      return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.underpowered_group, false);
+    }
+
+    if (effective.length === 2) {
+      try {
+        const result = stats.ttest.welchTtest(effective[0]!.values, effective[1]!.values, 0.05);
+        if (!Number.isFinite(result.tStatistic) || !Number.isFinite(result.pValue)) {
+          return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.degenerate, true);
+        }
+        return {
+          variable,
+          status: 'computed' as const,
+          method: 'welch_t' as const,
+          statistic: result.tStatistic,
+          degrees_of_freedom: result.df,
+          degrees_of_freedom_denominator: null,
+          p_value: result.pValue,
+          groups: groupLabels,
+          group_ns: groupNs,
+          degenerate: false,
+          reason: null,
+        };
+      } catch {
+        return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.degenerate, true);
+      }
+    }
+
+    try {
+      const result = stats.anova.oneWayAnova(effective.map((entry) => entry.values));
+      if (!Number.isFinite(result.fStatistic) || !Number.isFinite(result.pValue) || result.degenerate) {
+        return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.degenerate, true);
+      }
+      return {
+        variable,
+        status: 'computed' as const,
+        method: 'one_way_anova' as const,
+        statistic: result.fStatistic,
+        degrees_of_freedom: result.dfBetween,
+        degrees_of_freedom_denominator: result.dfWithin,
+        p_value: result.pValue,
+        groups: groupLabels,
+        group_ns: groupNs,
+        degenerate: false,
+        reason: null,
+      };
+    } catch {
+      return notComputed(variable, groupNs, CONTINUOUS_TEST_REASON.degenerate, true);
+    }
+  });
+}
+
 function runTableOne(headers: string[], rows: string[][], args: Record<string, unknown>, ctx: SkillContext): Record<string, unknown> {
   const { continuous, categorical } = tableOneColumns(args, ctx);
   const group = typeof args.group === 'string' && args.group.length > 0 ? args.group : null;
@@ -711,7 +977,9 @@ function runTableOne(headers: string[], rows: string[][], args: Record<string, u
     groupIndexes.set('Overall', allIndexes);
   }
 
-  const groups: TableOneGroupSummary[] = [...groupIndexes.entries()].map(([label, indexes]) => ({
+  const groupEntries = [...groupIndexes.entries()].map(([label, indexes]) => ({ label, indexes }));
+
+  const groups: TableOneGroupSummary[] = groupEntries.map(({ label, indexes }) => ({
     label,
     n: indexes.length,
     continuous: continuous.map((name) =>
@@ -729,6 +997,7 @@ function runTableOne(headers: string[], rows: string[][], args: Record<string, u
     groups,
     standardized_differences: tableOneStandardizedDifferences(groups, continuous, categorical),
     categorical_tests: tableOneCategoricalTests(groups, categorical, group),
+    continuous_tests: tableOneContinuousTests(headers, rows, groupEntries, groups, continuous, group),
   };
 }
 
@@ -861,15 +1130,75 @@ export class SkillRunner {
         return runTableOne(headers, rows, args, ctx);
       case 'ttest':
         return runTtest(headers, rows, args);
+      case 'anova': {
+        const group = asString(args.group, 'group');
+        const testVar = asString(args.testVar, 'testVar');
+        const buckets = numericValuesByGroup(headers, rows, group, testVar);
+        if (buckets.size < 2) {
+          throw new Error('ANOVA requires at least 2 non-empty groups.');
+        }
+        const labels = [...buckets.keys()].sort();
+        const groups = labels.map((label) => buckets.get(label)!);
+        const res = stats.anova.oneWayAnova(groups);
+        return {
+          method: res.method,
+          group_variable: group,
+          test_variable: testVar,
+          groups: labels,
+          group_ns: Object.fromEntries(labels.map((label, i) => [label, groups[i]!.length])),
+          k: res.k,
+          n_total: res.nTotal,
+          ss_between: res.ssBetween,
+          ss_within: res.ssWithin,
+          ss_total: res.ssTotal,
+          df_between: res.dfBetween,
+          df_within: res.dfWithin,
+          ms_between: res.msBetween,
+          ms_within: res.msWithin,
+          f_statistic: res.fStatistic,
+          p_value: res.pValue,
+          eta_squared: res.etaSquared,
+          degenerate: res.degenerate,
+        };
+      }
+      case 'correlation': {
+        const xName = asString(args.x, 'x');
+        const yName = asString(args.y, 'y');
+        const methodRaw = typeof args.method === 'string' ? args.method.trim().toLowerCase() : 'pearson';
+        const method = methodRaw === 'spearman' ? 'spearman' : 'pearson';
+        const x = numericColumn(headers, rows, xName);
+        const y = numericColumn(headers, rows, yName);
+        const res = method === 'spearman'
+          ? stats.correlation.spearmanCorrelation(x, y)
+          : stats.correlation.pearsonCorrelation(x, y);
+        return {
+          method: res.method,
+          x: xName,
+          y: yName,
+          n: res.n,
+          r: res.r,
+          t_statistic: res.tStatistic,
+          df: res.df,
+          p_value: res.pValue,
+          ci_lower: res.ciLower,
+          ci_upper: res.ciUpper,
+          alpha: res.alpha,
+        };
+      }
       case 'linear': {
         const outcome = asString(args.outcome, 'outcome');
         const predictors = asStringArray(args.predictors, 'predictors');
         const y = numericColumn(headers, rows, outcome);
-        const x = designMatrix(headers, rows, predictors);
-        const collinearity = modelDesignDiagnostic(x.map((row) => row.slice(1)), predictors);
+        const { matrix: x, terms } = encodedDesignMatrix(headers, rows, predictors);
+        // 共线性诊断按展开后的列走：哑变量之间的相关性才是真实的设计矩阵结构，
+        // 用原始 predictors 名会与列数不匹配。
+        const collinearity = modelDesignDiagnostic(
+          x.map((row) => row.slice(1)),
+          terms.map((entry) => entry.term),
+        );
         const res = stats.linear.ols(x, y);
         return {
-          coefficients: withCoefficientTerms(res.coefficients, predictors),
+          coefficients: withDesignTerms(res.coefficients, terms),
           r_squared: res.rSquared,
           adj_r_squared: res.adjRSquared,
           f_statistic: res.fStatistic,
@@ -889,13 +1218,16 @@ export class SkillRunner {
         const outcome = asString(args.outcome, 'outcome');
         const predictors = asStringArray(args.predictors, 'predictors');
         const y = numericColumn(headers, rows, outcome);
-        const x = designMatrix(headers, rows, predictors);
-        const collinearity = modelDesignDiagnostic(x.map((row) => row.slice(1)), predictors);
+        const { matrix: x, terms } = encodedDesignMatrix(headers, rows, predictors);
+        const collinearity = modelDesignDiagnostic(
+          x.map((row) => row.slice(1)),
+          terms.map((entry) => entry.term),
+        );
         const res = stats.logistic.logisticRegression(x, y);
         const eventN = y.reduce((sum, value) => sum + value, 0);
         const nonEventN = y.length - eventN;
         return {
-          coefficients: withCoefficientTerms(res.coefficients, predictors),
+          coefficients: withDesignTerms(res.coefficients, terms),
           odds_ratios: res.coefficients.map((c) => c.oddsRatio),
           p_values: res.coefficients.map((c) => c.pValue),
           log_likelihood: res.logLikelihood,
@@ -925,9 +1257,12 @@ export class SkillRunner {
         if (events.some((value) => value !== 0 && value !== 1)) {
           throw new Error('Cox event indicator must be encoded as 0/1.');
         }
-        const predCols = predictors.map((p) => numericColumn(headers, rows, p));
-        const predictorRows = rows.map((_, i) => predCols.map((column) => column[i]!));
-        const collinearity = modelDesignDiagnostic(predictorRows, predictors);
+        // Cox 是无截距模型（基线风险被 partial likelihood 消掉），所以这里
+        // 去掉 encodedDesignMatrix 铺的截距列，只保留展开后的预测变量列。
+        const { matrix: coxDesign, terms } = encodedDesignMatrix(headers, rows, predictors);
+        const predictorRows = coxDesign.map((row) => row.slice(1));
+        const termNames = terms.map((entry) => entry.term);
+        const collinearity = modelDesignDiagnostic(predictorRows, termNames);
         const observations = rows.map((_, i) => ({
           time: times[i]!,
           event: events[i]! !== 0,
@@ -962,7 +1297,9 @@ export class SkillRunner {
           violated: phTest.violated,
           reason: phTest.status === 'not_computed' ? phTest.reason : null,
           covariates: phTest.covariates.map((covariate) => ({
-            term: predictors[covariate.index] ?? `β${covariate.index}`,
+            // 用展开后的 term 名：哑变量场景下 predictors[index] 会错位
+            // （3 个水平的 smoke 占 2 列，索引不再与原列一一对应）。
+            term: termNames[covariate.index] ?? `β${covariate.index}`,
             statistic: covariate.statistic,
             p_value: covariate.pValue,
             violated: covariate.violated,
@@ -973,11 +1310,13 @@ export class SkillRunner {
               ? '未发现系统性时间趋势；仍需结合图形、设计和领域知识审核。'
               : '事件信息或信息矩阵不足，PH 诊断不可解释。',
         };
-        // Cox design has no intercept column — terms are predictors only.
+        // Cox design has no intercept column — terms are the expanded
+        // predictor columns only (哑变量已在 encodedDesignMatrix 里展开)。
         return {
           coefficients: res.coefficients.map((coeff, index) => ({
             ...coeff,
-            term: predictors[index] ?? `β${index}`,
+            term: termNames[index] ?? `β${index}`,
+            reference: terms[index]?.reference ?? null,
           })),
           hazard_ratios: res.coefficients.map((c) => c.hazardRatio),
           p_values: res.coefficients.map((c) => c.pValue),

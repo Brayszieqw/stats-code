@@ -29,9 +29,11 @@ export interface AssistantPanelProps {
   onOpenDatasetPicker?: () => void;
   onOpenSettings?: () => void;
   onOpenVoiceInput?: () => void;
+  onOpenProtocol?: () => void;
+  onOpenInspector?: () => void;
   /** Optional merged message stream (for configured runs not yet reloaded). */
   messages?: ChatMessage[];
-  onOpenResult?: (view: 'report' | 'chart' | 'code') => void;
+  onOpenResult?: (view: 'report' | 'chart' | 'code', messageId: string) => void;
 }
 
 export function AssistantPanel({
@@ -48,6 +50,8 @@ export function AssistantPanel({
   onOpenDatasetPicker,
   onOpenSettings,
   onOpenVoiceInput,
+  onOpenProtocol,
+  onOpenInspector,
   messages: messageOverride,
   onOpenResult,
 }: AssistantPanelProps) {
@@ -84,7 +88,12 @@ export function AssistantPanel({
           resultPresentation="reference"
           onOpenResult={onOpenResult}
         />
-        <ErrorBanner error={error} onRetry={onRetry} />
+        <ErrorBanner
+          error={error}
+          onRetry={onRetry}
+          onOpenProtocol={onOpenProtocol}
+          onOpenInspector={onOpenInspector}
+        />
       </div>
 
       <div className="assistant-panel__composer">

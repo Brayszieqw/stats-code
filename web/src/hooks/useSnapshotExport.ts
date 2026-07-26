@@ -44,6 +44,11 @@ import { useCallback, useRef, useState } from 'react';
 export interface SnapshotExportRequest {
   run_id: string;
   destination: string;
+  /**
+   * When true (SPA 默认), the server streams the zip back so the browser can
+   * download it. JSON metadata still arrives via response headers.
+   */
+  download?: boolean;
 }
 
 /**
@@ -88,11 +93,55 @@ export interface UseSnapshotExportState {
   loading: boolean;
   result?: SnapshotExportResponse;
   error?: SnapshotExportError;
+  /**
+   * true：浏览器已触发 zip 下载；
+   * false：仅服务端落盘（JSON 响应，无 blob）；
+   * undefined：尚无成功结果。
+   */
+  browserDownloaded?: boolean;
+  /** 浏览器下载使用的文件名（安全策略下无法读取真实本机绝对路径）。 */
+  downloadFilename?: string;
 }
 
 export interface UseSnapshotExportApi {
   state: UseSnapshotExportState;
   exportSnapshot: (req: SnapshotExportRequest) => Promise<void>;
+  /** Clear success / error feedback (e.g. Alert closable). */
+  clearFeedback: () => void;
+  /** Re-trigger browser download from the last successful zip blob (if any). */
+  redownload: () => void;
+}
+
+/**
+ * Trigger a browser download and keep a short-lived object URL so the user can
+ * re-download from the success panel without re-exporting.
+ */
+function triggerBrowserDownload(blob: Blob, filename: string): string | null {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') return null;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return url;
+}
+
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const utf = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf?.[1]) {
+    try {
+      return decodeURIComponent(utf[1].trim());
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,12 +206,32 @@ function buildError(status: number, body: unknown): SnapshotExportError {
     };
   }
 
+  if (status === 404 || readString(body, 'error_code') === 'RunNotFound') {
+    return {
+      errorCode: 'RunNotFound',
+      message:
+        fallbackMessage
+        ?? '找不到该次分析的导出记录（后端重启后会清空）。请重新运行分析后再导出。',
+    };
+  }
+
+  if (status === 503) {
+    return {
+      errorCode: readString(body, 'error_code') ?? 'SnapshotUnavailable',
+      message: fallbackMessage ?? '审计导出服务未就绪，请确认后端已启动。',
+    };
+  }
+
   // Any other 4xx / 5xx: pull `error_code` from the body if present;
   // otherwise synthesize a token so the caller still sees a stable string.
   const code = readString(body, 'error_code') ?? `HTTP_${status}`;
   return {
     errorCode: code,
-    message: fallbackMessage ?? `Snapshot export failed with HTTP ${status}.`,
+    message:
+      fallbackMessage
+      ?? (status === 500
+        ? '导出失败：服务端内部错误。请确认后端在线，并重新运行分析后再试。'
+        : `导出失败（HTTP ${status}）。`),
   };
 }
 
@@ -205,6 +274,47 @@ export function useSnapshotExport(
   // token is allowed to commit state, so a slow first request that resolves
   // after a second click cannot clobber the second request's outcome.
   const callTokenRef = useRef(0);
+  /** Last successful zip kept for「再次下载」— browsers never expose the real disk path. */
+  const lastBlobRef = useRef<{ blob: Blob; filename: string; objectUrl: string | null } | null>(null);
+
+  const releaseLastBlob = useCallback(() => {
+    const prev = lastBlobRef.current;
+    if (prev?.objectUrl) {
+      try {
+        URL.revokeObjectURL(prev.objectUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+    lastBlobRef.current = null;
+  }, []);
+
+  const clearFeedback = useCallback(() => {
+    releaseLastBlob();
+    setState((prev) => ({ loading: prev.loading }));
+  }, [releaseLastBlob]);
+
+  const redownload = useCallback(() => {
+    const kept = lastBlobRef.current;
+    if (!kept) return;
+    // Fresh object URL each time; keep the blob itself.
+    const url = URL.createObjectURL(kept.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = kept.filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+    }, 2_000);
+  }, []);
 
   const exportSnapshot = useCallback(
     async (req: SnapshotExportRequest): Promise<void> => {
@@ -227,13 +337,155 @@ export function useSnapshotExport(
         return;
       }
 
-      let res: Response;
+      // SPA 下载：走 GET /api/snapshot/files/:runId（Content-Length 完整 zip），
+      // 避免 POST 二进制经 Vite 代理时被截断 → Chrome ERR_CONNECTION_CLOSED。
+      // 契约测试 / 桌面：download 非 true 时仍用 POST JSON。
+      const wantDownload = req.download === true;
+
       try {
-        res = await fx('/api/snapshot/export', {
+        if (wantDownload) {
+          const res = await fx(
+            `/api/snapshot/files/${encodeURIComponent(req.run_id)}`,
+            {
+              method: 'GET',
+              headers: { Accept: 'application/zip' },
+            },
+          );
+          if (callTokenRef.current !== token) return;
+
+          if (!res.ok) {
+            const errBody = await parseJsonOrNull(res);
+            setState({ loading: false, error: buildError(res.status, errBody) });
+            return;
+          }
+
+          const contentType = res.headers.get('content-type') ?? '';
+          if (!contentType.includes('application/zip') && !contentType.includes('octet-stream')) {
+            setState({
+              loading: false,
+              error: {
+                errorCode: 'MalformedResponse',
+                message: `下载响应类型异常（${contentType || 'unknown'}），未拿到 zip。`,
+              },
+            });
+            return;
+          }
+
+          const sha256 = res.headers.get('x-snapshot-sha256') ?? '';
+          const snapshotPath =
+            res.headers.get('x-snapshot-path') ?? req.destination;
+          const expectedLen = Number(res.headers.get('content-length') || '0');
+          const blob = await res.blob();
+          if (callTokenRef.current !== token) return;
+
+          if (expectedLen > 0 && blob.size > 0 && blob.size !== expectedLen) {
+            setState({
+              loading: false,
+              error: {
+                errorCode: 'MalformedResponse',
+                message: `下载不完整：期望 ${expectedLen} 字节，实际 ${blob.size} 字节。请重试。`,
+              },
+            });
+            return;
+          }
+          if (blob.size < 22) {
+            // empty/corrupt zip local header is at least ~22 bytes
+            setState({
+              loading: false,
+              error: {
+                errorCode: 'MalformedResponse',
+                message: '下载的审计包为空或已损坏，请重试。',
+              },
+            });
+            return;
+          }
+          if (!/^[0-9a-f]{64}$/i.test(sha256)) {
+            setState({
+              loading: false,
+              error: {
+                errorCode: 'MalformedResponse',
+                message: '导出响应缺少有效的 SHA-256 校验头。',
+              },
+            });
+            return;
+          }
+
+          const filename = filenameFromDisposition(
+            res.headers.get('content-disposition'),
+            snapshotPath.replace(/\\/g, '/').split('/').pop() || 'audit-snapshot.zip',
+          );
+          releaseLastBlob();
+          let objectUrl: string | null = null;
+          let downloaded = false;
+          try {
+            objectUrl = triggerBrowserDownload(blob, filename);
+            downloaded = objectUrl !== null || typeof document !== 'undefined';
+          } catch {
+            // jsdom / restricted environments may lack createObjectURL; keep blob for redownload.
+            downloaded = false;
+          }
+          lastBlobRef.current = { blob, filename, objectUrl };
+          if (objectUrl) {
+            window.setTimeout(() => {
+              try {
+                URL.revokeObjectURL(objectUrl);
+              } catch {
+                /* ignore */
+              }
+              if (lastBlobRef.current?.objectUrl === objectUrl) {
+                lastBlobRef.current = { blob, filename, objectUrl: null };
+              }
+            }, 120_000);
+          }
+          setState({
+            loading: false,
+            result: {
+              snapshot_path: snapshotPath,
+              sha256: sha256.toLowerCase(),
+            },
+            // Blob 已完整到手即视为可本机保存；createObjectURL 失败仍允许「再次下载」。
+            browserDownloaded: downloaded || blob.size > 0,
+            downloadFilename: filename,
+          });
+          return;
+        }
+
+        // JSON path (legacy / contract tests / download=false).
+        const res = await fx('/api/snapshot/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(req),
+          body: JSON.stringify({
+            run_id: req.run_id,
+            destination: req.destination,
+          }),
         });
+        if (callTokenRef.current !== token) return;
+
+        const body = await parseJsonOrNull(res);
+        if (callTokenRef.current !== token) return;
+
+        if (res.ok) {
+          const decoded = decodeSuccess(body);
+          if (decoded === null) {
+            setState({
+              loading: false,
+              error: {
+                errorCode: 'MalformedResponse',
+                message:
+                  'Snapshot export response was missing snapshot_path or sha256.',
+              },
+            });
+            return;
+          }
+          setState({
+            loading: false,
+            result: decoded,
+            browserDownloaded: false,
+          });
+          return;
+        }
+
+        setState({ loading: false, error: buildError(res.status, body) });
       } catch (err: unknown) {
         if (callTokenRef.current !== token) return;
         const message =
@@ -244,38 +496,12 @@ export function useSnapshotExport(
           loading: false,
           error: { errorCode: 'NetworkError', message },
         });
-        return;
       }
-
-      // The server may emit a structured body for any status code; parse it
-      // once and dispatch on `res.ok` afterwards so the success and failure
-      // branches share the same decoder.
-      const body = await parseJsonOrNull(res);
-      if (callTokenRef.current !== token) return;
-
-      if (res.ok) {
-        const decoded = decodeSuccess(body);
-        if (decoded === null) {
-          setState({
-            loading: false,
-            error: {
-              errorCode: 'MalformedResponse',
-              message:
-                'Snapshot export response was missing snapshot_path or sha256.',
-            },
-          });
-          return;
-        }
-        setState({ loading: false, result: decoded });
-        return;
-      }
-
-      setState({ loading: false, error: buildError(res.status, body) });
     },
-    [fetchImpl],
+    [fetchImpl, releaseLastBlob],
   );
 
-  return { state, exportSnapshot };
+  return { state, exportSnapshot, clearFeedback, redownload };
 }
 
 export default useSnapshotExport;

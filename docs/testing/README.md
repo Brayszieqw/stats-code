@@ -6,6 +6,7 @@
 |------|------|
 | [codex-chrome-stats-code-qa.md](./codex-chrome-stats-code-qa.md) | **主文档**：分层验证体系、环境准备、Bug 清单、公开库 vs 官方统计协议、完整提示词库、日常流程与排障 |
 | [prompts-codex-chrome.md](./prompts-codex-chrome.md) | **提示词速查**：可直接粘贴到 ChatGPT 桌面 App · Codex 的模板 |
+| [cloud-full-test-2026-07-26/](./cloud-full-test-2026-07-26/) | **云端全量测试归档**（2026-07-26）：01–08 分册、问题总清单、`FIX-TASKS.md`；截图/jsonl 证据包见本地 `测试记录/证据与截图.zip`（不入库） |
 
 ## 快速入口
 

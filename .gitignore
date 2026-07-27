@@ -69,3 +69,7 @@ stats-code-artifacts/
 # Local backend audit snapshot exports (runtime artifacts)
 /ts-backend/snapshot-*.zip
 /ts-backend/**/snapshot-*.zip
+
+# Cloud full-test evidence pack (large zip / local-only; markdown archived under docs/testing/)
+/测试记录/
+/FIX-TASKS.md

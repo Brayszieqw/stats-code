@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableExtensions
+chcp 65001 >nul
 cd /d "%~dp0"
 title Stats Code
 
@@ -11,8 +12,9 @@ if not exist "%~dp0stats-code.exe" (
 )
 
 echo Starting Stats Code...
-echo - No API key required for Professional mode / deterministic statistics.
-echo - Optional LLM can be configured later inside the app ^(your key stays local^).
+echo - Professional mode works without an API key ^(deterministic stats^).
+echo - Optional LLM can be configured later inside the app ^(key stays local^).
+echo - Demo CSV: data\demo_cohort.csv  ^(or use in-app one-click load^)
 echo.
 
 start "" "%~dp0stats-code.exe"

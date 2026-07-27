@@ -69,9 +69,12 @@ function Invoke-NpmInstall([string]$Dir) {
 Write-Host '============================================'
 Write-Host '  Stats Code dev launcher'
 Write-Host "  repo: $RepoRoot"
+Write-Host '  stack: backend :8080 + Vite :5173'
 Write-Host '  note: uses your local env / APPDATA only;'
 Write-Host '        never copies API keys into packages.'
-Write-Host '  share: build Demo-Pack via scripts\build-demo-pack.ps1'
+Write-Host '  demo: web\public\demo_cohort.csv (in-app one-click load)'
+Write-Host '  share: scripts\build-demo-pack.ps1  (colleague zip)'
+Write-Host '  desktop: 启动Stats桌面.bat  or  scripts\start-desktop.ps1'
 Write-Host '============================================'
 
 # --- 1. preflight -----------------------------------------------------------
@@ -196,6 +199,7 @@ Write-Host '============================================' -ForegroundColor Green
 Write-Host "  Stats Code is ready: $FrontendUrl"          -ForegroundColor Green
 Write-Host "  Backend health:      $BackendUrl"           -ForegroundColor Green
 Write-Host '  Close the Backend/Frontend windows to stop.'-ForegroundColor Green
-Write-Host '  Production shortcut: Desktop\Stats Code.lnk'-ForegroundColor Green
+Write-Host '  In-app demo data: one-click load (or demo_cohort.csv)' -ForegroundColor Green
+Write-Host '  Production: Desktop\Stats Code.lnk  |  Demo-Pack start.bat' -ForegroundColor Green
 Write-Host '============================================' -ForegroundColor Green
 exit 0

@@ -90,12 +90,17 @@ $Start_Bat = Join-Path $Install_Dir 'start.bat'
 $startBatContent = @"
 @echo off
 setlocal EnableExtensions
+chcp 65001 >nul
 cd /d "%~dp0"
+title Stats Code
 if not exist "%~dp0stats-code.exe" (
   echo [ERROR] stats-code.exe not found.
   pause
   exit /b 1
 )
+echo Starting Stats Code...
+echo - Professional mode works without an API key.
+echo - Demo CSV is under data\ when shipped with the installer.
 start "" "%~dp0stats-code.exe"
 exit /b 0
 "@

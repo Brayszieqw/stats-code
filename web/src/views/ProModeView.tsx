@@ -137,6 +137,13 @@ export function ProModeView({
   const [pendingAudit, setPendingAudit] = useState<DatasetAudit | null>(null);
   const [pendingAuditLoading, setPendingAuditLoading] = useState(false);
   const [pendingAuditError, setPendingAuditError] = useState<string | null>(null);
+  /**
+   * 用户在审批弹窗里手动指定的主键列。服务端 resolveRoles 只按列名猜主键，猜不到
+   * 就抛 PRIMARY_KEY_UNBOUND 阻断执行；但 /audit 与 /approve 都接受显式
+   * audit_roles.primary_key。这里把它接到 UI 上，否则列名不合约定的数据集在界面
+   * 上无路可走（只能改名重新上传）。
+   */
+  const [pendingPrimaryKey, setPendingPrimaryKey] = useState<string[] | null>(null);
   const [planApprovalRunning, setPlanApprovalRunning] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('report');
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -337,6 +344,9 @@ export function ProModeView({
       skill_id: pending.request.skill_id,
       args: pending.request.args,
       expected_protocol_version: protocol.version,
+      ...(pendingPrimaryKey && pendingPrimaryKey.length > 0
+        ? { audit_roles: { primary_key: pendingPrimaryKey } }
+        : {}),
     }).then((audit) => {
       if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
       setPendingAudit(audit);
@@ -348,7 +358,13 @@ export function ProModeView({
         setPendingAuditLoading(false);
       }
     });
-  }, [controller.auditDataset, controller.researchProtocol, pendingRun, sessionId]);
+  }, [controller.auditDataset, controller.researchProtocol, pendingRun, pendingPrimaryKey, sessionId]);
+
+  // 换一次运行请求就丢弃上一次手选的主键：不同数据集的列名不通用，沿用会拿旧列名
+  // 去审计新数据集，服务端会以「列不存在」拒绝，用户看不懂为什么。
+  useEffect(() => {
+    setPendingPrimaryKey(null);
+  }, [pendingRun?.request.dataset_id]);
 
   const handleApproveAndRun = async () => {
     const confirmed = pendingRun;
@@ -366,7 +382,10 @@ export function ProModeView({
         expected_protocol_version: protocol.version,
         expected_audit_id: pendingAudit.audit_id,
         expected_audit_sha256: pendingAudit.audit_sha256,
-        audit_roles: pendingAudit.roles,
+        // 必须与刚才通过审计的那次请求同构，否则服务端算出的审计哈希对不上。
+        audit_roles: pendingPrimaryKey && pendingPrimaryKey.length > 0
+          ? { ...pendingAudit.roles, primary_key: pendingPrimaryKey }
+          : pendingAudit.roles,
       });
       if (requestId !== preflightRequestRef.current || activeSessionIdRef.current !== targetSessionId) return;
       setPendingRun(null);
@@ -756,6 +775,8 @@ export function ProModeView({
           audit={pendingAudit}
           auditLoading={pendingAuditLoading}
           auditError={pendingAuditError}
+          primaryKey={pendingPrimaryKey}
+          onPrimaryKeyChange={setPendingPrimaryKey}
           confirming={planApprovalRunning}
           onCancel={() => setPendingRun(null)}
           onEditProtocol={() => setProtocolDrawerOpen(true)}

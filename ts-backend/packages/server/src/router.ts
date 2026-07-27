@@ -230,6 +230,46 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     logger: false,
   });
 
+  // Fastify's own content-type/body errors bypass every route handler, so they
+  // used to reach the SPA as `{statusCode, code: 'FST_ERR_...', error, message}`
+  // with an English message. The SPA decodes `{error_code, message}` and shows
+  // `message` verbatim, so an oversized upload surfaced as a raw English string
+  // in an otherwise Chinese UI. Normalise the transport-layer failures we can
+  // actually hit; anything else keeps Fastify's default handling.
+  app.setErrorHandler((err, _req, reply) => {
+    if (err.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      const limitMb = Math.floor(DATASET_BODY_LIMIT / 1024 / 1024);
+      return reply.code(413).send({
+        error_code: 'PayloadTooLarge',
+        message: `请求体超出上限 ${limitMb} MB。数据文件会以 base64 编码传输（体积约为原文件的 1.34 倍），`
+          + '请先抽取所需变量与观测后再上传。',
+      });
+    }
+    if (err.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+      return reply.code(415).send({
+        error_code: 'UnsupportedMediaType',
+        message: '不支持的请求内容类型，数据上传请使用 application/json。',
+      });
+    }
+    // 空 body 有专属错误码；语法错误的 JSON 由 Fastify 的解析器直接抛 SyntaxError
+    // （没有 FST_ 前缀），所以两者都要判，否则后者会掉进兜底分支拿到无信息的文案。
+    if (
+      err.code === 'FST_ERR_CTP_EMPTY_JSON_BODY'
+      || err.code === 'FST_ERR_CTP_INVALID_JSON_BODY'
+      || err instanceof SyntaxError
+    ) {
+      return reply.code(400).send({
+        error_code: 'SkillInvalidArgs',
+        message: '请求体不是合法的 JSON。',
+      });
+    }
+    const status = typeof err.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : 500;
+    return reply.code(status).send({
+      error_code: status >= 500 ? 'SkillExecutionFailed' : 'SkillInvalidArgs',
+      message: status >= 500 ? '服务端处理请求时发生未预期的错误。' : '请求无法处理。',
+    });
+  });
+
   // Same-origin CORS (S1). This API is an unauthenticated localhost service:
   // a wildcard ACAO would let any web page in the user's browser drive it
   // cross-origin (including the DNS-rebinding surface). Only loopback origins

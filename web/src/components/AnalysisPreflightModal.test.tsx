@@ -189,4 +189,78 @@ describe('AnalysisPreflightModal', () => {
     expect(screen.getByText(/示例数据行：2、8/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '批准方案并运行' })).toBeDisabled();
   });
+
+  // PRIMARY_KEY_UNBOUND 是唯一能由用户当场自解的阻断项：服务端只按列名猜主键，
+  // 猜不到就阻断，但 /audit 接受显式 audit_roles.primary_key。没有这个入口，
+  // 列名不合约定的数据集在界面上只能改名重传。
+  const unboundAudit: DatasetAudit = {
+    ...audit,
+    status: 'blocked',
+    findings: [{
+      code: 'PRIMARY_KEY_UNBOUND',
+      severity: 'blocker',
+      columns: [],
+      affected_rows: 0,
+      sample_row_numbers: [],
+      message: '未能识别主键；请指定主键列。',
+    }],
+  };
+
+  it('lets the user bind a primary key when the server could not infer one', async () => {
+    const onPrimaryKeyChange = vi.fn();
+    render(
+      <AnalysisPreflightModal
+        open
+        dataset={dataset}
+        request={request}
+        promptText="分析 outcome 与 age"
+        protocol={protocol}
+        audit={unboundAudit}
+        primaryKey={null}
+        onPrimaryKeyChange={onPrimaryKeyChange}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditProtocol={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('指定主键列')).toBeInTheDocument();
+    // 阻断仍然生效：绑定后要重新审计，审批按钮不能在此刻放行。
+    expect(screen.getByRole('button', { name: '批准方案并运行' })).toBeDisabled();
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '指定主键列' }));
+    fireEvent.click(await screen.findByText('outcome（无缺失）'));
+    expect(onPrimaryKeyChange).toHaveBeenCalledWith(['outcome']);
+  });
+
+  it('does not offer primary-key binding for blockers the user cannot self-resolve', async () => {
+    render(
+      <AnalysisPreflightModal
+        open
+        dataset={dataset}
+        request={request}
+        promptText="分析 outcome 与 age"
+        protocol={protocol}
+        audit={{
+          ...unboundAudit,
+          findings: [{
+            code: 'SENSITIVE_FIELD_PRESENT',
+            severity: 'blocker',
+            columns: ['email'],
+            affected_rows: 24,
+            sample_row_numbers: [1],
+            message: '数据中存在可能的直接标识符。',
+          }],
+        }}
+        primaryKey={null}
+        onPrimaryKeyChange={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditProtocol={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('SENSITIVE_FIELD_PRESENT')).toBeInTheDocument();
+    expect(screen.queryByText('指定主键列')).not.toBeInTheDocument();
+  });
 });

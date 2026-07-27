@@ -189,7 +189,9 @@ export class SkillRegistry {
           adj_r_squared: { type: 'number' },
           f_statistic: { type: 'number' },
           p_value: { type: 'number' },
-          aic: { type: 'number' },
+          // 与 stats/linear.ts 的实际 payload 对齐；aic 引擎未计算，不要声明。
+          residual_std_error: { type: 'number' },
+          n: { type: 'number' },
           model_diagnostics: { type: 'object' },
         },
       },
@@ -214,8 +216,15 @@ export class SkillRegistry {
           coefficients: { type: 'array' },
           odds_ratios: { type: 'array' },
           p_values: { type: 'array' },
-          aic: { type: 'number' },
-          concordance: { type: 'number' },
+          // 下列字段必须与 stats/logistic.ts 实际返回的 payload 保持一致：
+          // 这份 schema 会进 LLM 的工具声明，声明了引擎不返回的字段（曾经是
+          // aic / concordance）会让模型去解释一个不存在的数值。
+          log_likelihood: { type: 'number' },
+          converged: { type: 'boolean' },
+          iterations: { type: 'number' },
+          regularized: { type: 'boolean' },
+          event_n: { type: 'number' },
+          non_event_n: { type: 'number' },
           model_diagnostics: { type: 'object' },
         },
       },
@@ -241,7 +250,11 @@ export class SkillRegistry {
           coefficients: { type: 'array' },
           hazard_ratios: { type: 'array' },
           p_values: { type: 'array' },
-          concordance: { type: 'number' },
+          // 与 stats/cox.ts 的实际 payload 对齐；concordance 引擎未计算，不要声明。
+          log_partial_likelihood: { type: 'number' },
+          converged: { type: 'boolean' },
+          iterations: { type: 'number' },
+          regularized: { type: 'boolean' },
           ph_test: { type: 'object' },
           cox_ph_violated: { type: 'boolean' },
           event_n: { type: 'number' },
@@ -272,8 +285,8 @@ export class SkillRegistry {
           groups: { type: 'array' },
           steps: { type: 'array' },
           group_summaries: { type: 'array' },
+          // log_rank 内部已含 p 值；引擎不返回顶层 log_rank_p，不要声明。
           log_rank: { type: ['object', 'null'] },
-          log_rank_p: { type: 'number' },
         },
       },
       invoker: { kind: 'algorithm', algorithmId: 'kaplan_meier' },

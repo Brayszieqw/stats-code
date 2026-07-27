@@ -36,6 +36,18 @@ export interface DatasetUploaderProps {
 
 const ACCEPT = '.csv,.tsv';
 
+/**
+ * 上传前的本地大小上限。
+ *
+ * 服务端 bodyLimit 是 70 MiB（router.ts DATASET_BODY_LIMIT），但前端把文件转成
+ * base64 再放进 JSON body，体积会膨胀到 4/3。所以真正能过的原始文件上限约
+ * 52 MiB，这里取 50 MiB 留出 JSON 包裹与文件名的余量。
+ *
+ * 没有这道预检时，用户要等整个 body 传完才收到 Fastify 的英文 413，
+ * 大文件上白等几十秒。
+ */
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
 const COLUMN_TYPE_COLORS: Record<string, string> = {
   Numeric: 'blue',
   Categorical: 'green',
@@ -62,6 +74,8 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
   // stopped responding — the worst place to be silent, since it is the first
   // thing a new user clicks.
   const [demoError, setDemoError] = useState<string | null>(null);
+  /** 本地预检失败（超出大小上限），不经过网络请求，因此不会出现在 hook 的 error 里。 */
+  const [rejectError, setRejectError] = useState<string | null>(null);
 
   // Notify parent when upload completes (once per result)
   useEffect(() => {
@@ -73,6 +87,16 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
 
   // Handle file selection — prevent Ant Design's default upload, use our hook instead
   const handleBeforeUpload = (file: File): false => {
+    if (file.size > MAX_FILE_BYTES) {
+      const actual = (file.size / 1024 / 1024).toFixed(1);
+      const limit = Math.floor(MAX_FILE_BYTES / 1024 / 1024);
+      setRejectError(
+        `文件为 ${actual} MB，超出单次上传上限 ${limit} MB。`
+        + '请先按研究需要抽取所需变量与观测，或拆分为多个文件分别上传。',
+      );
+      return false;
+    }
+    setRejectError(null);
     upload(file);
     return false; // Prevent default upload behavior
   };
@@ -154,6 +178,18 @@ export function DatasetUploader({ sessionId, onUploadComplete }: DatasetUploader
           showIcon
           closable
           onClose={() => setDemoError(null)}
+          style={{ marginTop: 12 }}
+        />
+      )}
+
+      {rejectError && (
+        <Alert
+          type="error"
+          message="文件超出上传上限"
+          description={rejectError}
+          showIcon
+          closable
+          onClose={() => setRejectError(null)}
           style={{ marginTop: 12 }}
         />
       )}

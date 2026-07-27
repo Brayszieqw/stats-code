@@ -2565,6 +2565,22 @@ button.research-workflow__step { cursor: pointer; font-family: inherit; }
   background: #fff6f4;
 }
 
+/* 主键自助绑定：PRIMARY_KEY_UNBOUND 是唯一可由用户在审批弹窗内当场解决的阻断项。 */
+.analysis-preflight-modal__primary-key {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #d6e4ff;
+  border-radius: 8px;
+  background: #f5f9ff;
+}
+
+.analysis-preflight-modal__primary-key .ant-typography-secondary {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .analysis-preflight-modal__server-findings li .ant-typography {
   grid-column: 2 / -1;
   font-size: 12px;

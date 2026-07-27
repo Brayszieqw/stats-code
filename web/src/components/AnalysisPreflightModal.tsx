@@ -1,9 +1,12 @@
-import { Alert, Button, Modal, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Modal, Select, Space, Tag, Typography } from 'antd';
 import { SafetyCertificateOutlined, WarningOutlined } from '@ant-design/icons';
 import type { DatasetAudit, DatasetSummary, ResearchProtocol, RunRequest } from '../api/types';
 import { buildAnalysisPreflight } from '../lib/analysisPreflight';
 
 const { Text } = Typography;
+
+/** 服务端 dataset-audit 用这个码表示「猜不到主键」，是唯一可由用户在本弹窗内自解的阻断项。 */
+const PRIMARY_KEY_UNBOUND = 'PRIMARY_KEY_UNBOUND';
 
 export interface AnalysisPreflightModalProps {
   open: boolean;
@@ -14,6 +17,10 @@ export interface AnalysisPreflightModalProps {
   audit: DatasetAudit | null;
   auditLoading?: boolean;
   auditError?: string | null;
+  /** 用户已手动指定的主键列；null 表示交给服务端按列名推断。 */
+  primaryKey?: string[] | null;
+  /** 选择变化后由上层重新发起审计（改主键会改审计哈希，必须重审）。 */
+  onPrimaryKeyChange?: (columns: string[] | null) => void;
   confirming?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -29,6 +36,8 @@ export function AnalysisPreflightModal({
   audit,
   auditLoading = false,
   auditError = null,
+  primaryKey = null,
+  onPrimaryKeyChange,
   confirming = false,
   onConfirm,
   onCancel,
@@ -37,6 +46,9 @@ export function AnalysisPreflightModal({
   const preflight = buildAnalysisPreflight(dataset, request, promptText, protocol);
   const protocolApproved = protocol?.status === 'Approved';
   const auditBlocked = audit?.status === 'blocked';
+  const primaryKeyUnbound = Boolean(
+    audit?.findings.some((finding) => finding.code === PRIMARY_KEY_UNBOUND),
+  );
   const canApprove = protocolApproved && Boolean(audit) && !auditLoading && !auditError && !auditBlocked;
 
   return (
@@ -141,6 +153,32 @@ export function AnalysisPreflightModal({
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {primaryKeyUnbound && onPrimaryKeyChange ? (
+              <div className="analysis-preflight-modal__primary-key">
+                <Text strong>指定主键列</Text>
+                <Text type="secondary">
+                  选择一列唯一标识每条观测记录（将按非空且唯一校验，并计入审计哈希链）。
+                  也可以把该列改名为 participant_id 后重新上传。
+                </Text>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  aria-label="指定主键列"
+                  placeholder="选择唯一标识每条记录的列"
+                  style={{ width: '100%' }}
+                  // jsdom 没有真实布局，antd 的虚拟滚动会算出 0 高度而不挂载任何选项，
+                  // 组件测试就点不到列名。列数是数据集宽度量级，关掉无性能顾虑。
+                  virtual={false}
+                  disabled={confirming}
+                  value={primaryKey ?? []}
+                  onChange={(next: string[]) => onPrimaryKeyChange(next.length > 0 ? next : null)}
+                  options={dataset.columns.map((column) => ({
+                    value: column.name,
+                    label: `${column.name}（${column.missing_count > 0 ? `缺失 ${column.missing_count}` : '无缺失'}）`,
+                  }))}
+                />
+              </div>
             ) : null}
           </>
         ) : (

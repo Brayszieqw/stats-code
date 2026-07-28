@@ -715,7 +715,18 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
           { ...intent, skill_ids: [skillId], plan: undefined },
           input.text,
         );
-        const missing = findMissingArgs(desc, stepIntent.resolved_args);
+        // Keep only args this skill's schema declares (+dataset_id): extra keys
+        // change the approved run-spec hash and would fail the plan-match gate.
+        const schemaProps =
+          desc.inputSchema.properties && typeof desc.inputSchema.properties === 'object'
+            ? new Set([...Object.keys(desc.inputSchema.properties as Record<string, unknown>), 'dataset_id'])
+            : null;
+        const stepArgs: Record<string, unknown> = schemaProps
+          ? Object.fromEntries(
+              Object.entries(stepIntent.resolved_args).filter(([key]) => schemaProps.has(key)),
+            )
+          : stepIntent.resolved_args;
+        const missing = findMissingArgs(desc, stepArgs);
         if (missing.length > 0) {
           yield {
             type: 'text_delta',
@@ -727,12 +738,35 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
           type: 'text_delta',
           text: `\n—— 第 ${index + 1}/${plan.length} 步：${desc.displayName} ——\n`,
         };
-        yield* emitAction(
+        // Forward step events while watching for research-gate errors: those
+        // affect every remaining gated step, so stop the chain with guidance
+        // instead of repeating the same error N times.
+        let gateBlocked = false;
+        for await (const event of emitAction(
           sessionId,
-          { kind: 'run_skill', skillId, args: stepIntent.resolved_args },
+          { kind: 'run_skill', skillId, args: stepArgs },
           { ...input, settings: { ...input.settings, decision_assistant: index === plan.length - 1 && input.settings.decision_assistant } },
           provider,
-        );
+        )) {
+          if (
+            event.type === 'error'
+            && typeof (event.payload as { error_code?: unknown })?.error_code === 'string'
+            && ['ResearchProtocolRequired', 'ResearchApprovalRequired', 'ResearchAuditBlocked']
+              .includes((event.payload as { error_code: string }).error_code)
+          ) {
+            gateBlocked = true;
+          }
+          yield event;
+        }
+        if (gateBlocked) {
+          yield {
+            type: 'text_delta',
+            text:
+              '\n计划已暂停：后续步骤需要先在「研究协议」面板审批协议、完成数据审计并批准分析方案。' +
+              '完成审批后再让我继续，我会接着执行剩余步骤。\n',
+          };
+          break;
+        }
       }
       yield { type: 'done' };
       return;

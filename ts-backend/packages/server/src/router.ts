@@ -282,10 +282,31 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
   // 204 before routing.
   const CORS_ALLOW_METHODS = 'GET,POST,PATCH,DELETE,OPTIONS';
   const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+  // Online-demo mode: STATS_CODE_PUBLIC_HOSTS lists extra hostnames (comma-
+  // separated, e.g. tunnel domains) allowed through the Host/Origin gates.
+  // Loopback-only remains the default; this is opt-in for demo deployments.
+  const publicHosts = new Set(
+    (process.env.STATS_CODE_PUBLIC_HOSTS ?? '')
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter((h) => h.length > 0),
+  );
+  const hostAllowed = (hostName: string): boolean => {
+    if (LOOPBACK_ORIGIN.test(`http://${hostName}`)) return true;
+    const bare = hostName.replace(/:\d+$/, '').toLowerCase();
+    return publicHosts.has(bare);
+  };
   const trustedOrigin = (req: { headers: { origin?: string | string[] | undefined } }): string | null => {
     const origin = req.headers.origin;
     if (typeof origin !== 'string' || origin.length === 0) return null;
-    return LOOPBACK_ORIGIN.test(origin) ? origin : null;
+    if (LOOPBACK_ORIGIN.test(origin)) return origin;
+    try {
+      const url = new URL(origin);
+      if (publicHosts.has(url.hostname.toLowerCase())) return origin;
+    } catch {
+      // fall through
+    }
+    return null;
   };
   const corsAllowHeaders = (req: { headers: { [key: string]: string | string[] | undefined } }): string => {
     const requested = req.headers['access-control-request-headers'];
@@ -304,7 +325,7 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     // ever binds loopback, so any non-loopback Host is hostile or misrouted.
     const hostHeader = req.headers.host;
     const hostName = typeof hostHeader === 'string' ? hostHeader.trim() : '';
-    if (!LOOPBACK_ORIGIN.test(`http://${hostName}`)) {
+    if (!hostAllowed(hostName)) {
       return reply.code(403).send({
         error_code: 'ForbiddenHost',
         message: '非本机 Host 的请求被拒绝：本地 API 仅接受 127.0.0.1/localhost 访问。',

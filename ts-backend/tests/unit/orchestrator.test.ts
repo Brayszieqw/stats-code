@@ -420,7 +420,7 @@ describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () =
     ]);
   });
 
-  it('never sends numeric payloads to the LLM interpreter and falls back on unsafe output', async () => {
+  it('sends result payload to the LLM interpreter and falls back on clinical-advice output', async () => {
     const requests: LlmRequest[] = [];
     const llm = mockLlm([
       '{"skill_ids":["model_linear"],"resolved_args":{"outcome":"y","predictors":["x"],"dataset_id":"ds-1"},"has_query_intent":true,"text_response":null}',
@@ -436,19 +436,20 @@ describe('orchestrator skill dispatch + ordering (Requirements 8.2, 13.2)', () =
     const interpretation = events.find((event) => event.type === 'interpretation');
     expect(interpretation?.type).toBe('interpretation');
     const text = (interpretation as { type: 'interpretation'; text: string }).text;
-    // Unsafe model text is discarded; deterministic method note is used instead.
+    // Clinical-advice model text is discarded; deterministic method note is used instead.
     expect(text).toContain('线性回归');
     expect(text).toContain('本机结果卡');
-    expect(text).not.toMatch(/\p{Number}/u);
     expect(text).not.toContain('证明治疗有效');
     expect(text).not.toContain('p=0.03');
 
     const interpretationRequest = requests[1]!;
-    expect(interpretationRequest.messages[0]?.content).toContain('不得输出任何数值');
+    expect(interpretationRequest.messages[0]?.content).toContain('统计结果解读助手');
     const interpreterInput = JSON.parse(interpretationRequest.messages[1]!.content) as Record<string, unknown>;
-    expect(Object.keys(interpreterInput).sort()).toEqual(['analysis_method', 'risk_signal_names']);
-    expect(JSON.stringify(interpretationRequest.messages)).not.toContain('r_squared');
-    expect(JSON.stringify(interpretationRequest.messages)).not.toContain('coefficients');
+    expect(Object.keys(interpreterInput).sort()).toEqual([
+      'analysis_method',
+      'result_payload',
+      'risk_signal_names',
+    ]);
   });
 
   it('drops invented column names so the user is re-prompted instead of engine crash', async () => {

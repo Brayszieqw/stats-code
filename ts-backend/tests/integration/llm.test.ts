@@ -38,6 +38,12 @@ function memStore(initial: LlmConfig | null = null): LlmConfigStore & { current:
     write(c) {
       this.current = c;
     },
+    listCached() {
+      return this.current ? [this.current.provider] : [];
+    },
+    readProvider(provider) {
+      return this.current && this.current.provider === provider ? this.current : null;
+    },
   };
 }
 
@@ -54,9 +60,9 @@ describe('statusFromConfig (Requirement 13.2)', () => {
   });
 
   it('reports configured with provider but no api key field', () => {
-    const cfg: LlmConfig = { provider: 'openai', api_key: 'sk-secret', base_url: null, model: 'gpt-4o' };
+    const cfg: LlmConfig = { provider: 'qwen', api_key: 'sk-secret', base_url: null, model: 'qwen-plus' };
     const status = statusFromConfig(cfg);
-    expect(status).toEqual({ configured: true, provider: 'openai', base_url: null, model: 'gpt-4o' });
+    expect(status).toEqual({ configured: true, provider: 'qwen', base_url: null, model: 'qwen-plus' });
     expect(JSON.stringify(status)).not.toContain('sk-secret');
   });
 });
@@ -100,7 +106,7 @@ describe('POST /api/llm-config persistence (Requirement 13.3)', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/llm-config',
-      payload: { provider: 'openai', api_key: 'sk-bad' },
+      payload: { provider: 'qwen', api_key: 'sk-bad' },
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().error_code).toBe('LLM_PROBE_FAILED');
@@ -127,7 +133,10 @@ describe('testAndSaveConfig service (Requirements 13.3, 13.5)', () => {
 describe('OAuth / PKCE (Requirements 13.4, 13.5)', () => {
   it('no current provider requires OAuth (API-key providers)', () => {
     expect(providerRequiresOAuth('deepseek')).toBe(false);
-    expect(providerRequiresOAuth('openai')).toBe(false);
+    expect(providerRequiresOAuth('qwen')).toBe(false);
+    expect(providerRequiresOAuth('kimi')).toBe(false);
+    expect(providerRequiresOAuth('zhipu')).toBe(false);
+    expect(providerRequiresOAuth('custom')).toBe(false);
   });
 
   it('generates a well-formed S256 PKCE pair', () => {

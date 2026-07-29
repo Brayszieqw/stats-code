@@ -12,7 +12,7 @@
  *     `pointer-events: none` to the main container per Requirement 11.1.
  *   - The dialog box on top of the overlay has `role="dialog"` and
  *     `aria-modal="true"` so assistive tech treats it as a modal.
- *   - Provider select offers DeepSeek and OpenAI (Requirement 11.2).
+ *   - Provider select offers the LLM provider catalog (`../api/llm-catalog`).
  *   - API Key field is `<input type="password">` so the value is masked.
  *   - 「测试并保存」 button is disabled while `submitting` is true or while
  *     the API Key (trimmed) is empty (Requirement 11.2 + 11.5 — pressing
@@ -29,8 +29,16 @@
  */
 
 import { useState, type FormEvent } from 'react';
-import { Alert, Button, Input, Select, Space, Typography } from 'antd';
+import { Alert, AutoComplete, Button, Input, Select, Space, Typography } from 'antd';
 import type { LlmProvider } from '../api/types';
+import {
+  DEFAULT_BASE_URLS,
+  getBaseUrlPlaceholder,
+  getDefaultModel,
+  getModelOptions,
+  getModelPlaceholder,
+  PROVIDER_OPTIONS,
+} from '../api/llm-catalog';
 
 const { Title, Paragraph } = Typography;
 
@@ -56,45 +64,6 @@ export interface OnboardingCardProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'openai', label: 'OpenAI' },
-];
-
-export const CUSTOM_MODEL_VALUE = '__custom_model__';
-
-export const DEFAULT_BASE_URLS: Record<LlmProvider, string> = {
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-};
-
-export const LLM_MODEL_OPTIONS: Record<LlmProvider, { value: string; label: string }[]> = {
-  deepseek: [
-    { value: 'deepseek-chat', label: 'deepseek-chat' },
-    { value: 'deepseek-reasoner', label: 'deepseek-reasoner' },
-  ],
-  openai: [
-    { value: 'gpt-5.4', label: 'gpt-5.4' },
-    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-    { value: 'gpt-5.4-nano', label: 'gpt-5.4-nano' },
-  ],
-};
-
-export function getDefaultModel(provider: LlmProvider): string {
-  return LLM_MODEL_OPTIONS[provider][0]?.value ?? '';
-}
-
-export function getModelOptions(provider: LlmProvider): { value: string; label: string }[] {
-  return [
-    ...LLM_MODEL_OPTIONS[provider],
-    { value: CUSTOM_MODEL_VALUE, label: 'Custom model' },
-  ];
-}
-
-export function isKnownModel(provider: LlmProvider, model: string): boolean {
-  return LLM_MODEL_OPTIONS[provider].some((option) => option.value === model);
-}
-
 export function OnboardingCard({
   onSubmit,
   onSkip,
@@ -105,7 +74,6 @@ export function OnboardingCard({
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URLS.deepseek);
   const [model, setModel] = useState(getDefaultModel('deepseek'));
-  const [customModel, setCustomModel] = useState('');
   const [isBaseUrlDirty, setIsBaseUrlDirty] = useState(false);
 
   const handleProviderChange = (next: LlmProvider) => {
@@ -114,12 +82,11 @@ export function OnboardingCard({
       setBaseUrl(DEFAULT_BASE_URLS[next]);
     }
     setModel(getDefaultModel(next));
-    setCustomModel('');
   };
 
   const trimmedKey = apiKey.trim();
   const trimmedUrl = baseUrl.trim();
-  const selectedModel = model === CUSTOM_MODEL_VALUE ? customModel.trim() : model;
+  const selectedModel = model.trim();
   const canSubmit = !submitting && trimmedKey.length > 0 && trimmedUrl.length > 0 && selectedModel.length > 0;
 
   const handleSubmit = (event?: FormEvent) => {
@@ -189,7 +156,7 @@ export function OnboardingCard({
                 setBaseUrl(e.target.value);
                 setIsBaseUrlDirty(true);
               }}
-              placeholder={provider === 'deepseek' ? 'https://api.deepseek.com/v1' : 'https://api.openai.com/v1'}
+              placeholder={getBaseUrlPlaceholder(provider)}
               disabled={submitting}
               aria-label="API Base URL"
             />
@@ -197,28 +164,16 @@ export function OnboardingCard({
 
           <label style={{ display: 'block' }}>
             <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>Model</Paragraph>
-            <Select<string>
+            <AutoComplete
               value={model}
               onChange={setModel}
               options={getModelOptions(provider)}
+              placeholder={getModelPlaceholder(provider)}
               disabled={submitting}
               style={{ width: '100%' }}
               aria-label="LLM model"
             />
           </label>
-
-          {model === CUSTOM_MODEL_VALUE ? (
-            <label style={{ display: 'block' }}>
-              <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>Custom model</Paragraph>
-              <Input
-                value={customModel}
-                onChange={(e) => setCustomModel(e.target.value)}
-                placeholder={provider === 'deepseek' ? 'deepseek-chat' : 'gpt-5.4'}
-                disabled={submitting}
-                aria-label="Custom LLM model"
-              />
-            </label>
-          ) : null}
 
           <label style={{ display: 'block' }}>
             <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>API Key</Paragraph>

@@ -152,6 +152,12 @@ export {
   type OrchestratorDeps,
   type IntentResult,
 } from './conversation/index.js';
+export {
+  LLM_PROVIDER_IDS,
+  LLM_PROVIDER_CATALOG,
+  type LlmModelInfo,
+  type LlmProviderInfo,
+} from './conversation/index.js';
 
 export interface HttpServer {
   start(opts: { host: '127.0.0.1'; port: number }): Promise<{ url: string }>;

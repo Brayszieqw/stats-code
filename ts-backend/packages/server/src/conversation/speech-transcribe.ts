@@ -1,4 +1,5 @@
-// server/conversation/speech-transcribe.ts — OpenAI-compatible Whisper STT.
+// server/conversation/speech-transcribe.ts — Whisper-compatible STT over a
+// generic transcription endpoint.
 //
 // POST {baseUrl}/audio/transcriptions (multipart) with model whisper-1.
 // Uses the same API key / base URL as the chat LLM config so a single
@@ -57,11 +58,11 @@ function transcriptionsEndpoint(baseUrl: string): string {
 }
 
 /**
- * Transcribe raw audio via an OpenAI-compatible Whisper endpoint.
- * DeepSeek chat hosts do not expose Whisper — callers should prefer the
- * browser Web Speech API for DeepSeek-only installs, and use this path
- * when the configured base URL supports /audio/transcriptions (OpenAI
- * or a compatible proxy).
+ * Transcribe raw audio via a Whisper-compatible transcription endpoint.
+ * DeepSeek and other chat-only hosts do not expose Whisper — callers should
+ * prefer the browser Web Speech API for chat-only installs, and use this
+ * path when the configured base URL supports /audio/transcriptions (e.g. a
+ * relay/proxy service compatible with the Whisper transcription API).
  */
 export async function transcribeAudio(opts: TranscribeAudioOptions): Promise<SpeechTranscript> {
   const { config } = opts;
@@ -97,7 +98,7 @@ export async function transcribeAudio(opts: TranscribeAudioOptions): Promise<Spe
     const cause = err instanceof Error ? err.message : String(err);
     throw new SpeechTranscribeError(
       'LlmUnavailable',
-      `语音转写网络失败：${cause}。可改用浏览器内置语音识别，或配置可用的 OpenAI Whisper 兼容接口。`,
+      `语音转写网络失败：${cause}。可改用浏览器内置语音识别，或配置兼容 Whisper 转写接口的 Base URL（如中转服务）。`,
     );
   }
 
@@ -109,7 +110,7 @@ export async function transcribeAudio(opts: TranscribeAudioOptions): Promise<Spe
       throw new SpeechTranscribeError(
         'LlmUnavailable',
         '当前 API 不支持 Whisper 语音转写（/audio/transcriptions）。' +
-          '请使用浏览器内置语音识别，或在设置中配置 OpenAI / 兼容 Whisper 的 Base URL。',
+          '请使用浏览器内置语音识别，或在设置中配置兼容 Whisper 转写接口的 Base URL（如中转服务）。',
       );
     }
     if (res.status >= 400 && res.status < 500) {

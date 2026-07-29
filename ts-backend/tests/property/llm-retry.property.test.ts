@@ -35,7 +35,7 @@ describe('Property 5: bounded LLM retries (Requirements 2.5, 2.6)', () => {
             return new Response('err', { status: Number(kind) });
           }) as unknown as typeof fetch;
           const provider = createLlmProvider({
-            provider: 'openai',
+            provider: 'deepseek',
             apiKey: 'k',
             fetchImpl,
             maxAttempts,
@@ -63,7 +63,7 @@ describe('Property 5: bounded LLM retries (Requirements 2.5, 2.6)', () => {
           return new Response('bad', { status });
         }) as unknown as typeof fetch;
         const provider = createLlmProvider({
-          provider: 'openai',
+          provider: 'deepseek',
           apiKey: 'k',
           fetchImpl,
           maxAttempts: 3,

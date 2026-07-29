@@ -103,8 +103,8 @@ const runSpec: RunSpec = {
 
 function linearIntentLlm(): LlmProvider {
   return {
-    providerId: 'openai',
-    redactedConfig: () => ({ provider: 'openai', baseUrl: 'x', model: 'm' }),
+    providerId: 'kimi',
+    redactedConfig: () => ({ provider: 'kimi', baseUrl: 'x', model: 'm' }),
     // eslint-disable-next-line @typescript-eslint/require-await
     async *chatStream() {
       yield {

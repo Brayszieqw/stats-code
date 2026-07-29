@@ -138,7 +138,7 @@ console.log(`mock LLM on :${MOCK_PORT}`);
 
 try {
   const cfg = await api('POST', '/api/llm-config', {
-    provider: 'openai',
+    provider: 'custom',
     api_key: 'sk-mock-not-a-real-key',
     base_url: `http://127.0.0.1:${MOCK_PORT}/v1`,
     model: 'mock-model',

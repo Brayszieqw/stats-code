@@ -4,6 +4,9 @@
 
 import type { domain, sidecar } from './contract/index.js';
 import type { z } from 'zod';
+import type { LlmProviderId } from './conversation/llm-catalog.js';
+
+export type { LlmProviderId } from './conversation/llm-catalog.js';
 
 export type Session = z.infer<typeof domain.session>;
 export type Message = z.infer<typeof domain.message>;
@@ -66,19 +69,25 @@ export interface SessionStore {
 }
 
 export interface LlmConfig {
-  provider: 'deepseek' | 'openai';
+  provider: LlmProviderId;
   api_key: string;
   base_url?: string | null;
   model?: string | null;
 }
 
 export interface LlmConfigStore {
+  /** Config for the currently active provider (null when unconfigured). */
   read(): LlmConfig | null;
+  /** Persist + activate this provider's config (per-provider cache, v2 format). */
   write(config: LlmConfig): void;
+  /** Provider ids with a non-empty cached api_key. */
+  listCached(): LlmProviderId[];
+  /** Cached config for a specific provider, independent of which is active. */
+  readProvider(provider: LlmProviderId): LlmConfig | null;
 }
 
 export interface LlmProbe {
-  probe(provider: 'deepseek' | 'openai', apiKey: string, baseUrl?: string, model?: string): Promise<void>;
+  probe(provider: LlmProviderId, apiKey: string, baseUrl?: string, model?: string): Promise<void>;
 }
 
 /** Review-only natural-language → protocol proposal service. */

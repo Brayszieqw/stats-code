@@ -94,3 +94,10 @@ export {
   type RiskSignal,
   type AnalysisResultMeta,
 } from './skill-runner-types.js';
+export {
+  LLM_PROVIDER_IDS,
+  LLM_PROVIDER_CATALOG,
+  type LlmProviderId,
+  type LlmModelInfo,
+  type LlmProviderInfo,
+} from './llm-catalog.js';

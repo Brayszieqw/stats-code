@@ -5,7 +5,7 @@ const { ROUTE_CONTRACTS, allRouteJsonSchemas, HTTP_STATUS_FOR, domain, sidecar }
 
 describe('route contracts', () => {
   it('declares the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(20);
+    expect(ROUTE_CONTRACTS).toHaveLength(21);
     const ids = ROUTE_CONTRACTS.map((r) => r.id).sort();
     expect(ids).toEqual(
       [
@@ -25,6 +25,7 @@ describe('route contracts', () => {
         'post_audio',
         'post_dataset',
         'post_llm_config',
+        'post_llm_config_activate',
         'post_message',
         'post_sidecar',
         'post_snapshot_export',
@@ -48,7 +49,7 @@ describe('route contracts', () => {
 
   it('generates JSON Schema for every route with a body or response', () => {
     const schemas = allRouteJsonSchemas();
-    expect(Object.keys(schemas)).toHaveLength(20);
+    expect(Object.keys(schemas)).toHaveLength(21);
     // health has a response schema
     expect(schemas['health']?.response).toBeDefined();
     // patch_settings has both a request and a response
@@ -126,7 +127,11 @@ describe('domain schema validation', () => {
 
   it('LlmProvider serializes to lowercase tokens', () => {
     expect(domain.llmProvider.safeParse('deepseek').success).toBe(true);
-    expect(domain.llmProvider.safeParse('openai').success).toBe(true);
+    expect(domain.llmProvider.safeParse('qwen').success).toBe(true);
+    expect(domain.llmProvider.safeParse('kimi').success).toBe(true);
+    expect(domain.llmProvider.safeParse('zhipu').success).toBe(true);
+    expect(domain.llmProvider.safeParse('custom').success).toBe(true);
+    expect(domain.llmProvider.safeParse('openai').success).toBe(false);
     expect(domain.llmProvider.safeParse('DeepSeek').success).toBe(false);
   });
 });

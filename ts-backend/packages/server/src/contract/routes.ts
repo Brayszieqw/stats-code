@@ -80,6 +80,8 @@ export const llmStatusResponse = z.object({
   provider: llmProvider.nullable(),
   base_url: z.string().nullable(),
   model: z.string().nullable(),
+  /** Providers with a non-empty cached api_key (per-provider config cache, v2). */
+  cached_providers: z.array(llmProvider),
 });
 
 export const postLlmConfigRequest = z.object({
@@ -87,6 +89,11 @@ export const postLlmConfigRequest = z.object({
   api_key: z.string(),
   base_url: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
+});
+
+/** POST /api/llm-config/activate — switch the active provider using its cached config. */
+export const postLlmConfigActivateRequest = z.object({
+  provider: llmProvider,
 });
 
 // POST /api/sessions/:sid/messages — request body (SSE response handled separately).
@@ -218,6 +225,14 @@ export const ROUTE_CONTRACTS: readonly RouteContract[] = [
     path: '/api/llm-config',
     request: postLlmConfigRequest,
     // Success returns 200 with an empty body.
+    successStatus: 200,
+  },
+  {
+    id: 'post_llm_config_activate',
+    method: 'POST',
+    path: '/api/llm-config/activate',
+    request: postLlmConfigActivateRequest,
+    // Success returns 200 with the same shape as POST /api/llm-config.
     successStatus: 200,
   },
   {

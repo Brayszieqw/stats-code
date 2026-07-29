@@ -372,3 +372,31 @@ export async function postLlmConfig(
     throw new ApiError(res.status, payload);
   }
 }
+
+/**
+ * POST /api/llm-config/activate — switch the active provider using a key
+ * already cached on the backend (no api_key in the request body).
+ *
+ * 200 on success (same probe-then-persist semantics as `postLlmConfig`).
+ * No cached key for the provider → 400 `NO_CACHED_CONFIG`. Probe failure is
+ * surfaced the same way as `postLlmConfig`'s `LLM_PROBE_FAILED`.
+ */
+export async function postLlmActivate(provider: LlmProvider): Promise<void> {
+  const res = await fetch('/api/llm-config/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  });
+  if (!res.ok) {
+    let payload: ErrorPayload;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {
+        error_code: 'SkillExecutionFailed',
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+    throw new ApiError(res.status, payload);
+  }
+}

@@ -67,6 +67,12 @@ function memConfigStore(): LlmConfigStore & { current: LlmConfig | null } {
     write(c) {
       this.current = c;
     },
+    listCached() {
+      return this.current ? [this.current.provider] : [];
+    },
+    readProvider(provider) {
+      return this.current && this.current.provider === provider ? this.current : null;
+    },
   };
 }
 

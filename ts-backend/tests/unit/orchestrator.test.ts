@@ -25,8 +25,8 @@ function mockLlm(textByCall: string[] | string, requests: LlmRequest[] = []): Ll
   let call = 0;
   const texts = Array.isArray(textByCall) ? textByCall : null;
   return {
-    providerId: 'openai',
-    redactedConfig: () => ({ provider: 'openai', baseUrl: 'x', model: 'm' }),
+    providerId: 'qwen',
+    redactedConfig: () => ({ provider: 'qwen', baseUrl: 'x', model: 'm' }),
     // eslint-disable-next-line @typescript-eslint/require-await
     async *chatStream(request: LlmRequest): AsyncIterable<LlmEvent> {
       requests.push(request);
@@ -41,8 +41,8 @@ function mockLlm(textByCall: string[] | string, requests: LlmRequest[] = []): Ll
 /** A mock LLM that always errors (LLM unavailable mid-stream). */
 function erroringLlm(): LlmProvider {
   return {
-    providerId: 'openai',
-    redactedConfig: () => ({ provider: 'openai', baseUrl: 'x', model: 'm' }),
+    providerId: 'qwen',
+    redactedConfig: () => ({ provider: 'qwen', baseUrl: 'x', model: 'm' }),
     // eslint-disable-next-line @typescript-eslint/require-await
     async *chatStream(): AsyncIterable<LlmEvent> {
       yield { type: 'error', reason: 'unauthorized' };

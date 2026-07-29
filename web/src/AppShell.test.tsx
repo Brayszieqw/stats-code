@@ -11,8 +11,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import * as fc from 'fast-check';
+import type { LlmProvider } from './api/types';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state + spies
@@ -52,9 +53,10 @@ const mocks = vi.hoisted(() => {
     },
     llm: {
       configured: true,
-      provider: 'deepseek' as const,
-      base_url: null,
-      model: 'deepseek-chat',
+      provider: 'deepseek' as LlmProvider,
+      base_url: null as string | null,
+      model: 'deepseek-chat' as string | null,
+      cached_providers: [] as LlmProvider[],
       runtime_error: null,
       fetchState: 'ready' as const,
       fetchError: null,
@@ -67,6 +69,9 @@ const mocks = vi.hoisted(() => {
     sessionList: { sessions: [], loading: false, error: null, refresh: vi.fn(async () => {}) },
     deleteSession: vi.fn(async (_sessionId: string) => {}),
     simpleOnDeleteSession: null as null | ((sessionId: string) => void | Promise<void>),
+    simpleOnOpenSettings: null as null | (() => void),
+    postLlmConfig: vi.fn(async () => {}),
+    postLlmActivate: vi.fn(async () => {}),
   };
 });
 
@@ -87,13 +92,22 @@ vi.mock('./hooks/useSessionList', () => ({
 }));
 vi.mock('./api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/client')>();
-  return { ...actual, deleteSession: mocks.deleteSession };
+  return {
+    ...actual,
+    deleteSession: mocks.deleteSession,
+    postLlmConfig: mocks.postLlmConfig,
+    postLlmActivate: mocks.postLlmActivate,
+  };
 });
 
 // Stub the heavy views with light markers so we can assert which renders.
 vi.mock('./views/SimpleModeView', () => ({
-  SimpleModeView: (props: { onDeleteSession?: (sessionId: string) => void | Promise<void> }) => {
+  SimpleModeView: (props: {
+    onDeleteSession?: (sessionId: string) => void | Promise<void>;
+    onOpenSettings?: () => void;
+  }) => {
     mocks.simpleOnDeleteSession = props.onDeleteSession ?? null;
+    mocks.simpleOnOpenSettings = props.onOpenSettings ?? null;
     return <div data-testid="simple-view" />;
   },
 }));
@@ -112,13 +126,22 @@ beforeEach(() => {
   mocks.controller.error = null;
   mocks.chat.messages = [];
   mocks.llm.configured = true;
+  mocks.llm.provider = 'deepseek';
+  mocks.llm.model = 'deepseek-chat';
+  mocks.llm.base_url = null;
+  mocks.llm.cached_providers = [];
   mocks.simpleOnDeleteSession = null;
+  mocks.simpleOnOpenSettings = null;
   mocks.deleteSession.mockReset();
   mocks.deleteSession.mockResolvedValue(undefined);
   mocks.controller.startNewSession.mockReset();
   mocks.controller.startNewSession.mockResolvedValue(undefined);
   mocks.sessionList.refresh.mockReset();
   mocks.sessionList.refresh.mockResolvedValue(undefined);
+  mocks.postLlmConfig.mockReset();
+  mocks.postLlmConfig.mockResolvedValue(undefined);
+  mocks.postLlmActivate.mockReset();
+  mocks.postLlmActivate.mockResolvedValue(undefined);
 });
 
 describe('AppShell unit (Requirements 1.3, 2.7)', () => {
@@ -245,5 +268,59 @@ describe('Property 7: 切换无整页刷新 (Requirement 10.5)', () => {
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
     }
+  });
+});
+
+describe('API settings drawer — cached-provider activation', () => {
+  it('activates via the cached key when a cached provider is picked with no API key typed', async () => {
+    mocks.llm.cached_providers = ['deepseek', 'qwen'];
+    render(<AppShell />);
+
+    expect(mocks.simpleOnOpenSettings).not.toBeNull();
+    mocks.simpleOnOpenSettings!();
+
+    const providerSelect = await screen.findByRole('combobox', { name: 'LLM 提供商' });
+    fireEvent.mouseDown(providerSelect);
+    fireEvent.click(await screen.findByText('通义千问(DashScope)(已保存密钥)'));
+
+    // API Key left blank — the submit button must still enable (activation
+    // path doesn't require a key) and clicking it calls postLlmActivate,
+    // not postLlmConfig.
+    const submit = screen.getByRole('button', { name: '测试并保存' });
+    expect(submit).not.toBeDisabled();
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(mocks.postLlmActivate).toHaveBeenCalledWith('qwen'));
+    expect(mocks.postLlmConfig).not.toHaveBeenCalled();
+    expect(mocks.llm.setConfigured).toHaveBeenCalledWith('qwen', expect.anything(), expect.anything());
+  });
+
+  it('falls back to the full config POST when the user types a new key for a cached provider', async () => {
+    mocks.llm.cached_providers = ['deepseek', 'qwen'];
+    render(<AppShell />);
+
+    mocks.simpleOnOpenSettings!();
+
+    const providerSelect = await screen.findByRole('combobox', { name: 'LLM 提供商' });
+    fireEvent.mouseDown(providerSelect);
+    fireEvent.click(await screen.findByText('通义千问(DashScope)(已保存密钥)'));
+
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-new-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '测试并保存' }));
+
+    await waitFor(() => expect(mocks.postLlmConfig).toHaveBeenCalled());
+    expect(mocks.postLlmActivate).not.toHaveBeenCalled();
+    expect(mocks.postLlmConfig.mock.calls[0]).toEqual(['qwen', 'sk-new-key', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-plus']);
+  });
+
+  it('requires base URL and model for a provider with no cached key', async () => {
+    mocks.llm.cached_providers = [];
+    render(<AppShell />);
+
+    mocks.simpleOnOpenSettings!();
+
+    const submit = await screen.findByRole('button', { name: '测试并保存' });
+    // No API key typed yet and deepseek isn't cached — submit stays disabled.
+    expect(submit).toBeDisabled();
   });
 });

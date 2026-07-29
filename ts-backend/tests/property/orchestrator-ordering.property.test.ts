@@ -41,8 +41,8 @@ function summaryFor(csv: string): DatasetSummary {
 function mockLlm(intentJson: string, interpretation: string): LlmProvider {
   let call = 0;
   return {
-    providerId: 'openai',
-    redactedConfig: () => ({ provider: 'openai', baseUrl: 'x', model: 'm' }),
+    providerId: 'qwen',
+    redactedConfig: () => ({ provider: 'qwen', baseUrl: 'x', model: 'm' }),
     // eslint-disable-next-line @typescript-eslint/require-await
     async *chatStream(): AsyncIterable<LlmEvent> {
       const text = call === 0 ? intentJson : interpretation;

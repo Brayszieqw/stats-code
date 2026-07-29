@@ -17,6 +17,7 @@ import {
   patchResearchProtocolRequest,
   base64DatasetRequest,
   postLlmConfigRequest,
+  postLlmConfigActivateRequest,
   sidecar as sidecarContract,
 } from './contract/index.js';
 import { StoreError, type AgentBlock, type AgentEvent, type AppState, type Message } from './state.js';
@@ -946,8 +947,9 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
 
   // GET /api/llm-status — never exposes the api key.
   app.get('/api/llm-status', async () => {
-    const config = state.llmConfigStore?.read() ?? null;
-    return statusFromConfig(config);
+    const store = state.llmConfigStore;
+    const config = store?.read() ?? null;
+    return { ...statusFromConfig(config), cached_providers: store?.listCached() ?? [] };
   });
 
   // POST /api/llm-config — reject OAuth-required-but-unavailable, then test, then save.
@@ -978,6 +980,46 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
           apiKey: parsed.data.api_key,
           baseUrl: parsed.data.base_url ?? undefined,
           model: parsed.data.model ?? undefined,
+        },
+        state.oauthCapability ?? { available: false },
+      );
+    } catch (err) {
+      if (err instanceof LlmConfigError) {
+        return reply.code(422).send({ error_code: err.code, message: err.message });
+      }
+      throw err;
+    }
+    return reply.code(200).send();
+  });
+
+  // POST /api/llm-config/activate — switch the active provider using its
+  // cached config (no api_key in the request body). Re-probes the cached
+  // credentials before activating so a stale/revoked key surfaces clearly.
+  app.post('/api/llm-config/activate', async (req, reply) => {
+    const parsed = postLlmConfigActivateRequest.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({ error_code: 'SkillInvalidArgs', message: 'invalid activate request' });
+    }
+    const store = state.llmConfigStore;
+    const probe = state.llmProbe;
+    if (!store || !probe) {
+      return reply.code(500).send({ error_code: 'InternalError', message: 'LLM config store/probe not configured' });
+    }
+    const cached = store.readProvider(parsed.data.provider);
+    if (!cached) {
+      return reply
+        .code(400)
+        .send({ error_code: 'NO_CACHED_CONFIG', message: `no cached config for provider '${parsed.data.provider}'` });
+    }
+    try {
+      await testAndSaveConfig(
+        probe,
+        store,
+        {
+          provider: cached.provider,
+          apiKey: cached.api_key,
+          baseUrl: cached.base_url ?? undefined,
+          model: cached.model ?? undefined,
         },
         state.oauthCapability ?? { available: false },
       );

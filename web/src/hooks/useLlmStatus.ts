@@ -41,6 +41,8 @@ export interface UseLlmStatusReturn {
   /** Configured base URL returned by the backend status api. */
   base_url: string | null;
   model: string | null;
+  /** Providers with a cached API key on the backend (empty when absent). */
+  cached_providers: LlmProvider[];
   /** Lifecycle of the initial fetch. */
   fetchState: LlmStatusFetchState;
   /** Backend-side fetch error, if the initial GET failed. */
@@ -71,6 +73,7 @@ export function useLlmStatus(): UseLlmStatusReturn {
   const [provider, setProviderState] = useState<LlmProvider | null>(null);
   const [baseUrl, setBaseUrlState] = useState<string | null>(null);
   const [model, setModelState] = useState<string | null>(null);
+  const [cachedProviders, setCachedProvidersState] = useState<LlmProvider[]>([]);
   const [runtimeError, setRuntimeErrorState] =
     useState<LlmRuntimeError | null>(null);
   const [fetchState, setFetchState] = useState<LlmStatusFetchState>('loading');
@@ -85,6 +88,7 @@ export function useLlmStatus(): UseLlmStatusReturn {
       setProviderState(status.provider);
       setBaseUrlState(status.base_url ?? null);
       setModelState(status.model ?? null);
+      setCachedProvidersState(status.cached_providers ?? []);
       setFetchState('ready');
     } catch (err) {
       // Network failure / 5xx — leave configured=false so the card still
@@ -93,6 +97,7 @@ export function useLlmStatus(): UseLlmStatusReturn {
       setProviderState(null);
       setBaseUrlState(null);
       setModelState(null);
+      setCachedProvidersState([]);
       setFetchError(
         err instanceof ApiError
           ? err.payload.message
@@ -116,6 +121,9 @@ export function useLlmStatus(): UseLlmStatusReturn {
     setRuntimeErrorState(null);
     setFetchState('ready');
     setFetchError(null);
+    // A successful save/activate always means the backend now has this
+    // provider's key cached, even before the next /api/llm-status refresh.
+    setCachedProvidersState((prev) => (prev.includes(next) ? prev : [...prev, next]));
   }, []);
 
   const requireReconfigure = useCallback(() => {
@@ -138,6 +146,7 @@ export function useLlmStatus(): UseLlmStatusReturn {
     provider,
     base_url: baseUrl,
     model,
+    cached_providers: cachedProviders,
     runtime_error: runtimeError,
     fetchState,
     fetchError,

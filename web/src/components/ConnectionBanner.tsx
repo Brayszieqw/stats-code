@@ -79,7 +79,7 @@
 import { Alert, Button, Space, Typography } from 'antd';
 import { KeyOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { BannerView } from '../lib/bannerReducer';
-import type { LlmProvider } from '../api/types';
+import { getProviderLabel } from '../api/llm-catalog';
 
 const { Text } = Typography;
 
@@ -97,20 +97,6 @@ export interface ConnectionBannerProps {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const PROVIDER_LABELS: Record<LlmProvider, string> = {
-  deepseek: 'DeepSeek',
-  openai: 'OpenAI',
-};
-
-function providerLabel(provider: LlmProvider | null | undefined): string {
-  if (provider == null) return 'LLM';
-  return PROVIDER_LABELS[provider];
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -123,7 +109,7 @@ export function ConnectionBanner({
   if (!view.visible) return null;
 
   const summary = view.summary ?? '与 AI 服务的连接出现异常';
-  const label = providerLabel(view.provider);
+  const label = getProviderLabel(view.provider);
 
   return (
     <Alert

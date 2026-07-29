@@ -2,6 +2,9 @@
 //
 // Mirrors the request/response shape from crates/api/src/providers/openai_compat.rs
 // and the LlmEvent enum from crates/agent-core/src/traits/llm_provider.rs.
+// Supports the Chinese-market provider catalog (llm-catalog.ts): deepseek, qwen
+// (DashScope), kimi (Moonshot), zhipu (GLM), and a user-configured custom
+// OpenAI-compatible endpoint/relay.
 //
 // Behavior (Requirement 2):
 //  - POST {baseUrl}/chat/completions with {model, messages, stream:true, ...}
@@ -11,6 +14,8 @@
 //  - retry 5xx/network up to 3 total attempts, exponential backoff (500ms,
 //    doubling); 4xx → error immediately, no retry
 //  - the API key is never included in any serialized/logged surface (2.8)
+
+import { LLM_PROVIDER_CATALOG, type LlmProviderId } from './llm-catalog.js';
 
 export type LlmEvent =
   | { type: 'text_delta'; text: string }
@@ -33,13 +38,13 @@ export interface LlmRequest {
 export interface LlmProvider {
   /** Stream a chat completion as an async iterable of LlmEvents. */
   chatStream(req: LlmRequest): AsyncIterable<LlmEvent>;
-  readonly providerId: 'deepseek' | 'openai';
+  readonly providerId: LlmProviderId;
   /** Loggable config view that NEVER includes the API key (Requirement 2.8). */
-  redactedConfig(): { provider: 'deepseek' | 'openai'; baseUrl: string; model: string };
+  redactedConfig(): { provider: LlmProviderId; baseUrl: string; model: string };
 }
 
 export interface LlmProviderOptions {
-  provider: 'deepseek' | 'openai';
+  provider: LlmProviderId;
   apiKey: string;
   /** Defaults per provider. */
   baseUrl?: string;
@@ -54,17 +59,15 @@ export interface LlmProviderOptions {
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
-/** Default base URLs mirroring the Rust OpenAiCompatConfig defaults. */
-export const DEFAULT_BASE_URLS: Record<'deepseek' | 'openai', string> = {
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-};
+/** Default base URLs, derived from the provider catalog (custom has none). */
+export const DEFAULT_BASE_URLS: Record<LlmProviderId, string | null> = Object.fromEntries(
+  Object.values(LLM_PROVIDER_CATALOG).map((p) => [p.id, p.baseUrl]),
+) as Record<LlmProviderId, string | null>;
 
-/** Default models per provider. */
-export const DEFAULT_MODELS: Record<'deepseek' | 'openai', string> = {
-  deepseek: 'deepseek-chat',
-  openai: 'gpt-4o-mini',
-};
+/** Default models per provider, derived from the provider catalog (custom has none). */
+export const DEFAULT_MODELS: Record<LlmProviderId, string | null> = Object.fromEntries(
+  Object.values(LLM_PROVIDER_CATALOG).map((p) => [p.id, p.defaultModel]),
+) as Record<LlmProviderId, string | null>;
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_INITIAL_DELAY_MS = 500;
@@ -75,22 +78,36 @@ function defaultSleep(ms: number): Promise<void> {
 
 /**
  * Normalize a provider base URL so `/chat/completions` and `/audio/transcriptions`
- * resolve correctly. Saved configs often omit `/v1` (e.g. `https://api.deepseek.com`).
+ * resolve correctly. Saved configs often omit the version/mode segment (e.g.
+ * `https://api.deepseek.com`). `custom` endpoints are only cleaned (trimmed,
+ * trailing slash / `/chat/completions` stripped) — no host-specific path is
+ * ever appended, since a relay's routing is opaque to us.
+ *
+ * Throws when no base URL is available at all (empty/omitted `custom`).
  */
 export function normalizeProviderBaseUrl(
-  provider: 'deepseek' | 'openai',
+  provider: LlmProviderId,
   baseUrl?: string | null,
 ): string {
-  let base =
-    baseUrl && baseUrl.trim().length > 0 ? baseUrl.trim() : DEFAULT_BASE_URLS[provider];
+  const catalogDefault = LLM_PROVIDER_CATALOG[provider].baseUrl;
+  let base = baseUrl && baseUrl.trim().length > 0 ? baseUrl.trim() : catalogDefault;
+  if (!base) {
+    throw new Error(`自定义 provider 需要 Base URL（未提供且没有内置默认值）`);
+  }
   base = base.replace(/\/+$/, '');
   // Strip a trailing /chat/completions if a user pasted the full path.
   base = base.replace(/\/chat\/completions$/i, '');
-  // Official hosts without the version segment.
-  if (/^https?:\/\/api\.deepseek\.com$/i.test(base)) {
-    base = `${base}/v1`;
-  } else if (/^https?:\/\/api\.openai\.com$/i.test(base)) {
-    base = `${base}/v1`;
+  if (provider !== 'custom') {
+    // Official hosts without their version/mode segment.
+    if (/^https?:\/\/api\.deepseek\.com$/i.test(base)) {
+      base = `${base}/v1`;
+    } else if (/^https?:\/\/dashscope\.aliyuncs\.com$/i.test(base)) {
+      base = `${base}/compatible-mode/v1`;
+    } else if (/^https?:\/\/api\.moonshot\.(cn|ai)$/i.test(base)) {
+      base = `${base}/v1`;
+    } else if (/^https?:\/\/open\.bigmodel\.cn$/i.test(base)) {
+      base = `${base}/api/paas/v4`;
+    }
   }
   return base;
 }
@@ -171,7 +188,10 @@ function parseFrame(frame: string): { done: true } | { text: string } | null {
 export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
   const provider = opts.provider;
   const baseUrl = normalizeProviderBaseUrl(provider, opts.baseUrl);
-  const defaultModel = opts.model && opts.model.length > 0 ? opts.model : DEFAULT_MODELS[provider];
+  // `custom` has no catalog default model; a per-request req.model is still
+  // accepted (checked in chatStream before the request is sent).
+  const defaultModel: string | null =
+    opts.model && opts.model.length > 0 ? opts.model : DEFAULT_MODELS[provider];
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const initialDelayMs = opts.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS;
@@ -237,6 +257,14 @@ export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
   }
 
   async function* chatStream(req: LlmRequest): AsyncIterable<LlmEvent> {
+    const model = req.model && req.model.length > 0 ? req.model : defaultModel;
+    if (!model) {
+      yield {
+        type: 'error',
+        reason: '未指定模型：自定义 provider 没有默认模型，请在请求中提供 model',
+      };
+      return;
+    }
     let res: Response;
     try {
       res = await sendWithRetry(req);
@@ -298,7 +326,7 @@ export function createLlmProvider(opts: LlmProviderOptions): LlmProvider {
     providerId: provider,
     chatStream,
     redactedConfig() {
-      return { provider, baseUrl, model: defaultModel };
+      return { provider, baseUrl, model: defaultModel ?? '' };
     },
   };
 }

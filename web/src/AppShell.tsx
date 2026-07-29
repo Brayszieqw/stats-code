@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Spin, Result, Button, Drawer, Space, Typography, Input, Select, Alert } from 'antd';
+import { Spin, Result, Button, Drawer, Space, Typography, Input, Select, AutoComplete, Alert } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
 import { useModePreference } from './hooks/useModePreference';
 import { useSessionController } from './hooks/useSessionController';
@@ -22,15 +22,17 @@ import { useLlmStatus } from './hooks/useLlmStatus';
 import { useSessionList } from './hooks/useSessionList';
 import { SimpleModeView } from './views/SimpleModeView';
 import { ProModeView } from './views/ProModeView';
+import { OnboardingCard } from './components/OnboardingCard';
 import {
-  CUSTOM_MODEL_VALUE,
   DEFAULT_BASE_URLS,
+  getBaseUrlPlaceholder,
   getDefaultModel,
   getModelOptions,
-  isKnownModel,
-  OnboardingCard,
-} from './components/OnboardingCard';
-import { postLlmConfig, deleteSession, listSessions, ApiError } from './api/client';
+  getModelPlaceholder,
+  getProviderLabel,
+  PROVIDER_OPTIONS,
+} from './api/llm-catalog';
+import { postLlmConfig, postLlmActivate, deleteSession, listSessions, ApiError } from './api/client';
 import type { ChoiceAnswer, LlmProvider } from './api/types';
 
 const { Paragraph } = Typography;
@@ -157,11 +159,16 @@ export function AppShell() {
   const [sProvider, setSProvider] = useState<LlmProvider>('deepseek');
   const [sBaseUrl, setSBaseUrl] = useState('');
   const [sModel, setSModel] = useState(getDefaultModel('deepseek'));
-  const [sCustomModel, setSCustomModel] = useState('');
   const [sApiKey, setSApiKey] = useState('');
   const [sSubmitting, setSSubmitting] = useState(false);
   const [sError, setSError] = useState<string | null>(null);
   const [sUrlDirty, setSUrlDirty] = useState(false);
+
+  const cachedProviders = llm.cached_providers ?? [];
+  // Selected a provider whose key is already cached server-side and the user
+  // hasn't typed a new key — submitting activates the cached key instead of
+  // re-posting a full config (no api_key required in this branch).
+  const isCachedActivate = cachedProviders.includes(sProvider) && sApiKey.trim().length === 0;
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -175,16 +182,7 @@ export function AppShell() {
       setSBaseUrl(DEFAULT_BASE_URLS[provider]);
       setSUrlDirty(false);
     }
-    if (model && isKnownModel(provider, model)) {
-      setSModel(model);
-      setSCustomModel('');
-    } else if (model) {
-      setSModel(CUSTOM_MODEL_VALUE);
-      setSCustomModel(model);
-    } else {
-      setSModel(getDefaultModel(provider));
-      setSCustomModel('');
-    }
+    setSModel(model || getDefaultModel(provider));
     setSApiKey('');
     setSError(null);
   }, [settingsOpen, llm.provider, llm.base_url, llm.model]);
@@ -193,22 +191,36 @@ export function AppShell() {
     setSProvider(next);
     if (!sUrlDirty) setSBaseUrl(DEFAULT_BASE_URLS[next]);
     setSModel(getDefaultModel(next));
-    setSCustomModel('');
   };
 
   const handleSettingsSubmit = async () => {
-    const key = sApiKey.trim();
-    const url = sBaseUrl.trim();
-    const model = sModel === CUSTOM_MODEL_VALUE ? sCustomModel.trim() : sModel.trim();
-    if (!key || !url || !model) {
-      setSError('请填写 API Key、API Base URL 与模型');
-      return;
+    if (!isCachedActivate) {
+      const key = sApiKey.trim();
+      const url = sBaseUrl.trim();
+      const model = sModel.trim();
+      if (!key || !url || !model) {
+        setSError('请填写 API Key、API Base URL 与模型');
+        return;
+      }
     }
     setSSubmitting(true);
     setSError(null);
     try {
-      await postLlmConfig(sProvider, key, url, model);
-      llm.setConfigured(sProvider, url, model);
+      if (isCachedActivate) {
+        await postLlmActivate(sProvider);
+        llm.setConfigured(sProvider, sBaseUrl.trim() || null, sModel.trim() || null);
+        // Activation doesn't echo back the persisted base_url/model, so
+        // reconcile with the backend's source of truth in the background.
+        void llm.refresh();
+      } else {
+        const url = sBaseUrl.trim();
+        const model = sModel.trim();
+        await postLlmConfig(sProvider, sApiKey.trim(), url, model);
+        llm.setConfigured(sProvider, url, model);
+      }
+      // Drop the typed key from component state immediately on success —
+      // it must not linger in memory beyond the request that used it.
+      setSApiKey('');
       setSettingsOpen(false);
     } catch (err) {
       setSError(err instanceof ApiError ? err.payload.message : err instanceof Error ? err.message : '配置测试或保存失败');
@@ -217,8 +229,13 @@ export function AppShell() {
     }
   };
 
+  const settingsProviderOptions = PROVIDER_OPTIONS.map((opt) => ({
+    ...opt,
+    label: cachedProviders.includes(opt.value) ? `${opt.label}(已保存密钥)` : opt.label,
+  }));
+
   // ─── 顶层 loading / error ──────────────────────────────────────────────
-  const modelLabel = llm.model ?? (llm.provider === 'openai' ? 'OpenAI' : 'DeepSeek');
+  const modelLabel = llm.model ?? getProviderLabel(llm.provider);
 
   if (loading) {
     return (
@@ -306,11 +323,7 @@ export function AppShell() {
             type="primary"
             onClick={handleSettingsSubmit}
             loading={sSubmitting}
-            disabled={
-              !sApiKey.trim() ||
-              !sBaseUrl.trim() ||
-              !(sModel === CUSTOM_MODEL_VALUE ? sCustomModel.trim() : sModel.trim())
-            }
+            disabled={!isCachedActivate && (!sApiKey.trim() || !sBaseUrl.trim() || !sModel.trim())}
           >
             测试并保存
           </Button>
@@ -322,10 +335,7 @@ export function AppShell() {
             <Select<LlmProvider>
               value={sProvider}
               onChange={handleSettingsProviderChange}
-              options={[
-                { value: 'deepseek', label: 'DeepSeek' },
-                { value: 'openai', label: 'OpenAI' },
-              ]}
+              options={settingsProviderOptions}
               disabled={sSubmitting}
               style={{ width: '100%' }}
               aria-label="LLM 提供商"
@@ -340,6 +350,7 @@ export function AppShell() {
                 setSBaseUrl(e.target.value);
                 setSUrlDirty(true);
               }}
+              placeholder={getBaseUrlPlaceholder(sProvider)}
               disabled={sSubmitting}
               aria-label="API Base URL"
             />
@@ -347,34 +358,23 @@ export function AppShell() {
 
           <label style={{ display: 'block' }}>
             <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>Model</Paragraph>
-            <Select<string>
+            <AutoComplete
               value={sModel}
               onChange={setSModel}
               options={getModelOptions(sProvider)}
+              placeholder={getModelPlaceholder(sProvider)}
               disabled={sSubmitting}
               style={{ width: '100%' }}
               aria-label="LLM model"
             />
           </label>
 
-          {sModel === CUSTOM_MODEL_VALUE ? (
-            <label style={{ display: 'block' }}>
-              <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>Custom model</Paragraph>
-              <Input
-                value={sCustomModel}
-                onChange={(e) => setSCustomModel(e.target.value)}
-                disabled={sSubmitting}
-                aria-label="Custom LLM model"
-              />
-            </label>
-          ) : null}
-
           <label style={{ display: 'block' }}>
             <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>API Key</Paragraph>
             <Input.Password
               value={sApiKey}
               onChange={(e) => setSApiKey(e.target.value)}
-              placeholder="输入新的 API Key"
+              placeholder={cachedProviders.includes(sProvider) ? '留空则使用已保存的密钥' : '输入新的 API Key'}
               autoComplete="off"
               disabled={sSubmitting}
               aria-label="API Key"

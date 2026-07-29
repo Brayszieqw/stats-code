@@ -15,6 +15,7 @@ export {
   postAudioResponse,
   llmStatusResponse,
   postLlmConfigRequest,
+  postLlmConfigActivateRequest,
   postMessageRequest,
 } from './routes.js';
 export { allRouteJsonSchemas, routeToJsonSchema, type RouteJsonSchema } from './json-schema.js';

@@ -82,8 +82,9 @@ const researchWorkflow: ResearchWorkflowService = {
 
 describe('every route is registered in the contract harness', () => {
   it('exposes the 13 original API_Contract routes plus the dual-mode additions', () => {
-    // 13 original routes + dual-mode/session/protocol + server research gates.
-    expect(ROUTE_CONTRACTS).toHaveLength(20);
+    // 13 original routes + dual-mode/session/protocol + server research gates
+    // + the LLM provider-cache activation endpoint.
+    expect(ROUTE_CONTRACTS).toHaveLength(21);
     const ids = ROUTE_CONTRACTS.map((r) => r.id);
     expect(ids).toContain('list_sessions');
     expect(ids).toContain('run_skill');
@@ -92,6 +93,7 @@ describe('every route is registered in the contract harness', () => {
     expect(ids).toContain('compile_research_protocol');
     expect(ids).toContain('audit_dataset');
     expect(ids).toContain('approve_analysis_plan');
+    expect(ids).toContain('post_llm_config_activate');
   });
 
   it('each route id is unique', () => {
@@ -245,7 +247,7 @@ describe('llm-status golden', () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({ method: 'GET', url: '/api/llm-status' });
     expect(res.statusCode).toBe(200);
-    const golden = { configured: false, provider: null, base_url: null, model: null };
+    const golden = { configured: false, provider: null, base_url: null, model: null, cached_providers: [] };
     expect(res.json()).toEqual(golden);
     expect(contract.llmStatusResponse.safeParse(res.json()).success).toBe(true);
     await app.close();
@@ -257,12 +259,20 @@ describe('llm-status golden', () => {
         llmConfigStore: {
           read: () => ({ provider: 'deepseek', api_key: 'sk-secret', base_url: null, model: null }),
           write: () => {},
+          listCached: () => ['deepseek'],
+          readProvider: () => null,
         },
       }),
     });
     const res = await app.inject({ method: 'GET', url: '/api/llm-status' });
     const body = res.json();
-    expect(body).toEqual({ configured: true, provider: 'deepseek', base_url: null, model: null });
+    expect(body).toEqual({
+      configured: true,
+      provider: 'deepseek',
+      base_url: null,
+      model: null,
+      cached_providers: ['deepseek'],
+    });
     expect(JSON.stringify(body)).not.toContain('sk-secret');
     await app.close();
   });

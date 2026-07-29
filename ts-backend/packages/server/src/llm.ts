@@ -44,8 +44,9 @@ export function statusFromConfig(config: LlmConfig | null): LlmStatus {
 
 /**
  * Providers that REQUIRE OAuth (vs API-key). The current provider set
- * (deepseek, openai) authenticates by API key, so this set is empty; the
- * machinery is in place so adding an OAuth-only provider is a one-line change.
+ * (deepseek, qwen, kimi, zhipu, custom) authenticates by API key, so this set
+ * is empty; the machinery is in place so adding an OAuth-only provider is a
+ * one-line change.
  */
 export const OAUTH_REQUIRED_PROVIDERS: ReadonlySet<string> = new Set<string>();
 
@@ -79,7 +80,7 @@ export interface OAuthCapability {
 
 export class LlmConfigError extends Error {
   constructor(
-    public readonly code: 'OAUTH_UNAVAILABLE' | 'LLM_PROBE_FAILED',
+    public readonly code: 'OAUTH_UNAVAILABLE' | 'LLM_PROBE_FAILED' | 'INVALID_CONFIG',
     message: string,
   ) {
     super(message);
@@ -109,6 +110,9 @@ export async function testAndSaveConfig(
   input: SaveConfigInput,
   oauth: OAuthCapability = { available: false },
 ): Promise<void> {
+  if (input.provider === 'custom' && (!input.baseUrl || input.baseUrl.trim().length === 0)) {
+    throw new LlmConfigError('INVALID_CONFIG', '自定义 provider 需要 Base URL');
+  }
   if (providerRequiresOAuth(input.provider) && !oauth.available) {
     throw new LlmConfigError(
       'OAUTH_UNAVAILABLE',

@@ -290,6 +290,8 @@ describe('HTTP contract routes', () => {
         llmConfigStore: {
           read: () => ({ provider: 'deepseek', api_key: 'sk-secret', base_url: null, model: null }),
           write: () => {},
+          listCached: () => ['deepseek'],
+          readProvider: () => null,
         },
       }),
     });
@@ -318,7 +320,13 @@ describe('HTTP contract routes', () => {
   it('GET /api/llm-status unconfigured → configured:false', async () => {
     const app = buildRouter({ state: makeState() });
     const res = await app.inject({ method: 'GET', url: '/api/llm-status' });
-    expect(res.json()).toEqual({ configured: false, provider: null, base_url: null, model: null });
+    expect(res.json()).toEqual({
+      configured: false,
+      provider: null,
+      base_url: null,
+      model: null,
+      cached_providers: [],
+    });
     await app.close();
   });
 
@@ -326,8 +334,13 @@ describe('HTTP contract routes', () => {
     let saved: unknown = null;
     const app = buildRouter({
       state: makeState({
-        llmConfigStore: { read: () => null, write: (c) => { saved = c; } },
-        llmProbe: { probe: async (p) => { if (p === 'openai') throw new Error('bad key'); } },
+        llmConfigStore: {
+          read: () => null,
+          write: (c) => { saved = c; },
+          listCached: () => [],
+          readProvider: () => null,
+        },
+        llmProbe: { probe: async (p) => { if (p === 'qwen') throw new Error('bad key'); } },
       }),
     });
     const ok = await app.inject({
@@ -341,7 +354,7 @@ describe('HTTP contract routes', () => {
     const bad = await app.inject({
       method: 'POST',
       url: '/api/llm-config',
-      payload: { provider: 'openai', api_key: 'sk-y' },
+      payload: { provider: 'qwen', api_key: 'sk-y' },
     });
     expect(bad.statusCode).toBe(422);
     expect(bad.json().error_code).toBe('LLM_PROBE_FAILED');

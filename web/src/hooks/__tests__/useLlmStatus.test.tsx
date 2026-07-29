@@ -44,6 +44,7 @@ describe('useLlmStatus', () => {
       provider: 'deepseek',
       base_url: 'https://api.deepseek.com/v1',
       model: 'deepseek-chat',
+      cached_providers: ['deepseek', 'qwen'],
     });
 
     const { result } = renderHook(() => useLlmStatus());
@@ -57,6 +58,7 @@ describe('useLlmStatus', () => {
     expect(result.current.provider).toBe('deepseek');
     expect(result.current.base_url).toBe('https://api.deepseek.com/v1');
     expect(result.current.model).toBe('deepseek-chat');
+    expect(result.current.cached_providers).toEqual(['deepseek', 'qwen']);
     expect(result.current.runtime_error).toBeNull();
   });
 
@@ -73,6 +75,17 @@ describe('useLlmStatus', () => {
     expect(result.current.model).toBeNull();
   });
 
+  it('defaults cached_providers to [] when the field is absent', async () => {
+    mockFetchJson(200, { configured: true, provider: 'deepseek' });
+
+    const { result } = renderHook(() => useLlmStatus());
+
+    await waitFor(() => {
+      expect(result.current.fetchState).toBe('ready');
+    });
+    expect(result.current.cached_providers).toEqual([]);
+  });
+
   it('exposes mutators that flip configured state without re-fetching', async () => {
     mockFetchJson(200, { configured: false, provider: null });
 
@@ -82,24 +95,24 @@ describe('useLlmStatus', () => {
     });
 
     act(() => {
-      result.current.setConfigured('openai', 'https://api.openai.com/v1', 'gpt-5.4-mini');
+      result.current.setConfigured('qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-max');
     });
     expect(result.current.configured).toBe(true);
-    expect(result.current.provider).toBe('openai');
-    expect(result.current.base_url).toBe('https://api.openai.com/v1');
-    expect(result.current.model).toBe('gpt-5.4-mini');
+    expect(result.current.provider).toBe('qwen');
+    expect(result.current.base_url).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1');
+    expect(result.current.model).toBe('qwen-max');
 
     act(() => {
       result.current.requireReconfigure();
     });
     expect(result.current.configured).toBe(false);
     // Provider is left intact so the card can pre-select the previous value.
-    expect(result.current.provider).toBe('openai');
-    expect(result.current.model).toBe('gpt-5.4-mini');
+    expect(result.current.provider).toBe('qwen');
+    expect(result.current.model).toBe('qwen-max');
   });
 
   it('records and clears runtime LLM errors', async () => {
-    mockFetchJson(200, { configured: true, provider: 'openai' });
+    mockFetchJson(200, { configured: true, provider: 'qwen' });
 
     const { result } = renderHook(() => useLlmStatus());
     await waitFor(() => {
@@ -108,7 +121,7 @@ describe('useLlmStatus', () => {
 
     act(() => {
       result.current.setRuntimeError({
-        provider: 'openai',
+        provider: 'qwen',
         summary: 'rate limited',
         last_message_id: 'msg-1',
       });

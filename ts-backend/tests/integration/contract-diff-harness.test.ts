@@ -50,7 +50,7 @@ function fullState(): AppState {
   return {
     sessionStore: new MemSessionStore(),
     messageHandler: handler,
-    llmConfigStore: { read: () => null, write: () => {} },
+    llmConfigStore: { read: () => null, write: () => {}, listCached: () => [], readProvider: () => null },
     llmProbe: { probe: async () => undefined },
     coverageMatrixProvider: createCoverageMatrixProvider(),
     sidecarProvider: createSidecarProvider(),
@@ -63,7 +63,7 @@ function app() {
 
 describe('contract-diff harness — route registry completeness', () => {
   it('covers the 13 API_Contract routes plus the dual-mode additions', () => {
-    expect(ROUTE_CONTRACTS).toHaveLength(20);
+    expect(ROUTE_CONTRACTS).toHaveLength(21);
   });
 
   it('every route declares a method, path, and success status', () => {

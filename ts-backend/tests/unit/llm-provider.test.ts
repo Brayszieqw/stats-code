@@ -36,7 +36,7 @@ describe('createLlmProvider streaming (Requirements 2.1, 2.2, 2.3)', () => {
     const fetchImpl = vi.fn(async () =>
       streamingResponse([sseDelta('Hello'), sseDelta(', world'), 'data: [DONE]\n\n']),
     ) as unknown as typeof fetch;
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'sk-x', fetchImpl });
+    const provider = createLlmProvider({ provider: 'qwen', apiKey: 'sk-x', fetchImpl });
     const events = await collect(provider.chatStream({ messages: [{ role: 'user', content: 'hi' }] }));
     expect(events).toEqual([
       { type: 'text_delta', text: 'Hello' },
@@ -49,14 +49,14 @@ describe('createLlmProvider streaming (Requirements 2.1, 2.2, 2.3)', () => {
     const fetchImpl = vi.fn(async () =>
       streamingResponse([sseDelta(''), sseDelta('A'), 'data: [DONE]\n\n']),
     ) as unknown as typeof fetch;
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'sk-x', fetchImpl });
+    const provider = createLlmProvider({ provider: 'kimi', apiKey: 'sk-x', fetchImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect(events).toEqual([{ type: 'text_delta', text: 'A' }, { type: 'done' }]);
   });
 
   it('emits done when the body ends without an explicit [DONE]', async () => {
     const fetchImpl = vi.fn(async () => streamingResponse([sseDelta('only')])) as unknown as typeof fetch;
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'sk-x', fetchImpl });
+    const provider = createLlmProvider({ provider: 'zhipu', apiKey: 'sk-x', fetchImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect(events).toEqual([{ type: 'text_delta', text: 'only' }, { type: 'done' }]);
   });
@@ -67,7 +67,7 @@ describe('createLlmProvider streaming (Requirements 2.1, 2.2, 2.3)', () => {
     const fetchImpl = vi.fn(async () =>
       streamingResponse([frame.slice(0, mid), frame.slice(mid), 'data: [DONE]\n\n']),
     ) as unknown as typeof fetch;
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'sk-x', fetchImpl });
+    const provider = createLlmProvider({ provider: 'kimi', apiKey: 'sk-x', fetchImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect(events).toEqual([{ type: 'text_delta', text: 'Split' }, { type: 'done' }]);
   });
@@ -99,7 +99,7 @@ describe('request shape and auth (Requirements 2.1, 2.4, 2.7)', () => {
       return streamingResponse(['data: [DONE]\n\n']);
     }) as unknown as typeof fetch;
     const provider = createLlmProvider({
-      provider: 'openai',
+      provider: 'custom',
       apiKey: 'k',
       baseUrl: 'https://proxy.example.com/v1/',
       model: 'custom-model',
@@ -129,7 +129,7 @@ describe('request shape and auth (Requirements 2.1, 2.4, 2.7)', () => {
 describe('retry policy (Requirements 2.5, 2.6)', () => {
   it('does NOT retry on a 4xx and emits an error immediately', async () => {
     const fetchImpl = vi.fn(async () => new Response('bad', { status: 401 })) as unknown as typeof fetch;
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'k', fetchImpl });
+    const provider = createLlmProvider({ provider: 'qwen', apiKey: 'k', fetchImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(1);
     expect(events).toHaveLength(1);
@@ -139,7 +139,7 @@ describe('retry policy (Requirements 2.5, 2.6)', () => {
   it('retries a 5xx up to 3 total attempts then emits an error', async () => {
     const fetchImpl = vi.fn(async () => new Response('boom', { status: 503 })) as unknown as typeof fetch;
     const sleepImpl = vi.fn(async () => undefined);
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'k', fetchImpl, sleepImpl });
+    const provider = createLlmProvider({ provider: 'kimi', apiKey: 'k', fetchImpl, sleepImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(3);
     expect(events[events.length - 1].type).toBe('error');
@@ -153,7 +153,7 @@ describe('retry policy (Requirements 2.5, 2.6)', () => {
       return streamingResponse([sseDelta('ok'), 'data: [DONE]\n\n']);
     }) as unknown as typeof fetch;
     const sleepImpl = vi.fn(async () => undefined);
-    const provider = createLlmProvider({ provider: 'openai', apiKey: 'k', fetchImpl, sleepImpl });
+    const provider = createLlmProvider({ provider: 'zhipu', apiKey: 'k', fetchImpl, sleepImpl });
     const events = await collect(provider.chatStream({ messages: [] }));
     expect(n).toBe(2);
     expect(events).toEqual([{ type: 'text_delta', text: 'ok' }, { type: 'done' }]);

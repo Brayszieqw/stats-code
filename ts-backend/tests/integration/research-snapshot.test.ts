@@ -34,9 +34,9 @@ describe('research audit snapshot', () => {
     const datasetStore = createFsDatasetStore({ root: join(root, 'datasets') });
     const snapshotRuns = createSnapshotRunRegistry(datasetStore, {
       workingDirectory: join(root, 'datasets'),
-      llmConfig: () => ({ provider: 'openai', api_key: 'sk-snapshot-secret', model: 'gpt-test' }),
+      llmConfig: () => ({ provider: 'zhipu', api_key: 'sk-snapshot-secret', model: 'gpt-test' }),
       llmCallsForSession: () => [{
-        provider: 'openai',
+        provider: 'zhipu',
         model: 'gpt-test',
         request_at_utc: '2026-07-14T03:00:00.000Z',
         prompt_sha256: '1'.repeat(64),

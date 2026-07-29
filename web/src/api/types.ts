@@ -481,11 +481,10 @@ export interface HealthResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * LLM provider identifier — wire format matches the Rust `Provider` enum
- * in `crates/stats-code/src/launcher/config_store.rs`
- * (`#[serde(rename_all = "lowercase")]`).
+ * LLM provider identifier — wire format matches the backend's `LlmProvider`
+ * contract (ts-backend), serialized as lowercase strings.
  */
-export type LlmProvider = 'deepseek' | 'openai';
+export type LlmProvider = 'deepseek' | 'qwen' | 'kimi' | 'zhipu' | 'custom';
 
 /**
  * Response shape for `GET /api/llm-status`.
@@ -500,6 +499,8 @@ export interface LlmStatusResponse {
   provider: LlmProvider | null;
   base_url?: string | null;
   model?: string | null;
+  /** Providers with a cached API key on the backend; absent → treat as []. */
+  cached_providers?: LlmProvider[];
 }
 
 /**

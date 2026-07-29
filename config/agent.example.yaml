@@ -3,8 +3,9 @@
 # Copy to `config/agent.yaml` and customize. Environment variables in the form
 # `${VAR_NAME}` are expanded at load time.
 #
-# Choose ONE provider in `ai.provider` ("deepseek" or "openai") and fill in the
-# matching section. The other section may be omitted entirely.
+# Choose ONE provider in `ai.provider` ("deepseek", "qwen", "kimi", "zhipu", or
+# "custom") and fill in the matching section. The other sections may be
+# omitted entirely.
 
 server:
   bind: "127.0.0.1:8080"
@@ -13,7 +14,11 @@ server:
 ai:
   # ---------- Provider selection ----------
   # "deepseek" — DeepSeek hosted API (cheapest for Chinese content)
-  # "openai"   — OpenAI official API (gpt-4o, gpt-4o-mini, gpt-3.5-turbo, ...)
+  # "qwen"     — Alibaba DashScope (Qwen / 通义千问), OpenAI-compatible mode
+  # "kimi"     — Moonshot AI (Kimi)
+  # "zhipu"    — Zhipu AI (GLM / 智谱清言)
+  # "custom"   — any OpenAI-compatible endpoint or relay; base_url/model are
+  #              required (no built-in default) since the host is unknown
   provider: "deepseek"
 
   # ---------- DeepSeek configuration ----------
@@ -24,12 +29,37 @@ ai:
     request_timeout_secs: 30
     max_retries: 2
 
-  # ---------- OpenAI configuration ----------
-  openai:
-    api_key: "${OPENAI_API_KEY}"            # required; e.g. "sk-proj-xxxx"
-    model: "gpt-4o-mini"                    # also "gpt-4o", "gpt-3.5-turbo"
-    base_url: "https://api.openai.com/v1/"
-    organization: null                      # optional; e.g. "org-xxx"
+  # ---------- Qwen (DashScope) configuration ----------
+  qwen:
+    api_key: "${QWEN_API_KEY}"              # required; e.g. "sk-xxxx"
+    model: "qwen-plus"                      # also "qwen-max", "qwen-turbo", "qwen-long"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/"
+    request_timeout_secs: 30
+    max_retries: 2
+
+  # ---------- Kimi (Moonshot) configuration ----------
+  kimi:
+    api_key: "${KIMI_API_KEY}"              # required; e.g. "sk-xxxx"
+    model: "kimi-latest"                    # also "kimi-k2-turbo-preview", "kimi-k2-thinking", ...
+    base_url: "https://api.moonshot.cn/v1/"
+    request_timeout_secs: 30
+    max_retries: 2
+
+  # ---------- Zhipu (GLM) configuration ----------
+  zhipu:
+    api_key: "${ZHIPU_API_KEY}"             # required; e.g. "xxxx.xxxx"
+    model: "glm-4.5"                        # also "glm-4.7", "glm-4.6", "glm-4.5-air", "glm-4-flash" (free)
+    base_url: "https://open.bigmodel.cn/api/paas/v4/"
+    request_timeout_secs: 30
+    max_retries: 2
+
+  # ---------- Custom (OpenAI-compatible endpoint / relay) configuration ----------
+  # No built-in default base_url or model — both are required for this
+  # provider since the target host/relay is unknown ahead of time.
+  custom:
+    api_key: "${CUSTOM_LLM_API_KEY}"        # required
+    model: "your-model-id"                  # required; whatever the endpoint expects
+    base_url: "https://your-relay.example.com/v1/"  # required
     request_timeout_secs: 30
     max_retries: 2
 

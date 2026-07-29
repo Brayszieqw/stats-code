@@ -28,8 +28,8 @@ const COMPLETE_PROPOSAL = {
 
 function replayProvider(output: string, requests: LlmRequest[] = []): LlmProvider {
   return {
-    providerId: 'openai',
-    redactedConfig: () => ({ provider: 'openai', baseUrl: 'https://example.test/v1', model: 'mock' }),
+    providerId: 'zhipu',
+    redactedConfig: () => ({ provider: 'zhipu', baseUrl: 'https://example.test/v1', model: 'mock' }),
     async *chatStream(request: LlmRequest): AsyncIterable<LlmEvent> {
       requests.push(request);
       yield { type: 'text_delta', text: output };

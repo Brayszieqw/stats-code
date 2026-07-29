@@ -13,15 +13,15 @@ describe('transcribeAudio', () => {
       bytes: new Uint8Array([1, 2, 3]),
       contentType: 'audio/webm',
       config: {
-        provider: 'openai',
+        provider: 'custom',
         api_key: 'sk-test',
-        base_url: 'https://api.openai.com/v1',
-        model: 'gpt-4o-mini',
+        base_url: 'https://relay.example.com/v1',
+        model: 'whisper-1',
       },
       fetchImpl,
     });
 
-    expect(calls[0]!.url).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(calls[0]!.url).toBe('https://relay.example.com/v1/audio/transcriptions');
     expect(result.text).toBe('你好世界');
     expect(result.confidence).toBeGreaterThanOrEqual(0.6);
     expect(result.auto_processed).toBe(true);
@@ -29,7 +29,7 @@ describe('transcribeAudio', () => {
     expect(headers.authorization).toBe('Bearer sk-test');
   });
 
-  it('normalizes openai host without /v1', async () => {
+  it('normalizes a custom relay host without trailing slash changes', async () => {
     const urls: string[] = [];
     const fetchImpl = vi.fn(async (url: string) => {
       urls.push(url);
@@ -38,10 +38,10 @@ describe('transcribeAudio', () => {
 
     await transcribeAudio({
       bytes: new Uint8Array([1]),
-      config: { provider: 'openai', api_key: 'k', base_url: 'https://api.openai.com', model: null },
+      config: { provider: 'custom', api_key: 'k', base_url: 'https://relay.example.com/v1/', model: null },
       fetchImpl,
     });
-    expect(urls[0]).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(urls[0]).toBe('https://relay.example.com/v1/audio/transcriptions');
   });
 
   it('maps 404 to a clear Whisper-unavailable error', async () => {
@@ -62,7 +62,7 @@ describe('transcribeAudio', () => {
     await expect(
       transcribeAudio({
         bytes: new Uint8Array([1]),
-        config: { provider: 'openai', api_key: '', base_url: null, model: null },
+        config: { provider: 'custom', api_key: '', base_url: null, model: null },
       }),
     ).rejects.toBeInstanceOf(SpeechTranscribeError);
   });

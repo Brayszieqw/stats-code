@@ -500,5 +500,5 @@ export const HTTP_STATUS_FOR: Record<ErrorCode, number> = {
 
 // --- llm_config.rs --------------------------------------------------------
 
-export const llmProvider = z.enum(['deepseek', 'openai']);
+export const llmProvider = z.enum(['deepseek', 'qwen', 'kimi', 'zhipu', 'custom']);
 export type LlmProvider = z.infer<typeof llmProvider>;

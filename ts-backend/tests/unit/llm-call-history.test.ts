@@ -14,8 +14,8 @@ function sha(value: string): string {
 describe('createLlmCallHistory', () => {
   it('records session-scoped hash-only prompt/response provenance', async () => {
     const provider: LlmProvider = {
-      providerId: 'openai',
-      redactedConfig: () => ({ provider: 'openai', baseUrl: 'https://example.test/v1', model: 'gpt-test' }),
+      providerId: 'kimi',
+      redactedConfig: () => ({ provider: 'kimi', baseUrl: 'https://example.test/v1', model: 'gpt-test' }),
       async *chatStream() {
         yield { type: 'text_delta', text: 'answer-' } as const;
         yield { type: 'text_delta', text: 'body' } as const;
@@ -36,7 +36,7 @@ describe('createLlmCallHistory', () => {
     const calls = history.list('session-a');
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      provider: 'openai',
+      provider: 'kimi',
       model: 'gpt-test',
       request_at_utc: '2026-07-14T03:00:00.000Z',
       response_sha256: sha('answer-body'),

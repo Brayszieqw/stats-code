@@ -1,5 +1,6 @@
-{
+﻿{
   "name": "stats-code-ts-backend",
+  "license": "UNLICENSED",
   "version": "0.1.0",
   "private": true,
   "description": "Stats Code TypeScript backend (Node.js 22): api + server + engine, SEA single-exe.",

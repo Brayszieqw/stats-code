@@ -2,7 +2,7 @@
 type: concept
 status: stable
 tags: [parity, sidecar, concept, typescript]
-spec: .kiro/specs/parity-and-multilang-sidecar
+spec: parity-and-multilang-sidecar（历史规格，已归档至本地 work/backups/）
 ---
 
 # Parity 与 Sidecar

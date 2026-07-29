@@ -146,7 +146,9 @@ diagnostic_roc/power_phase2）暂无 `/run` 分发与配置器入口。覆盖矩
 
 ## Spec 位置
 
-- TS 重写：`.kiro/specs/typescript-backend-rewrite/`
-- 会话编排：`.kiro/specs/ts-backend-conversation/`
-- 双模式前端：`.kiro/specs/dual-mode-frontend/`
-- 单命令启动器（历史规格）：`.kiro/specs/single-command-launcher/`
+历史开发规格已随旧开发工具退役，归档于本地 `work/backups/`（不入库）：
+
+- TS 重写：`typescript-backend-rewrite/`
+- 会话编排：`ts-backend-conversation/`
+- 双模式前端：`dual-mode-frontend/`
+- 单命令启动器（历史规格）：`single-command-launcher/`

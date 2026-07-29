@@ -1,6 +1,3 @@
 {
-    "git.ignoreLimitWarning": true,
-    "kiroAgent.trustedCommands": [
-        ""
-    ]
+    "git.ignoreLimitWarning": true
 }

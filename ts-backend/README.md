@@ -2,8 +2,9 @@
 
 The production backend of Stats Code: a contract-preserving TypeScript rewrite
 of the original Rust workspace, running on Node.js 22 LTS. The rewrite is
-**complete** (all phases of `.kiro/specs/typescript-backend-rewrite/tasks.md`
-checked off); the Rust workspace was retired and removed — its final state is
+**complete** (all phases of the historical `typescript-backend-rewrite` spec
+checked off; spec archived locally under `work/backups/`); the Rust workspace
+was retired and removed — its final state is
 retired; no archive tag is retained.
 
 The React 19 + Vite frontend lives in `../web/` and talks to this backend over

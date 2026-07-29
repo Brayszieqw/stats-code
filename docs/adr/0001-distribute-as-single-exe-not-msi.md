@@ -2,7 +2,7 @@
 
 - **状态**：Accepted
 - **日期**：2026-05-19
-- **相关 Spec**：`.kiro/specs/single-command-launcher/`
+- **相关 Spec**：`single-command-launcher`（历史规格，已归档至本地 work/backups/）
 
 ## 背景
 

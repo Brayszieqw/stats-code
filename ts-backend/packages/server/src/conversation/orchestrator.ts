@@ -28,6 +28,7 @@ import {
   mergeMissingArgs,
 } from './heuristic-intent.js';
 import { ResearchWorkflowError } from './research-workflow.js';
+import { matchInfiniTrigger, type InfiniChatRunner } from '../infinisynapse.js';
 
 export interface OrchestratorDeps {
   sessionStore: SessionStore;
@@ -35,6 +36,8 @@ export interface OrchestratorDeps {
   researchWorkflow: ResearchWorkflowService;
   /** Returns a provider from the CURRENT persisted config, or null if unconfigured. */
   llmProviderFactory: (sessionId: string) => LlmProvider | null;
+  /** InfiniSynapse 云端分析（可选）：触发词 @云端/@infini 时整句转发。 */
+  infiniChatRunner?: InfiniChatRunner;
 }
 
 export interface IntentResult {
@@ -227,7 +230,7 @@ function findMissingArgs(desc: SkillDescriptor, resolved: Record<string, unknown
 }
 
 export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
-  const { sessionStore, registry, researchWorkflow, llmProviderFactory } = deps;
+  const { sessionStore, registry, researchWorkflow, llmProviderFactory, infiniChatRunner } = deps;
 
   async function addSessionDatasetDefault(
     sessionId: string,
@@ -650,6 +653,30 @@ export function createOrchestrator(deps: OrchestratorDeps): MessageHandler {
   }
 
   async function* handleMessage(sessionId: string, input: UserMessageInput): AsyncIterable<AgentEvent> {
+    // InfiniSynapse 云端分析：触发词（@云端 / @infini / 云端分析）整句转发，
+    // 事件形状是 AgentEvent 的 text_delta/error 子集，直接透传后终结本条消息。
+    if (infiniChatRunner) {
+      const cloudText = matchInfiniTrigger(input.text);
+      if (cloudText !== null) {
+        if (!infiniChatRunner.configured()) {
+          yield {
+            type: 'error',
+            payload: {
+              error_code: 'InfiniSynapseNotConfigured',
+              message: '尚未配置 InfiniSynapse API Key，请在右下角云图标面板中保存密钥后重试。',
+            },
+          };
+          yield { type: 'done' };
+          return;
+        }
+        for await (const event of infiniChatRunner.run(cloudText)) {
+          yield event;
+        }
+        yield { type: 'done' };
+        return;
+      }
+    }
+
     const provider = llmProviderFactory(sessionId);
     if (!provider) {
       // Still allow offline keyword routing when chat LLM is not configured.

@@ -425,6 +425,140 @@ export function registerInfiniSynapseRoutes(
   });
 }
 
+// ---------------------------------------------------------------------------
+// 对话集成：让主聊天框像用本地 LLM 一样直接发起云端分析。
+// 触发词开头（@云端 / @infini / 云端分析）→ 显式路由；orchestrator 在本地
+// LLM 未配置时也可整句兜底到这里。事件形状与 AgentEvent 的 text_delta/error
+// 子集一致，SSE 链路零改动。
+// ---------------------------------------------------------------------------
+
+const TRIGGER_RE = /^\s*(?:@\s*(?:infinisynapse|infini|云端)|云端分析|云分析)[:：,，\s]*/i;
+
+/** 命中触发词则返回剥掉前缀后的正文；未命中或正文为空返回 null。 */
+export function matchInfiniTrigger(text: string): string | null {
+  const m = TRIGGER_RE.exec(text);
+  if (!m) return null;
+  const rest = text.slice(m[0].length).trim();
+  return rest.length > 0 ? rest : null;
+}
+
+export type InfiniChatEvent =
+  | { type: 'text_delta'; text: string }
+  | { type: 'error'; payload: { error_code: string; message: string } };
+
+export interface InfiniChatRunner {
+  configured(): boolean;
+  /** 发起云端任务并轮询到完成，把进度与结论作为聊天事件流吐出。 */
+  run(text: string): AsyncIterable<InfiniChatEvent>;
+}
+
+export interface CreateInfiniChatRunnerOptions {
+  store?: InfiniSynapseConfigStore;
+  fetchImpl?: typeof fetch;
+  /** 轮询间隔；默认 3s。 */
+  pollIntervalMs?: number;
+  /** 最长等待；默认 10 分钟。 */
+  maxWaitMs?: number;
+  /** 注入 sleep 以便测试免等待。 */
+  sleepImpl?: (ms: number) => Promise<void>;
+}
+
+export function createInfiniChatRunner(opts: CreateInfiniChatRunnerOptions = {}): InfiniChatRunner {
+  const store = opts.store ?? createFileInfiniSynapseStore();
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const pollIntervalMs = opts.pollIntervalMs ?? 3_000;
+  const maxWaitMs = opts.maxWaitMs ?? 10 * 60_000;
+  const sleep = opts.sleepImpl ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  return {
+    configured: () => store.read() !== null,
+    async *run(text: string): AsyncIterable<InfiniChatEvent> {
+      const cfg = store.read();
+      if (!cfg) {
+        yield {
+          type: 'error',
+          payload: {
+            error_code: 'InfiniSynapseNotConfigured',
+            message: '尚未配置 InfiniSynapse API Key，请在右下角云图标面板中保存密钥。',
+          },
+        };
+        return;
+      }
+      const taskId = randomUUID();
+      try {
+        const resp = (await upstreamJson(cfg, fetchImpl, '/api/ai/message', {
+          method: 'POST',
+          timeoutMs: 30_000,
+          body: { type: 'newTask', taskId, text },
+        })) as { success?: unknown; error?: unknown } | null;
+        if (typeof resp === 'object' && resp !== null && 'success' in resp && resp.success !== true) {
+          const detail = typeof resp.error === 'string' ? resp.error : JSON.stringify(resp.error ?? '');
+          yield {
+            type: 'error',
+            payload: { error_code: 'InfiniSynapseUpstream', message: `云端任务创建被拒绝：${detail}` },
+          };
+          return;
+        }
+      } catch (err) {
+        yield {
+          type: 'error',
+          payload: {
+            error_code: 'InfiniSynapseUpstream',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
+        return;
+      }
+
+      yield { type: 'text_delta', text: `☁️ 已提交 InfiniSynapse 云端分析（任务 ${taskId.slice(0, 8)}…），运行中…\n` };
+
+      let waited = 0;
+      let lastNotified = 0;
+      while (waited < maxWaitMs) {
+        await sleep(pollIntervalMs);
+        waited += pollIntervalMs;
+        let status: InfiniTaskStatus;
+        try {
+          const data = await upstreamJson(cfg, fetchImpl, `/api/ai_task/tasks?taskId=${encodeURIComponent(taskId)}`);
+          status = mapTaskStatus(data);
+        } catch (err) {
+          yield {
+            type: 'error',
+            payload: {
+              error_code: 'InfiniSynapseUpstream',
+              message: err instanceof Error ? err.message : String(err),
+            },
+          };
+          return;
+        }
+        if (status.completed) {
+          yield { type: 'text_delta', text: `\n✅ 云端分析完成：\n\n${status.result_text ?? '（无文本结论）'}` };
+          return;
+        }
+        if (status.failed) {
+          yield {
+            type: 'error',
+            payload: { error_code: 'InfiniSynapseUpstream', message: '云端任务执行失败，请在 InfiniSynapse 控制台查看详情。' },
+          };
+          return;
+        }
+        // 每 ~30s 报一次心跳，避免长任务看起来卡死；不逐条刷进度以免污染最终消息。
+        if (waited - lastNotified >= 30_000) {
+          lastNotified = waited;
+          yield { type: 'text_delta', text: `（仍在运行，已收到 ${status.message_count} 条云端消息…）\n` };
+        }
+      }
+      yield {
+        type: 'error',
+        payload: {
+          error_code: 'InfiniSynapseUpstream',
+          message: `云端任务超过 ${Math.round(maxWaitMs / 60_000)} 分钟未完成，可稍后在 InfiniSynapse 控制台查看任务 ${taskId}。`,
+        },
+      };
+    },
+  };
+}
+
 class NotConfiguredError extends Error {
   constructor() {
     super('尚未配置 InfiniSynapse API Key，请先在面板中保存密钥。');

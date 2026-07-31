@@ -170,6 +170,13 @@ export function InfiniSynapsePanel() {
         }
       />
 
+      <Alert
+        type="info"
+        showIcon
+        message="也可以直接在主对话框使用"
+        description={<>在聊天输入框以「<Text code>@云端</Text>」开头提问（例：@云端 分析各组发病率差异），结果会像普通 AI 回复一样出现在会话里。</>}
+      />
+
       <div>
         <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>
           分析指令（发送给 InfiniSynapse 泛数据分析引擎）

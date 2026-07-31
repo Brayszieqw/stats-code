@@ -24,6 +24,7 @@ import {
   createProtocolCompiler,
   createOrchestrator,
   createResearchWorkflowService,
+  createInfiniChatRunner,
   SkillRegistry,
   SkillRunner,
   createFileSessionStore,
@@ -104,6 +105,7 @@ export function defaultState(): AppState {
     registry,
     researchWorkflow,
     llmProviderFactory,
+    infiniChatRunner: createInfiniChatRunner(),
   });
   const protocolCompiler = createProtocolCompiler(llmProviderFactory);
 

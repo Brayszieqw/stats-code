@@ -4,7 +4,17 @@
 // newTask 透传、任务轮询的 completion_result 映射、上游信封 code!=200 → 502。
 
 import { describe, it, expect } from 'vitest';
-import { buildRouter, MemSessionStore, mapTaskStatus, type AppState, type InfiniSynapseConfig, type InfiniSynapseConfigStore } from '@stats-code/server';
+import {
+  buildRouter,
+  MemSessionStore,
+  mapTaskStatus,
+  matchInfiniTrigger,
+  createInfiniChatRunner,
+  type AppState,
+  type InfiniChatEvent,
+  type InfiniSynapseConfig,
+  type InfiniSynapseConfigStore,
+} from '@stats-code/server';
 
 function memStore(initial: InfiniSynapseConfig | null = null): InfiniSynapseConfigStore {
   let cfg = initial;
@@ -144,5 +154,60 @@ describe('InfiniSynapse integration routes', () => {
   it('mapTaskStatus: running task with no completion is neither completed nor failed', () => {
     const status = mapTaskStatus({ isRunning: true, messages: [{ type: 'say', say: 'text', text: '…' }] });
     expect(status).toMatchObject({ is_running: true, completed: false, failed: false });
+  });
+});
+
+describe('InfiniSynapse chat trigger + runner (对话框云端分析)', () => {
+  it('matchInfiniTrigger strips @云端/@infini/云端分析 prefixes, null otherwise', () => {
+    expect(matchInfiniTrigger('@云端 分析销售趋势')).toBe('分析销售趋势');
+    expect(matchInfiniTrigger('@infini: analyze sales')).toBe('analyze sales');
+    expect(matchInfiniTrigger('云端分析：各组发病率差异')).toBe('各组发病率差异');
+    expect(matchInfiniTrigger('普通的本地统计问题')).toBeNull();
+    expect(matchInfiniTrigger('@云端   ')).toBeNull();
+  });
+
+  it('runner streams submit → poll → completion_result as chat text', async () => {
+    let polls = 0;
+    const fetchImpl = (async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.endsWith('/api/ai/message')) {
+        return jsonResponse({ code: 200, message: 'success', data: { success: true } });
+      }
+      polls += 1;
+      return jsonResponse({
+        code: 200,
+        message: 'success',
+        data:
+          polls < 2
+            ? { isRunning: true, messages: [{ type: 'say', say: 'text', text: 'working' }] }
+            : {
+                isRunning: false,
+                messages: [{ type: 'say', say: 'completion_result', text: '均值 54.75，SD 25.36' }],
+              },
+      });
+    }) as typeof fetch;
+    const runner = createInfiniChatRunner({
+      store: memStore(CFG),
+      fetchImpl,
+      pollIntervalMs: 1,
+      sleepImpl: async () => {},
+    });
+    const events: InfiniChatEvent[] = [];
+    for await (const e of runner.run('分析随机数')) events.push(e);
+    const text = events
+      .filter((e): e is Extract<InfiniChatEvent, { type: 'text_delta' }> => e.type === 'text_delta')
+      .map((e) => e.text)
+      .join('');
+    expect(text).toContain('已提交 InfiniSynapse 云端分析');
+    expect(text).toContain('均值 54.75，SD 25.36');
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('runner yields a friendly error when unconfigured', async () => {
+    const runner = createInfiniChatRunner({ store: memStore(), sleepImpl: async () => {} });
+    const events: InfiniChatEvent[] = [];
+    for await (const e of runner.run('x')) events.push(e);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'error' });
   });
 });

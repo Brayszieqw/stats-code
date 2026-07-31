@@ -50,10 +50,15 @@ export {
   defaultInfiniSynapseConfigPath,
   mapTaskStatus,
   mapWorkspace,
+  matchInfiniTrigger,
+  createInfiniChatRunner,
   DEFAULT_INFINISYNAPSE_BASE_URL,
   type InfiniSynapseConfig,
   type InfiniSynapseConfigStore,
   type InfiniTaskStatus,
+  type InfiniChatRunner,
+  type InfiniChatEvent,
+  type CreateInfiniChatRunnerOptions,
   type RegisterInfiniSynapseOptions,
 } from './infinisynapse.js';
 export {

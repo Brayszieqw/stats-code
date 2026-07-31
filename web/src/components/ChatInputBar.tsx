@@ -56,7 +56,7 @@ export function ChatInputBar({
   isArchived,
   onSend,
   onVoiceTranscript,
-  placeholder = '输入统计分析问题，Enter 发送，Shift+Enter 换行',
+  placeholder = '输入统计分析问题，Enter 发送；「@云端 …」发起 InfiniSynapse 云端分析',
   archivedPlaceholder = '当前会话已归档，无法发送消息',
   inputAriaLabel = '消息输入框',
   footer,

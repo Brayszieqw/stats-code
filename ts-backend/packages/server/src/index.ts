@@ -45,6 +45,18 @@ export {
 } from './state.js';
 export { serializeSseFrame } from './sse.js';
 export {
+  registerInfiniSynapseRoutes,
+  createFileInfiniSynapseStore,
+  defaultInfiniSynapseConfigPath,
+  mapTaskStatus,
+  mapWorkspace,
+  DEFAULT_INFINISYNAPSE_BASE_URL,
+  type InfiniSynapseConfig,
+  type InfiniSynapseConfigStore,
+  type InfiniTaskStatus,
+  type RegisterInfiniSynapseOptions,
+} from './infinisynapse.js';
+export {
   installSpaFallback,
   ASSET_PREFIXES,
   ROOT_ASSET_FILES,

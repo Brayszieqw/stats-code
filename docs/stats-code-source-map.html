@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stats Code · 功能全景图（给全组看）</title>
+  <meta name="description" content="用一张放射式功能图，用大白话讲清 Stats Code 是什么、能做什么、怎么用、可信在哪里——面向不懂代码的组员。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* 配色对齐 web/src/index.css「研究手稿」视觉系统 */
+    :root {
+      --ink-900: #172c42;
+      --ink-700: #27394a;
+      --ink-500: #4e5b6b;
+      --ink-300: #5e6b7a;
+      --primary: #244f73;
+      --primary-deep: #173b5a;
+      --primary-light: #6285a1;
+      --primary-wash: rgba(36, 79, 115, 0.08);
+      --cinnabar: #c33b2d;
+      --cinnabar-wash: rgba(195, 59, 45, 0.08);
+      --mint: #27715d;
+      --mint-wash: rgba(39, 113, 93, 0.1);
+      --amber: #9a6417;
+      --amber-wash: rgba(154, 100, 23, 0.1);
+      --paper-bright: #fffefa;
+      --paper-base: #f7f3ea;
+      --paper-warm: #eee8dc;
+      --paper-line: #ded9cd;
+      --paper-line-strong: #cbc3b3;
+      --card: rgba(255, 254, 250, 0.94);
+      --shadow: 0 18px 48px rgba(24, 48, 72, 0.1);
+      --shadow-soft: 0 8px 24px rgba(24, 48, 72, 0.06);
+      --radius: 16px;
+      --font: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      --serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      color: var(--ink-700);
+      background:
+        radial-gradient(ellipse 70% 45% at 12% -5%, rgba(36, 79, 115, 0.1), transparent 55%),
+        radial-gradient(ellipse 50% 35% at 95% 8%, rgba(195, 59, 45, 0.06), transparent 50%),
+        radial-gradient(ellipse 40% 30% at 70% 100%, rgba(39, 113, 93, 0.05), transparent 50%),
+        linear-gradient(180deg, #faf7f0 0%, var(--paper-base) 45%, #f3ebe0 100%);
+      overflow: hidden;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #grain {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.35;
+    }
+
+    /* Top bar */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 0.7rem 1.2rem;
+      background: rgba(247, 243, 234, 0.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--paper-line);
+    }
+    .brand { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
+    .mark {
+      width: 2.15rem; height: 2.15rem; border-radius: 10px;
+      display: grid; place-items: center;
+      font-family: var(--serif); font-weight: 700; font-size: 0.78rem; color: #fff;
+      background: linear-gradient(145deg, #38618c 0%, var(--primary-deep) 100%);
+      box-shadow: 0 8px 18px rgba(36, 72, 107, 0.22);
+      flex-shrink: 0;
+    }
+    .brand h1 {
+      margin: 0; font-family: var(--serif); font-size: 1.05rem; font-weight: 700;
+      color: var(--ink-900); letter-spacing: 0.01em; white-space: nowrap;
+    }
+    .brand p {
+      margin: 0.05rem 0 0; font-size: 0.74rem; color: var(--ink-300);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .top-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+    .search-wrap { position: relative; }
+    .search-wrap input {
+      width: min(280px, 38vw);
+      padding: 0.48rem 0.85rem 0.48rem 2rem;
+      border-radius: 999px; border: 1px solid var(--paper-line);
+      background: var(--paper-bright); color: var(--ink-700);
+      font: inherit; font-size: 0.86rem; outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .search-wrap input:focus {
+      border-color: var(--primary-light);
+      box-shadow: 0 0 0 3px var(--primary-wash);
+    }
+    .search-wrap::before {
+      content: "⌕"; position: absolute; left: 0.72rem; top: 50%;
+      transform: translateY(-50%); color: var(--ink-300); pointer-events: none;
+    }
+    .chip-btn {
+      appearance: none; border: 1px solid var(--paper-line); background: var(--paper-bright);
+      color: var(--ink-500); border-radius: 999px; padding: 0.42rem 0.9rem;
+      font: inherit; font-size: 0.78rem; cursor: pointer; transition: .15s; white-space: nowrap;
+    }
+    .chip-btn:hover, .chip-btn.active {
+      color: var(--primary); border-color: rgba(36, 79, 115, 0.35);
+      background: var(--primary-wash);
+    }
+
+    /* Stage */
+    .stage {
+      position: relative; z-index: 1; width: 100%; height: 100%;
+      display: grid; place-items: center;
+      padding: 3.6rem 0.5rem 3.4rem;
+    }
+    .orbit-wrap {
+      position: relative;
+      width: min(900px, 94vmin);
+      height: min(900px, 94vmin);
+      transition: transform .4s cubic-bezier(.2,.8,.2,1);
+    }
+    .orbit-wrap.zoomed { transform: scale(0.78) translateY(-2%); }
+
+    .ring {
+      position: absolute; border-radius: 50%; left: 50%; top: 50%;
+      transform: translate(-50%, -50%); pointer-events: none;
+      border: 1px dashed rgba(36, 79, 115, 0.14);
+    }
+    .ring.r1 { width: 36%; height: 36%; border-style: solid; border-color: rgba(36, 79, 115, 0.08); }
+    .ring.r2 { width: 66%; height: 66%; animation: ringSpin 100s linear infinite; }
+    .ring.r3 { width: 94%; height: 94%; animation: ringSpin 140s linear infinite reverse; opacity: 0.8; }
+    @keyframes ringSpin {
+      from { transform: translate(-50%, -50%) rotate(0); }
+      to { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
+    .links {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; overflow: visible;
+    }
+    .links line {
+      stroke: rgba(36, 79, 115, 0.18);
+      stroke-width: 1.4;
+      stroke-dasharray: 5 7;
+      animation: dashFlow 10s linear infinite;
+    }
+    .links line.active {
+      stroke: rgba(36, 79, 115, 0.55);
+      stroke-width: 2.2;
+      filter: drop-shadow(0 0 3px rgba(36, 79, 115, 0.25));
+    }
+    @keyframes dashFlow { to { stroke-dashoffset: -48; } }
+
+    /* Hub */
+    .hub {
+      position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: clamp(128px, 19%, 158px);
+      height: clamp(128px, 19%, 158px);
+      border-radius: 50%;
+      display: grid; place-items: center; text-align: center;
+      cursor: pointer; z-index: 5;
+      color: #fff;
+      background:
+        radial-gradient(circle at 32% 28%, rgba(255,255,255,0.22), transparent 42%),
+        linear-gradient(150deg, #3d74a8 0%, var(--primary) 48%, var(--primary-deep) 100%);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.18) inset,
+        0 14px 36px rgba(36, 79, 115, 0.32),
+        0 0 0 10px rgba(36, 79, 115, 0.06);
+      transition: transform .22s ease, box-shadow .22s ease;
+      animation: hubBreathe 4s ease-in-out infinite;
+    }
+    .hub:hover { transform: translate(-50%, -50%) scale(1.04); }
+    .hub.active {
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.25) inset,
+        0 16px 40px rgba(36, 79, 115, 0.4),
+        0 0 0 12px rgba(195, 59, 45, 0.08);
+    }
+    .hub::after {
+      content: ""; position: absolute; inset: -12px; border-radius: 50%;
+      border: 1.5px solid rgba(36, 79, 115, 0.2);
+      animation: hubRing 4s ease-in-out infinite;
+    }
+    @keyframes hubBreathe {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.06); }
+    }
+    @keyframes hubRing {
+      0%, 100% { transform: scale(1); opacity: 0.7; }
+      50% { transform: scale(1.06); opacity: 0.25; }
+    }
+    .hub-title {
+      font-family: var(--serif); font-weight: 700;
+      font-size: clamp(1rem, 2.4vmin, 1.28rem);
+      line-height: 1.2; text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+    .hub-sub {
+      margin-top: 0.3rem; font-size: clamp(0.6rem, 1.3vmin, 0.72rem);
+      letter-spacing: 0.06em; opacity: 0.9;
+    }
+
+    /* Nodes */
+    .node {
+      position: absolute; left: 50%; top: 50%;
+      width: clamp(92px, 13%, 114px);
+      height: clamp(92px, 13%, 114px);
+      margin: calc(clamp(92px, 13%, 114px) / -2) 0 0 calc(clamp(92px, 13%, 114px) / -2);
+      border-radius: 50%;
+      display: grid; place-items: center; text-align: center;
+      cursor: pointer; z-index: 4; padding: 0.45rem;
+      border: 1.5px solid var(--paper-line);
+      background:
+        radial-gradient(circle at 30% 24%, rgba(255,255,255,0.95), transparent 50%),
+        var(--paper-bright);
+      box-shadow: var(--shadow-soft);
+      transition: transform .2s ease, box-shadow .2s, border-color .2s, background .2s;
+    }
+    .node:hover {
+      transform: scale(1.08);
+      border-color: rgba(36, 79, 115, 0.35);
+      box-shadow: 0 12px 32px rgba(36, 79, 115, 0.14);
+      z-index: 6;
+    }
+    .node.active {
+      transform: scale(1.1);
+      border-color: var(--node-accent, var(--primary));
+      background:
+        radial-gradient(circle at 30% 24%, #fff, transparent 50%),
+        color-mix(in srgb, var(--node-accent, var(--primary)) 10%, var(--paper-bright));
+      box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--node-accent, var(--primary)) 16%, transparent),
+        0 14px 34px rgba(36, 79, 115, 0.16);
+      z-index: 7;
+    }
+    .node.dimmed { opacity: 0.32; filter: grayscale(0.35); pointer-events: none; }
+    .node.highlight-match {
+      border-color: var(--cinnabar);
+      box-shadow: 0 0 0 3px var(--cinnabar-wash), var(--shadow-soft);
+    }
+    .node .icon {
+      font-size: clamp(1.05rem, 2.5vmin, 1.35rem);
+      line-height: 1; margin-bottom: 0.22rem;
+    }
+    .node .label {
+      font-size: clamp(0.66rem, 1.5vmin, 0.8rem);
+      font-weight: 700; color: var(--ink-900); line-height: 1.25;
+    }
+    .node .hint {
+      margin-top: 0.12rem;
+      font-size: 0.58rem; color: var(--ink-300); line-height: 1.2;
+    }
+
+    .hint-bar {
+      position: fixed; left: 50%; bottom: 0.9rem; transform: translateX(-50%);
+      z-index: 30; max-width: min(92vw, 760px);
+      padding: 0.5rem 1rem; border-radius: 999px;
+      border: 1px solid var(--paper-line); background: rgba(255, 254, 250, 0.92);
+      box-shadow: var(--shadow-soft); color: var(--ink-500);
+      font-size: 0.76rem; text-align: center; backdrop-filter: blur(8px);
+    }
+    .hint-bar kbd {
+      font-family: ui-monospace, Consolas, monospace; font-size: 0.68rem;
+      padding: 0.08rem 0.35rem; border-radius: 4px;
+      border: 1px solid var(--paper-line); background: var(--paper-warm); color: var(--ink-700);
+    }
+
+    /* Panel */
+    .panel {
+      position: fixed; top: 0; right: 0;
+      width: min(520px, 100vw); height: 100%; z-index: 50;
+      transform: translateX(105%);
+      transition: transform .36s cubic-bezier(.2,.8,.2,1);
+      background: linear-gradient(180deg, #fffefa 0%, #faf6ee 100%);
+      border-left: 1px solid var(--paper-line);
+      box-shadow: -16px 0 48px rgba(24, 48, 72, 0.12);
+      display: flex; flex-direction: column;
+    }
+    .panel.open { transform: translateX(0); }
+    .panel-head {
+      padding: 1.15rem 1.2rem 0.95rem;
+      border-bottom: 1px solid var(--paper-line);
+      display: flex; gap: 0.85rem; align-items: flex-start;
+      background: rgba(255, 254, 250, 0.96);
+    }
+    .panel-icon {
+      width: 2.7rem; height: 2.7rem; border-radius: 12px;
+      display: grid; place-items: center; font-size: 1.3rem; flex-shrink: 0;
+      background: var(--primary-wash);
+      border: 1px solid rgba(36, 79, 115, 0.15);
+    }
+    .panel-head h2 {
+      margin: 0; font-family: var(--serif); font-size: 1.22rem;
+      font-weight: 700; color: var(--ink-900); line-height: 1.3;
+    }
+    .panel-head .sub {
+      margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--ink-300);
+    }
+    .panel-close {
+      margin-left: auto; appearance: none;
+      border: 1px solid var(--paper-line); background: var(--paper-bright);
+      color: var(--ink-500); width: 2rem; height: 2rem; border-radius: 8px;
+      cursor: pointer; font-size: 1.15rem; line-height: 1; transition: .15s; flex-shrink: 0;
+    }
+    .panel-close:hover {
+      color: var(--cinnabar); border-color: rgba(195, 59, 45, 0.35);
+      background: var(--cinnabar-wash);
+    }
+    .panel-body {
+      flex: 1; overflow: auto; padding: 1rem 1.25rem 2.2rem;
+      scrollbar-width: thin; scrollbar-color: #8a96a3 transparent;
+    }
+
+    .tag-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.9rem; }
+    .tag {
+      font-size: 0.7rem; padding: 0.16rem 0.55rem; border-radius: 999px;
+      border: 1px solid var(--paper-line); color: var(--ink-500); background: var(--paper-warm);
+    }
+    .tag.ok { color: var(--mint); border-color: rgba(39,113,93,0.25); background: var(--mint-wash); }
+    .tag.warn { color: var(--amber); border-color: rgba(154,100,23,0.25); background: var(--amber-wash); }
+    .tag.hot { color: var(--cinnabar); border-color: rgba(195,59,45,0.25); background: var(--cinnabar-wash); }
+    .tag.blue { color: var(--primary); border-color: rgba(36,79,115,0.22); background: var(--primary-wash); }
+
+    .lead {
+      margin: 0 0 1rem; color: var(--ink-500); font-size: 0.96rem;
+      padding: 0.75rem 0.9rem; border-radius: 12px;
+      background: var(--primary-wash); border-left: 3px solid var(--primary);
+    }
+    .section { margin: 1.2rem 0 0; }
+    .section h3 {
+      margin: 0 0 0.55rem; font-family: var(--serif);
+      font-size: 1rem; font-weight: 700; color: var(--ink-900);
+      display: flex; align-items: center; gap: 0.45rem;
+    }
+    .section h3::before {
+      content: ""; width: 0.38rem; height: 0.38rem; border-radius: 50%;
+      background: var(--cinnabar); box-shadow: 0 0 0 3px var(--cinnabar-wash);
+      flex-shrink: 0;
+    }
+    .section p { margin: 0 0 0.6rem; color: var(--ink-500); font-size: 0.9rem; }
+    .section ul, .section ol { margin: 0 0 0.55rem; padding-left: 1.2rem; }
+    .section li { margin: 0.35rem 0; color: var(--ink-700); font-size: 0.9rem; }
+    .section li strong { color: var(--ink-900); }
+
+    .story-box {
+      margin: 0.5rem 0 0.75rem; padding: 0.85rem 0.95rem;
+      border-radius: 12px; border: 1px solid var(--paper-line);
+      background: var(--paper-bright); box-shadow: 0 4px 14px rgba(24,48,72,0.04);
+    }
+    .story-box .who {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--primary); text-transform: uppercase; margin-bottom: 0.3rem;
+    }
+    .story-box p { margin: 0; color: var(--ink-700); font-size: 0.88rem; }
+
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+      margin: 0.35rem 0 0.75rem;
+    }
+    .flow span {
+      font-size: 0.78rem; padding: 0.32rem 0.6rem; border-radius: 999px;
+      background: var(--paper-bright); border: 1px solid var(--paper-line); color: var(--ink-700);
+    }
+    .flow .arrow {
+      border: none; background: none; color: var(--primary-light); padding: 0 0.1rem; font-size: 0.9rem;
+    }
+
+    .callout {
+      margin: 0.65rem 0; padding: 0.75rem 0.9rem; border-radius: 12px;
+      border: 1px solid rgba(154,100,23,0.22); background: var(--amber-wash);
+      color: #6b4a12; font-size: 0.86rem;
+    }
+    .callout.ok {
+      border-color: rgba(39,113,93,0.22); background: var(--mint-wash); color: #1a4d3f;
+    }
+    .callout.danger {
+      border-color: rgba(195,59,45,0.22); background: var(--cinnabar-wash); color: #8a2a20;
+    }
+    .callout.blue {
+      border-color: rgba(36,79,115,0.2); background: var(--primary-wash); color: var(--primary-deep);
+    }
+
+    table.feat {
+      width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 0.3rem 0 0.7rem;
+    }
+    table.feat th, table.feat td {
+      text-align: left; padding: 0.5rem 0.4rem; vertical-align: top;
+      border-bottom: 1px solid var(--paper-line);
+    }
+    table.feat th {
+      width: 30%; color: var(--ink-900); font-weight: 600; font-size: 0.84rem;
+    }
+    table.feat td { color: var(--ink-500); }
+
+    .child-grid { display: grid; gap: 0.5rem; }
+    .child-card {
+      appearance: none; width: 100%; text-align: left;
+      border: 1px solid var(--paper-line); background: var(--paper-bright);
+      color: inherit; border-radius: 12px; padding: 0.7rem 0.8rem;
+      cursor: pointer; transition: .15s; font: inherit;
+      box-shadow: 0 2px 8px rgba(24,48,72,0.03);
+    }
+    .child-card:hover {
+      border-color: rgba(36, 79, 115, 0.35);
+      background: var(--primary-wash);
+      transform: translateX(3px);
+    }
+    .child-card .t {
+      display: block; font-weight: 700; font-size: 0.9rem;
+      color: var(--ink-900); margin-bottom: 0.2rem;
+    }
+    .child-card .d {
+      display: block; font-size: 0.8rem; color: var(--ink-500); line-height: 1.5;
+    }
+    .child-card .badge {
+      display: inline-block; margin-top: 0.35rem; font-size: 0.68rem;
+      color: var(--primary); font-weight: 600;
+    }
+
+    .qa {
+      margin: 0.4rem 0; padding: 0.7rem 0.85rem; border-radius: 12px;
+      background: #fff; border: 1px solid var(--paper-line);
+    }
+    .qa .q { font-weight: 700; color: var(--ink-900); font-size: 0.88rem; margin-bottom: 0.25rem; }
+    .qa .a { color: var(--ink-500); font-size: 0.86rem; margin: 0; }
+
+    .list-mode {
+      display: none; position: fixed; inset: 0; z-index: 20;
+      padding: 4.4rem 1rem 4rem; overflow: auto;
+      background: rgba(247, 243, 234, 0.98);
+    }
+    .list-mode.show { display: block; }
+    .list-mode h2 {
+      font-family: var(--serif); font-size: 1.15rem; margin: 0 0 0.35rem; color: var(--ink-900);
+    }
+    .list-mode .desc { color: var(--ink-300); font-size: 0.86rem; margin: 0 0 1rem; }
+    .list-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.65rem;
+    }
+    .list-card {
+      border: 1px solid var(--paper-line); background: var(--paper-bright);
+      border-radius: 14px; padding: 0.95rem 0.75rem; cursor: pointer;
+      transition: .15s; text-align: center; box-shadow: var(--shadow-soft);
+    }
+    .list-card:hover {
+      border-color: rgba(36,79,115,0.35); transform: translateY(-2px);
+    }
+    .list-card .icon { font-size: 1.45rem; margin-bottom: 0.3rem; }
+    .list-card .label { font-weight: 700; font-size: 0.9rem; color: var(--ink-900); }
+    .list-card .hint { font-size: 0.72rem; color: var(--ink-300); margin-top: 0.25rem; }
+
+    .toast {
+      position: fixed; left: 50%; top: 4rem; transform: translateX(-50%) translateY(-10px);
+      z-index: 60; padding: 0.5rem 1rem; border-radius: 999px;
+      background: var(--ink-900); color: #fff; font-size: 0.82rem;
+      opacity: 0; pointer-events: none; transition: .28s;
+      box-shadow: var(--shadow);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .intro {
+      position: fixed; inset: 0; z-index: 80;
+      display: grid; place-items: center;
+      background: rgba(23, 44, 66, 0.42);
+      backdrop-filter: blur(6px); padding: 1rem;
+      transition: opacity .3s;
+    }
+    .intro.hidden { opacity: 0; pointer-events: none; }
+    .intro-card {
+      width: min(580px, 100%);
+      border-radius: 20px; border: 1px solid var(--paper-line);
+      background:
+        radial-gradient(ellipse 80% 50% at 15% 0%, rgba(36,79,115,0.08), transparent 55%),
+        var(--paper-bright);
+      padding: 1.7rem 1.55rem 1.4rem;
+      box-shadow: 0 28px 70px rgba(24, 48, 72, 0.22);
+      animation: introIn .5s cubic-bezier(.2,.8,.2,1);
+    }
+    @keyframes introIn {
+      from { opacity: 0; transform: translateY(14px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    .intro-card .eyebrow {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.22rem 0.7rem; border-radius: 999px;
+      background: var(--cinnabar-wash); color: var(--cinnabar);
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.03em;
+    }
+    .intro-card .eyebrow::before {
+      content: ""; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--cinnabar);
+    }
+    .intro-card h2 {
+      margin: 0.75rem 0 0.55rem; font-family: var(--serif);
+      font-size: 1.5rem; color: var(--ink-900); line-height: 1.3;
+    }
+    .intro-card p { margin: 0 0 0.55rem; color: var(--ink-500); font-size: 0.94rem; }
+    .intro-card ol {
+      margin: 0.5rem 0 1.15rem; padding-left: 1.2rem; color: var(--ink-500); font-size: 0.9rem;
+    }
+    .intro-card li { margin: 0.3rem 0; }
+    .intro-card .cta {
+      appearance: none; width: 100%; border: none; border-radius: 12px;
+      padding: 0.8rem 1rem; font: inherit; font-weight: 700; color: #fff; cursor: pointer;
+      background: linear-gradient(145deg, #38618c, var(--primary-deep));
+      box-shadow: 0 12px 28px rgba(36, 79, 115, 0.28); transition: .18s;
+    }
+    .intro-card .cta:hover { filter: brightness(1.05); transform: translateY(-1px); }
+
+    @media (max-width: 760px) {
+      .orbit-wrap { display: none; }
+      .list-mode { display: block; }
+      .hint-bar { display: none; }
+      .panel { width: 100vw; }
+      .brand p { display: none; }
+      .search-wrap input { width: min(140px, 30vw); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="grain" aria-hidden="true"></canvas>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">SC</div>
+      <div>
+        <h1>Stats Code 功能全景</h1>
+        <p>给全组看的说明书 · 大白话 · 点圆球就能读懂</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="搜：基线表、隐私、审批…" autocomplete="off" />
+      </div>
+      <button class="chip-btn" id="btn-hub" type="button">先看总览</button>
+      <button class="chip-btn" id="btn-list" type="button">列表模式</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="orbit-wrap" id="orbit">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <svg class="links" id="links" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+      <div class="hub" id="hub" title="Stats Code 是什么">
+        <div>
+          <div class="hub-title">Stats<br/>Code</div>
+          <div class="hub-sub">点我开始</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="list-mode" id="list-mode">
+    <h2>全部功能主题</h2>
+    <p class="desc">手机或小屏上自动用列表。点任一卡片即可阅读。</p>
+    <div class="list-grid" id="list-grid"></div>
+  </div>
+
+  <div class="hint-bar">
+    点中心了解「这是什么」· 点周围圆球看具体能力 · 面板里还能继续点小卡片下钻 · <kbd>/</kbd> 搜索 · <kbd>Esc</kbd> 关闭
+  </div>
+
+  <aside class="panel" id="panel" aria-live="polite">
+    <div class="panel-head">
+      <div class="panel-icon" id="panel-icon">◎</div>
+      <div style="min-width:0;flex:1">
+        <h2 id="panel-title">标题</h2>
+        <p class="sub" id="panel-sub"></p>
+      </div>
+      <button class="panel-close" id="panel-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="intro" id="intro">
+    <div class="intro-card">
+      <span class="eyebrow">写给组里每一位同事</span>
+      <h2>用一张图，讲清 Stats Code 能干嘛</h2>
+      <p>这不是给程序员看的代码目录，而是<strong>产品功能说明书</strong>。哪怕你从不写代码，顺着中心往外点，也能知道：它解决什么问题、日常怎么用、算什么分析、为什么敢说「可信」、什么事它做不了。</p>
+      <ol>
+        <li>先点中间的 <strong>Stats Code</strong>——建立 30 秒全局印象</li>
+        <li>再点周围主题（谁用、怎么用、能算啥、可信在哪…）</li>
+        <li>面板里的小卡片可以继续展开更细的功能</li>
+      </ol>
+      <button class="cta" id="intro-go" type="button">好，从总览开始</button>
+    </div>
+  </div>
+
+  <script>
+    /* =========================================================
+       Stats Code 功能全景 — 大白话版
+       配色对齐产品「研究手稿」；内容面向非技术组员
+       ========================================================= */
+
+    const ACCENT = {
+      who: '#244f73',
+      use: '#27715d',
+      algo: '#c33b2d',
+      trust: '#9a6417',
+      ai: '#5a4f9c',
+      flow: '#2a6f8f',
+      mode: '#38618c',
+      data: '#3d6b5a',
+      limit: '#a14a3c',
+      start: '#244f73',
+      deliver: '#4a6d8c',
+      future: '#8a6a2a',
+    };
+
+    /** 子功能详页（大白话） */
+    const CHILD = {};
+
+    // —— 分析方法子页 ——
+    const ALGO_CHILDREN = [
+      {
+        id: 'algo-tableone', icon: '📋', accent: ACCENT.algo,
+        label: '基线特征表（Table One）',
+        sub: '论文里最常见的「表1」',
+        tags: ['已可直接用', '描述统计'],
+        lead: '把队列里每个人的年龄、性别、合并症、实验室指标等，按分组（比如治疗组 / 对照组）做成一张标准基线表，一眼看出两组人「长得像不像」。',
+        sections: [
+          { h: '你拿它干什么', html: `
+            <ul>
+              <li>写观察性论文时，几乎总要一张<strong>基线特征表</strong></li>
+              <li>看暴露组与对照组在年龄、性别、合并症上是否平衡</li>
+              <li>顺带给出组间差异的检验结果与标准化差异（便于讨论可比性）</li>
+            </ul>` },
+          { h: '你会怎么操作（白话）', html: `
+            <p>上传表格 → 告诉软件「按哪一列分组」→ 勾选要描述的连续变量和分类变量 → 运行 → 得到可放进报告的表。</p>` },
+          { h: '它不会替你做的事', html: `
+            <p>不会自动证明「两组可比所以因果成立」；平衡只是描述，因果还要设计与假设。</p>` },
+        ],
+      },
+      {
+        id: 'algo-ttest', icon: '↔️', accent: ACCENT.algo,
+        label: 't 检验',
+        sub: '两组连续指标差不差',
+        tags: ['已可直接用', '组间比较'],
+        lead: '比较两组人的某个连续指标（如血压、住院天数）平均水平是否有统计上的差异。当前正式路径侧重 Welch 双独立样本 t 检验。',
+        sections: [
+          { h: '适合的研究问题举例', html: `
+            <ul>
+              <li>「用药组与对照组，出院时收缩压是否不同？」</li>
+              <li>两组样本量或方差不完全一样时，Welch 版本更稳健一些</li>
+            </ul>` },
+          { h: '系统会提醒你什么', html: `
+            <p>若你其实是配对数据却当独立样本做、或只有一组、或变量几乎没有变异，会在运行前/运行时报清晰中文错误，而不是默默吐一个怪 p 值。</p>` },
+        ],
+      },
+      {
+        id: 'algo-anova', icon: '📊', accent: ACCENT.algo,
+        label: '方差分析（ANOVA）',
+        sub: '三组及以上连续指标比较',
+        tags: ['已可直接用'],
+        lead: '当分组不止两组（例如三种治疗方案）时，用单因素方差分析看连续结局在各组间是否有差异。',
+        sections: [
+          { h: '和 t 检验怎么选', html: `
+            <p>两组 → 优先 t 检验；三组及以上 → 用方差分析。简易对话里若说「组间对比」可能先走到 t 检验，多组时请明确说「方差分析」或在专业模式里点选。</p>` },
+        ],
+      },
+      {
+        id: 'algo-corr', icon: '🔗', accent: ACCENT.algo,
+        label: '相关分析',
+        sub: '两个连续变量一起怎么变',
+        tags: ['已可直接用', 'Pearson / Spearman'],
+        lead: '看两个连续变量是否同向或反向变化，例如年龄与血压、炎症指标与住院天数。可选 Pearson（线性相关）或 Spearman（秩相关，对异常值更不敏感）。',
+        sections: [
+          { h: '注意', html: `<p>相关 ≠ 因果。软件会给你相关系数和 p 值，但不会替你写「因此 A 导致了 B」。</p>` },
+        ],
+      },
+      {
+        id: 'algo-linear', icon: '📈', accent: ACCENT.algo,
+        label: '线性回归',
+        sub: '连续结局 + 多个解释因素',
+        tags: ['已可直接用'],
+        lead: '结局是连续数值（血压、评分、费用）时，同时看多个因素各自「关联有多强」。会给出系数、拟合优度、整体检验和一些模型诊断信息。',
+        sections: [
+          { h: '场景', html: `<p>「在调整年龄、性别后，某暴露与收缩压还关联吗？」</p>` },
+          { h: '分类自变量', html: `<p>分类预测变量会自动做哑变量编码，减少你手工造 0/1 列的麻烦。</p>` },
+        ],
+      },
+      {
+        id: 'algo-logistic', icon: '🎯', accent: ACCENT.algo,
+        label: 'Logistic 回归',
+        sub: '发生 / 不发生 这类结局',
+        tags: ['已可直接用'],
+        lead: '结局是二分类（是否再入院、是否感染、是否阳性）时用。结果用优势比（OR）等大家熟悉的方式呈现，并带收敛与诊断信息。',
+        sections: [
+          { h: '场景', html: `<p>「多种危险因素中，哪些与结局发生相关？强度大概多大？」</p>` },
+        ],
+      },
+      {
+        id: 'algo-km', icon: '⏱️', accent: ACCENT.algo,
+        label: 'Kaplan–Meier 生存分析',
+        sub: '随时间「还没发生事件」的比例',
+        tags: ['已可直接用'],
+        lead: '处理带删失的随访数据：有人随访结束仍未发生事件。给出生存曲线、中位生存时间，可分组比较，并提供 log-rank 相关信息。',
+        sections: [
+          { h: '你需要准备什么', html: `
+            <ul>
+              <li><strong>时间</strong>：随访时长或到事件的时间</li>
+              <li><strong>事件</strong>：是否发生（复发、死亡、达标等）</li>
+              <li>可选：分组变量（不同方案、不同分期）</li>
+            </ul>` },
+        ],
+      },
+      {
+        id: 'algo-cox', icon: '📉', accent: ACCENT.algo,
+        label: 'Cox 比例风险回归',
+        sub: '生存结局 + 多因素',
+        tags: ['已可直接用'],
+        lead: '在随访时间数据上，同时评估多个协变量与「发生事件风险」的关系，结果常以风险比（HR）表达，并检查比例风险等诊断线索。',
+        sections: [
+          { h: '和 KM 的分工', html: `
+            <p>KM 擅长「画曲线、比两组」；Cox 擅长「多个因素一起调」。真实论文里两者经常一起出现。</p>` },
+        ],
+      },
+      {
+        id: 'algo-power', icon: '⚡', accent: ACCENT.algo,
+        label: '功效与样本量',
+        sub: '研究还没做完时的设计问题',
+        tags: ['已可直接用', '设计阶段'],
+        lead: '在开题或写方案时：要检出某个效应，大概需要多少人？给定人数时功效大概多少？对齐临床研究里常见的 SAS PROC POWER 思路，而不是随便估一个数。',
+        sections: [
+          { h: '重要边界', html: `
+            <div class="callout danger">功效分析用于<strong>设计阶段</strong>。系统不会在你已经看到「不显著」之后，用「观察功效」怂恿你换模型硬做出显著。</div>` },
+        ],
+      },
+      {
+        id: 'algo-engine-only', icon: '🔧', accent: ACCENT.limit,
+        label: '引擎里有、界面还没开的方法',
+        sub: '诚实分层，避免过度承诺',
+        tags: ['暂无入口', '已数值验证'],
+        lead: '有些方法计算内核已经写好并对过参考软件，但当前版本还没有配置按钮或对话入口——所以你现在跑不了，产品也<strong>不会假装已经支持</strong>。',
+        sections: [
+          { h: '包括哪些（概念层面）', html: `
+            <ul>
+              <li>非参数检验（秩和一类）</li>
+              <li>OR / RR、归因危险度等流行病学效应量</li>
+              <li>率的标准化</li>
+              <li>寿命表、诊断试验 ROC 等</li>
+              <li>部分更细分的功效设计（如 Phase 2 相关）</li>
+            </ul>
+            <p>软件「关于与能力边界」页面会把「能跑」和「仅引擎有」分开写。</p>` },
+        ],
+      },
+    ];
+    ALGO_CHILDREN.forEach(c => { CHILD[c.id] = c; });
+
+    Object.assign(CHILD, {
+      'who-hospital': {
+        id: 'who-hospital', icon: '🏥', accent: ACCENT.who,
+        label: '医院临床研究者',
+        sub: '科室课题、回顾性队列',
+        tags: ['核心用户'],
+        lead: '你有病历或登记数据，想做基线描述、危险因素、生存随访，但又不想把真实患者表扔到公网聊天机器人里「让它算个 p 值」。',
+        sections: [
+          { h: 'Stats Code 怎么帮你', html: `
+            <ul>
+              <li>数据留在<strong>自己电脑</strong></li>
+              <li>用对话或专业面板完成常见统计</li>
+              <li>导出时可带走等价代码与审计包，方便同事复核</li>
+            </ul>` },
+        ],
+      },
+      'who-ph': {
+        id: 'who-ph', icon: '🌏', accent: ACCENT.who,
+        label: '公卫 / 流行病学',
+        sub: '队列、效应量、随访',
+        tags: ['核心用户'],
+        lead: '关心暴露、结局、随访时间、混杂控制的表述。软件用「研究协议卡」逼你先写清问题与设计，再跑数。',
+        sections: [
+          { h: '和「计算器网站」的差别', html: `
+            <p>不是填两个框出个 OR 就结束，而是把协议、数据质控、方案审批、运行结果串成一条可复查的研究轨迹。</p>` },
+        ],
+      },
+      'who-teach': {
+        id: 'who-teach', icon: '🎓', accent: ACCENT.who,
+        label: '教学与培训',
+        sub: '医学院校、规培科研课',
+        tags: ['场景'],
+        lead: '学生不用先啃完 SPSS 菜单也能走通「提问 → 选方法 → 出表 → 看等价代码」；老师能强调「数字不是 AI 瞎编的」。',
+        sections: [],
+      },
+      'use-start': {
+        id: 'use-start', icon: '1️⃣', accent: ACCENT.use,
+        label: '启动：双击就能开干',
+        sub: '不装 R、不装 SAS、不装 Node',
+        tags: ['本机'],
+        lead: '拿到演示包或安装好的程序后，双击启动。界面出现在桌面窗口或浏览器里，后台只在你自己电脑上监听本地地址。',
+        sections: [
+          { h: '三种打开方式（你只要记住一种）', html: `
+            <ul>
+              <li><strong>桌面应用（推荐）</strong>：像普通软件一样有窗口，关掉窗口就停</li>
+              <li><strong>单文件程序</strong>：一个 exe，也可以用浏览器打开本地页面</li>
+              <li><strong>演示包</strong>：解压 → 按说明点 start → 用演示数据走一遍</li>
+            </ul>` },
+        ],
+      },
+      'use-llm': {
+        id: 'use-llm', icon: '2️⃣', accent: ACCENT.use,
+        label: '要不要接 AI？',
+        sub: '可选，不是门槛',
+        tags: ['可跳过'],
+        lead: '第一次可能看到「配置大模型 Key」的卡片。你可以配置以便用自然语言聊天；也可以<strong>暂不配置</strong>，直接进专业模式点选分析——统计本身不依赖外网模型。',
+        sections: [
+          { h: 'Key 存在哪', html: `<p>只在你这台电脑的用户目录里，不会打进安装包，也不会因为「聊天」就上传整表去训练别人的模型（数值计算在本机完成）。</p>` },
+        ],
+      },
+      'use-protocol': {
+        id: 'use-protocol', icon: '3️⃣', accent: ACCENT.use,
+        label: '研究协议卡（15 个字段）',
+        sub: '先想清楚再跑数',
+        tags: ['可信流程'],
+        lead: '正式分析前，系统请你用一张结构化卡片写清：研究问题、设计类型、人群、暴露与对照、结局、时间零点、随访、分析单位、估计目标（estimand）、混杂、缺失策略、主分析与敏感性分析等。',
+        sections: [
+          { h: '为什么要这么麻烦', html: `
+            <p>防止「数据扔进去随便点一点出显著」。协议先固定研究意图，后面的 p 值才谈得上可解释。</p>` },
+          { h: '审批是什么意思', html: `
+            <p>草稿可以改；标记为「已审批」后，关键字段必须填满。改协议会换版本，旧审批下的分析方案会失效，逼你重新确认——这是故意的安全设计。</p>` },
+          { h: '可以让 AI 帮起草吗', html: `
+            <p>可以把一段研究简述交给「协议编译」生成<strong>提案</strong>，但提案永远不能自动变成已审批；人必须过目点确认。</p>` },
+        ],
+      },
+      'use-data': {
+        id: 'use-data', icon: '4️⃣', accent: ACCENT.use,
+        label: '上传数据与质量卡',
+        sub: 'CSV / TSV，本机保存',
+        tags: ['质控不可跳过'],
+        lead: '支持常见表格文本（CSV/TSV），体积有上限（约 70MB 量级）。上传后会做数据画像与质量检查：样本量、变量、缺失、主键是否重复、时间顺序是否离谱、是否疑似敏感字段等。',
+        sections: [
+          { h: '演示数据', html: `<p>包里带有合成的观察性队列示例，评测和教学可以不碰真实患者数据。</p>` },
+          { h: '编码', html: `<p>会尽量自动识别 UTF-8 / GBK 等常见中文编码，减少「打开全是乱码」。</p>` },
+        ],
+      },
+      'use-approve': {
+        id: 'use-approve', icon: '5️⃣', accent: ACCENT.use,
+        label: '分析方案审批',
+        sub: '方法 + 参数 + 数据指纹 一起锁死',
+        tags: ['人审'],
+        lead: '选定方法和变量后，系统生成「分析方案」请你确认：用什么方法、涉及哪些列、样本与缺失概况、已知风险提示。你点同意后，才允许正式计算。',
+        sections: [
+          { h: '绑定了什么', html: `
+            <ul>
+              <li>当前研究协议版本</li>
+              <li>这份数据的指纹（内容变了指纹就变）</li>
+              <li>算法与参数</li>
+            </ul>
+            <p>同一方案可以复现多次，但每次运行仍有自己的运行编号，方便审计。</p>` },
+        ],
+      },
+      'use-result': {
+        id: 'use-result', icon: '6️⃣', accent: ACCENT.use,
+        label: '看结果、图、代码、导出',
+        sub: '闭环的最后一公里',
+        tags: ['交付物'],
+        lead: '运行后你看到的是结构化报告、表格（含三线表风格）、图表，以及「如果我在 R/SAS/Python/SPSS 里重做，代码大概长这样」的侧栏，最后可打成审计快照包带走。',
+        sections: [],
+      },
+      'trust-not-llm': {
+        id: 'trust-not-llm', icon: '🧮', accent: ACCENT.trust,
+        label: '数字不是聊天模型算的',
+        sub: '最核心的一句话',
+        tags: ['原则'],
+        lead: '大模型只帮忙「听懂你想干什么」和「用文字解释结果」。真正的均值、回归系数、生存曲线、p 值，全部由本机固定算法算出来，模型不能改写这些数。',
+        sections: [
+          { h: '如果模型胡说八道', html: `<p>若模型输出里夹带可疑数字、诊疗指令或超长胡话，系统会丢弃并退回内置的确定性说明，避免「AI 随口报 p 值」混进报告。</p>` },
+        ],
+      },
+      'trust-sidecar': {
+        id: 'trust-sidecar', icon: '📜', accent: ACCENT.trust,
+        label: '四语言等价代码',
+        sub: '给会 R/SAS 的同事核对',
+        tags: ['可核对'],
+        lead: '每个分析结果旁边可以生成 R、SAS、Python、SPSS 风格的等价代码片段。你的统计同事不必信你的黑盒，可以拿代码在自己环境里对照思路（注意：这是「等价表达」，最终数值以本机引擎与平价测试为准）。',
+        sections: [],
+      },
+      'trust-parity': {
+        id: 'trust-parity', icon: '✅', accent: ACCENT.trust,
+        label: '和参考软件对过数',
+        sub: '不是「感觉对」',
+        tags: ['工程验证'],
+        lead: '开发过程中用大量自动测试，把本机结果和 SAS、SPSS 等录制基线、以及已知教科书数值对照。误差超出容许范围测试会失败，版本就发不出去。',
+        sections: [
+          { h: '覆盖等级你会在界面看到', html: `
+            <p>有的对照是「现场可重复」级别，有的是「录制基线」级别，有的方法暂时只有代码侧栏没有完整自动对照——界面会用覆盖矩阵诚实标出来，不把水位搅浑。</p>` },
+        ],
+      },
+      'trust-snap': {
+        id: 'trust-snap', icon: '📦', accent: ACCENT.trust,
+        label: '审计快照包',
+        sub: '可带走、可复核',
+        tags: ['复现'],
+        lead: '一键导出一个压缩包：里面有运行元数据、版本信息、工作流描述、脱敏后的输入输出摘要等，并带有内容校验指纹。别人可以用校验命令确认「包没被偷偷改过」。',
+        sections: [
+          { h: '组里怎么用', html: `
+            <ul>
+              <li>课题归档：和方案、伦理批件放一起</li>
+              <li>协作：把「我是怎么算的」交给统计老师</li>
+              <li>答辩：证明结果可追溯到某次运行</li>
+            </ul>` },
+        ],
+      },
+      'trust-guard': {
+        id: 'trust-guard', icon: '🛡️', accent: ACCENT.trust,
+        label: '跑前风险提醒',
+        sub: '少踩常见坑',
+        tags: ['方法守卫'],
+        lead: '在真正计算前，系统会尽量指出：样本太小、缺失太高、配对数据却当独立样本、因果措辞过猛、不支持的复杂抽样设计等。提醒不是替你做决定，最终仍由研究者确认。',
+        sections: [
+          { h: '刻意不做的蠢事', html: `
+            <p>不会因为「p&gt;0.05」就提示你换个模型刷显著；「不显著」是结果，不是方法错误。</p>` },
+        ],
+      },
+      'ai-role': {
+        id: 'ai-role', icon: '💬', accent: ACCENT.ai,
+        label: 'AI 助手具体干什么',
+        sub: '翻译官 + 向导，不是计算器',
+        tags: ['可选'],
+        lead: '你可以用大白话说：「帮我看看血压和年龄的关系」「比较两种方案的生存」。助手负责理解意图、追问缺的信息、用选项卡片帮你确认、再在结果出来后解释含义。',
+        sections: [
+          { h: '它不干什么', html: `
+            <ul>
+              <li>不编造检验统计量</li>
+              <li>不替代伦理与临床判断</li>
+              <li>不在没审批时偷偷跑正式分析（专业正式路径）</li>
+            </ul>` },
+        ],
+      },
+      'ai-offline': {
+        id: 'ai-offline', icon: '🔌', accent: ACCENT.ai,
+        label: '没网 / 没 Key 时',
+        sub: '统计主路径仍在',
+        tags: ['稳健'],
+        lead: '模型连不上时，顶部会提示，可重试或改 Key。专业模式仍可上传数据、配置方法、运行引擎、看表看图和等价代码——只是少了自然语言闲聊。',
+        sections: [],
+      },
+      'ai-voice': {
+        id: 'ai-voice', icon: '🎙️', accent: ACCENT.ai,
+        label: '语音输入',
+        sub: '把手腾出来说话',
+        tags: ['增强'],
+        lead: '在支持的环境下可以用麦克风说话转成文字再发送，适合演示或边看表边口述下一步。需要系统麦克风权限。',
+        sections: [],
+      },
+      'mode-simple': {
+        id: 'mode-simple', icon: '💬', accent: ACCENT.mode,
+        label: '简易模式长什么样',
+        sub: '聊天主界面',
+        tags: ['入门'],
+        lead: '左侧是历史会话，中间像聊天：欢迎页有常用分析建议（回归、生存、样本量等），你输入问题或点建议，助手用选项卡帮你补全信息，然后出结果。',
+        sections: [
+          { h: '适合谁', html: `<p>第一次用、想快速体验、或习惯「说人话」的临床老师。</p>` },
+        ],
+      },
+      'mode-pro': {
+        id: 'mode-pro', icon: '🗂️', accent: ACCENT.mode,
+        label: '专业模式长什么样',
+        sub: '研究工作台',
+        tags: ['正式路径'],
+        lead: '更像「研究工作台」：中间看报告与数据，右侧看等价代码和运行控制，下面可挂助手。强调研究协议、数据质量卡、方案审批、再执行。',
+        sections: [
+          { h: '适合谁', html: `<p>要写进课题归档、需要把流程做完整、或暂时不想依赖大模型的人。</p>` },
+        ],
+      },
+      'data-privacy': {
+        id: 'data-privacy', icon: '🔒', accent: ACCENT.data,
+        label: '隐私：数据默认不出机',
+        sub: '本地单机形态',
+        tags: ['卖点'],
+        lead: '程序只在你电脑上的本地回环地址服务，不做成「把病历上传到我们云端」的 SaaS。会话与配置落在本机用户目录。',
+        sections: [
+          { h: '你仍要遵守的', html: `
+            <div class="callout">使用真实敏感数据前，仍须遵守医院/单位的数据治理、伦理与脱敏要求。软件帮你「技术上本机算」，不能代替合规审批。</div>` },
+        ],
+      },
+      'data-security': {
+        id: 'data-security', icon: '🚪', accent: ACCENT.data,
+        label: '防别人远程乱连',
+        sub: '本机访问门禁',
+        tags: ['安全'],
+        lead: '接口拒绝来自非本机的伪装访问；跨站乱源也被挡。目标是降低「开着软件时被网页偷打接口」一类风险。',
+        sections: [],
+      },
+      'limit-no': {
+        id: 'limit-no', icon: '🚫', accent: ACCENT.limit,
+        label: '明确不做的方法',
+        sub: '宁可少，不要装会',
+        tags: ['边界'],
+        lead: '当前阶段不做：倾向评分匹配（PSM）、TMLE、竞争风险、时空传染病大平台、CDISC/TFL 全监管流水线、公网多租户等。界面会写清楚，不会偷换成「差不多」的算法交差。',
+        sections: [
+          { h: '为什么', html: `<p>没有金标准验证时，「功能看起来很多但算错」比「功能少但算对」更危险。</p>` },
+        ],
+      },
+      'limit-human': {
+        id: 'limit-human', icon: '👤', accent: ACCENT.limit,
+        label: '人的责任在哪',
+        sub: '辅助工具，不是主治医师',
+        tags: ['合规表述'],
+        lead: '产品只提供科研设计与统计分析辅助，不独立做诊断、治疗或个体决策。所有研究结论须由具备资质的研究者审核。',
+        sections: [],
+      },
+      'start-demo': {
+        id: 'start-demo', icon: '🎬', accent: ACCENT.start,
+        label: '5 分钟演示剧本（组会可用）',
+        sub: '照着点就能讲',
+        tags: ['推荐'],
+        lead: '启动 →（可跳过 AI）→ 加载/审批研究协议 → 上传演示队列 → 看数据质量卡 → 审批 Table One 方案 → 出表与可信角标 → 打开等价代码 → 导出审计包 → 打开「能力边界」说明支持与不支持。',
+        sections: [
+          { h: '口播一句就够', html: `
+            <div class="story-box"><div class="who">电梯演讲</div>
+            <p>「数据不出机，p 值不是 AI 编的，流程可审批可导出，给临床科研用。」</p></div>` },
+        ],
+      },
+      'deliver-desk': {
+        id: 'deliver-desk', icon: '🖥️', accent: ACCENT.deliver,
+        label: '桌面窗口版',
+        sub: '推荐给日常使用',
+        tags: ['形态'],
+        lead: '像普通 Windows 软件：有自己的窗口，不强迫你用浏览器；关掉即停。适合演示和怕「浏览器一堆标签」的同事。',
+        sections: [],
+      },
+      'deliver-exe': {
+        id: 'deliver-exe', icon: '📦', accent: ACCENT.deliver,
+        label: '单文件 / 演示包',
+        sub: 'U 盘拷给同事评测',
+        tags: ['形态'],
+        lead: '一个可执行文件内嵌界面；演示包还带合成数据、启动脚本和说明。目标机不必预装统计软件环境。',
+        sections: [],
+      },
+      'future-near': {
+        id: 'future-near', icon: '🗺️', accent: ACCENT.future,
+        label: '接下来优先补什么',
+        sub: '让「敢给临床用」更硬',
+        tags: ['规划'],
+        lead: '优先方向：更强的多步分析计划与跑前检查点、更全的统计守卫（多重比较、措辞）、缺失与清洗能力、更贴 STROBE 的方法学草稿；中期才考虑 PSM、竞争风险等重方法。',
+        sections: [],
+      },
+    });
+
+    const HUB = {
+      id: 'hub',
+      label: 'Stats Code 是什么',
+      icon: '◎',
+      accent: ACCENT.who,
+      sub: '30 秒建立全局印象',
+      tags: ['总览', '给全组'],
+      lead: 'Stats Code 是装在你自己电脑上的「医学观察性研究小助手」：帮你把科研问题说清楚、把数据检查好、用靠谱算法算出统计结果，并留下可以复查的证据。它不是网上那种随口报 p 值的聊天机器人，也不是要你先学会一整本 SPSS 的重型套件。',
+      sections: [
+        { h: '一句话定位', html: `
+          <div class="story-box">
+            <div class="who">写给院领导 / 导师也能听懂</div>
+            <p>本地可审计的观察性研究工作台：协议先行、本机计算、人来审批、结果可导出复核。</p>
+          </div>` },
+        { h: '它解决哪些真实痛点', html: `
+          <ul>
+            <li><strong>聊天 AI 乱报数字</strong>——不可审计，课题里用不起</li>
+            <li><strong>专业软件太陡</strong>——临床老师学菜单学到放弃</li>
+            <li><strong>数据不敢上云</strong>——队列和病历默认应留在本机</li>
+            <li><strong>网上计算器太单薄</strong>——没有研究上下文、没有审批、没有复现包</li>
+          </ul>` },
+        { h: '三个角色怎么分工', html: `
+          <table class="feat">
+            <tr><th>大模型（可选）</th><td>听懂你的话、引导你选方法、解释结果文字。<strong>不算、不改数字。</strong></td></tr>
+            <tr><th>本机统计引擎</th><td>真正计算 Table One、回归、生存等。<strong>确定性、可测试。</strong></td></tr>
+            <tr><th>你（研究者）</th><td>审批协议与方案、判断临床意义、承担研究责任。</td></tr>
+          </table>` },
+        { h: '建议阅读顺序', html: `
+          <div class="flow">
+            <span>谁适合用</span><span class="arrow">→</span>
+            <span>怎么用一遍</span><span class="arrow">→</span>
+            <span>能做哪些分析</span><span class="arrow">→</span>
+            <span>为什么可信</span><span class="arrow">→</span>
+            <span>边界与限制</span>
+          </div>
+          <p>下面「继续了解」就是周围那些圆球，点哪个都行。</p>` },
+      ],
+      children: [
+        { id: 'who', t: '谁适合用', d: '医院、公卫、教学各自怎么用上它' },
+        { id: 'use', t: '日常怎么用', d: '从启动到导出的一条龙' },
+        { id: 'algo', t: '能做哪些分析', d: '基线表、检验、回归、生存、样本量…' },
+        { id: 'trust', t: '为什么说可信', d: '数字来源、对标、快照、审批门' },
+      ],
+    };
+
+    const NODES = [
+      {
+        id: 'who', label: '谁适合用', icon: '👥', accent: ACCENT.who,
+        angle: -90, radius: 0.34, hint: '用户画像',
+        sub: '不是给程序员炫技的玩具',
+        tags: ['医院', '公卫', '教学'],
+        lead: 'Stats Code 面向<strong>要做观察性科研、又要顾数据安全</strong>的人：临床医生写回顾性文章、公卫做队列分析、医学院带学生走通规范流程。你不需要先成为统计程序员。',
+        sections: [
+          { h: '典型一天（故事）', html: `
+            <div class="story-box">
+              <div class="who">心内科张老师</div>
+              <p>手里有一份已脱敏的出院队列。她打开 Stats Code，加载演示或自己的表，先在协议卡里写清「比较两种抗板方案的一年再入院」，上传后看质量提示，审批 Table One 与 Logistic，导出带等价代码的结果给统计同事核对——全程数据没离开电脑。</p>
+            </div>` },
+          { h: '你可能对号入座', html: `
+            <ul>
+              <li>会提临床问题，但不想从零学语法</li>
+              <li>单位不允许把患者明细传到公网 AI</li>
+              <li>需要「可解释、可复查」的过程，而不只是截一张图</li>
+              <li>组里有人会 R/SAS，你希望结果能被他们看懂</li>
+            </ul>` },
+          { h: '谁可能不合适', html: `
+            <p>要做随机化试验全流程监管交付、或必须 PSM/竞争风险等尚未支持的方法时，请继续用经验证的专业统计体系，并人工复核。Stats Code 会明确说「不会」。</p>` },
+        ],
+        children: [
+          { id: 'who-hospital', t: '医院临床研究者', d: '科室课题、回顾性队列、本机算' },
+          { id: 'who-ph', t: '公卫 / 流行病学', d: '协议卡逼你写清暴露结局与随访' },
+          { id: 'who-teach', t: '教学与培训', d: '低门槛走通规范分析闭环' },
+        ],
+      },
+      {
+        id: 'use', label: '日常怎么用', icon: '🧭', accent: ACCENT.use,
+        angle: -54, radius: 0.34, hint: '操作主线',
+        sub: '从打开软件到拿走结果',
+        tags: ['步骤', '研究状态机'],
+        lead: '正式、可归档的用法不是「随便聊两句出个 p」，而是一条固定流水线：<strong>研究协议 → 数据质控 → 方案审批 → 本机计算 → 诊断与导出</strong>。下面按你真实会点的顺序讲。',
+        sections: [
+          { h: '一条龙流程', html: `
+            <div class="flow">
+              <span>启动</span><span class="arrow">→</span>
+              <span>可选配 AI</span><span class="arrow">→</span>
+              <span>写/批协议</span><span class="arrow">→</span>
+              <span>上传数据</span><span class="arrow">→</span>
+              <span>质量卡</span><span class="arrow">→</span>
+              <span>批方案</span><span class="arrow">→</span>
+              <span>看结果</span><span class="arrow">→</span>
+              <span>导出</span>
+            </div>` },
+          { h: '两种节奏', html: `
+            <table class="feat">
+              <tr><th>我想快点体验</th><td>跳过 AI → 专业模式 → 演示数据 → Table One</td></tr>
+              <tr><th>我要正式课题</th><td>协议审批写满 → 真实（已合规）数据 → 质量卡 → 方案审批 → 多种分析 → 快照归档</td></tr>
+            </table>` },
+          { h: '中途可以停吗', html: `
+            <p>可以。会话会留在本机。注意：有些运行登记在内存里，重启软件后若要导出旧运行的快照，可能需要重新跑一遍分析——界面会用中文提示，不是坏了。</p>` },
+        ],
+        children: [
+          { id: 'use-start', t: '① 启动', d: '双击打开，数据在本机' },
+          { id: 'use-llm', t: '② AI 可跳过', d: '没 Key 也能跑统计' },
+          { id: 'use-protocol', t: '③ 研究协议卡', d: '15 个字段把问题写清' },
+          { id: 'use-data', t: '④ 上传与质控', d: '质量卡不可绕过' },
+          { id: 'use-approve', t: '⑤ 方案审批', d: '人确认后才计算' },
+          { id: 'use-result', t: '⑥ 结果与导出', d: '表、图、代码、快照' },
+        ],
+      },
+      {
+        id: 'algo', label: '能做哪些分析', icon: '∑', accent: ACCENT.algo,
+        angle: -18, radius: 0.34, hint: '方法菜单',
+        sub: '用研究问题语言，不用黑话',
+        tags: ['已可跑', '引擎级'],
+        lead: '下面按「你想回答什么问题」来介绍。标注<strong>已可直接用</strong>的，表示你现在就能在界面里跑出结果；另一些内核在，但入口还没开放，产品会诚实分开写，避免你白找。',
+        sections: [
+          { h: '现在就能跑的（主路径）', html: `
+            <ul>
+              <li><strong>基线特征表</strong>——论文表 1</li>
+              <li><strong>t 检验 / 方差分析</strong>——组间连续指标比较</li>
+              <li><strong>相关</strong>——两个连续变量同向变化吗</li>
+              <li><strong>线性 / Logistic / Cox 回归</strong>——多因素关联</li>
+              <li><strong>Kaplan–Meier</strong>——生存曲线</li>
+              <li><strong>功效与样本量</strong>——设计阶段算要多少人</li>
+              <li>以及数据探索（画像级）、等价代码导出</li>
+            </ul>
+            <div class="callout ok">界面里的「当前支持」列表，只写真正有按钮/入口的方法，不会把「代码里写了但你点不到」的算成已支持。</div>` },
+          { h: '引擎已实现但暂无入口', html: `
+            <p>非参数检验、部分流行病学效应量、标准化、寿命表、ROC 等：计算能力在，配置界面还没接上。请勿以为当前某次结果悄悄用了它们。</p>` },
+          { h: '点下面卡片看每种分析的白话说明', html: `<p>每种都写了「适合什么问题、你要准备什么、不会替你假装什么」。</p>` },
+        ],
+        children: ALGO_CHILDREN.map(a => ({
+          id: a.id, t: a.label, d: a.lead.slice(0, 42) + '…',
+        })),
+      },
+      {
+        id: 'trust', label: '为什么可信', icon: '🛡️', accent: ACCENT.trust,
+        angle: 18, radius: 0.34, hint: '可信三件套+',
+        sub: '给导师和伦理委员会讲的理由',
+        tags: ['核心卖点'],
+        lead: '「可信」不是广告词，而是几件具体机制叠在一起：数字来源可证明、能和参考软件对照、流程有人审门禁、结果能打包复查、并且不偷偷调用外部统计软件。',
+        sections: [
+          { h: '对外可讲的四句话', html: `
+            <ol>
+              <li>统计数值由<strong>本机确定性引擎</strong>产生，不是大模型心算</li>
+              <li>结果可附<strong>R/SAS/Python/SPSS 等价代码</strong>供核对</li>
+              <li>开发期用<strong>自动对标测试</strong>盯住与参考软件的偏差</li>
+              <li>可导出<strong>审计快照</strong>，含数据指纹、方法、运行编号等</li>
+            </ol>` },
+          { h: '研究状态机（防跳步）', html: `
+            <p>正式 Pro 路径要求：协议审批 → 数据质量 → 方案审批 → 才执行。只看数据概览可以有例外，但会打上「豁免」标记，审计时看得见。</p>` },
+          { h: '绝不静默「外挂」算', html: `
+            <div class="callout blue">系统主动禁止拉起本机上的 R、SAS、SPSS、Python 等去偷算，避免「说是自己算、实际偷偷调了别的软件」说不清。</div>` },
+        ],
+        children: [
+          { id: 'trust-not-llm', t: '数字不是 AI 算的', d: '模型只解释，不改数' },
+          { id: 'trust-sidecar', t: '四语言等价代码', d: '给会统计软件的同事' },
+          { id: 'trust-parity', t: '和参考软件对过', d: '自动测试卡住回归' },
+          { id: 'trust-snap', t: '审计快照包', d: '可带走可校验' },
+          { id: 'trust-guard', t: '跑前风险提醒', d: '小样本、缺失、误用…' },
+        ],
+      },
+      {
+        id: 'ai', label: 'AI 扮演什么', icon: '✦', accent: ACCENT.ai,
+        angle: 54, radius: 0.34, hint: '可选增强',
+        sub: '助手，不是裁判',
+        tags: ['可选', '可失败降级'],
+        lead: 'AI 是「会说话的研究助理」：帮你把口语变成分析步骤、追问缺的变量、用选择题降低填表负担、用通俗话解释输出。它<strong>不是</strong>统计引擎，也<strong>不是</strong>主治医生。',
+        sections: [
+          { h: '有 AI 时', html: `
+            <ul>
+              <li>欢迎页点「分析血压与年龄」这类建议，直接开聊</li>
+              <li>缺分组变量时，弹出选项卡让你选，而不是冷冰冰报错一句</li>
+              <li>结果出来后用文字帮你读表（数值仍以引擎为准）</li>
+            </ul>` },
+          { h: '没 AI 时', html: `
+            <p>专业模式照样上传、配置、运行、导出。只是少了自然语言层。连接异常时顶部有横幅：可重试或修改 Key。</p>` },
+          { h: 'Key 与隐私', html: `
+            <p>API 密钥只存在你的用户目录，原子写入；坏了会备份损坏文件而不是瞎读。打包安装程序会扫描，避免误把密钥打进发布包。</p>` },
+        ],
+        children: [
+          { id: 'ai-role', t: '助手具体干什么', d: '意图、引导、解释' },
+          { id: 'ai-offline', t: '没网没 Key', d: '统计主路径仍可用' },
+          { id: 'ai-voice', t: '语音输入', d: '演示时很方便' },
+        ],
+      },
+      {
+        id: 'mode', label: '两种界面', icon: '🪟', accent: ACCENT.mode,
+        angle: 90, radius: 0.34, hint: '简易 / 专业',
+        sub: '同一套能力，两种姿势',
+        tags: ['UX'],
+        lead: 'Stats Code 提供<strong>简易模式</strong>和<strong>专业模式</strong>，右上角可切换。不是两个软件，而是同一本机引擎上的两种交互：一个偏聊天，一个偏研究工作台。',
+        sections: [
+          { h: '怎么选', html: `
+            <table class="feat">
+              <tr><th>选简易</th><td>探索想法、教学演示、习惯打字提问</td></tr>
+              <tr><th>选专业</th><td>正式课题、强调审批与报告、少依赖 AI</td></tr>
+            </table>` },
+          { h: '共同具备', html: `
+            <p>上传数据、看结果表图、等价代码、会话历史、研究协议入口、能力边界说明等。视觉统一成「研究手稿」风格：暖纸底、学术墨蓝、朱砂点缀。</p>` },
+        ],
+        children: [
+          { id: 'mode-simple', t: '简易模式', d: '聊天 + 建议卡片' },
+          { id: 'mode-pro', t: '专业模式', d: '报告 + 代码 + 审批' },
+        ],
+      },
+      {
+        id: 'data', label: '数据与隐私', icon: '🔒', accent: ACCENT.data,
+        angle: 126, radius: 0.34, hint: '本机优先',
+        sub: '医疗场景的第一前提',
+        tags: ['隐私', '安全'],
+        lead: '默认形态是<strong>每人在自己电脑上跑</strong>：服务只听本机，数据与会话落本机目录。统计计算不要求把明细表发到公网「让云端算完再返回」。',
+        sections: [
+          { h: '上传什么格式', html: `
+            <ul>
+              <li>目前主要是 <strong>CSV / TSV</strong> 表格</li>
+              <li>体积有上限，超大表请先抽样或拆分</li>
+              <li>列类型会自动猜（连续/分类），猜错可在专业配置里改</li>
+            </ul>` },
+          { h: '质量与敏感信息', html: `
+            <p>审计会提示重复主键、时间乱序、永生时间风险、敏感字段迹象等。角色（如主键）采用「你声明、系统校验」：不能靠改声明掩盖重复。</p>` },
+          { h: '协作时注意', html: `
+            <div class="callout">本机模式方便隐私，但意味着结果要靠导出快照或报告分享；它不是「全院一台服务器多人同时在线」的平台（那是未来议题，不是现在）。</div>` },
+        ],
+        children: [
+          { id: 'data-privacy', t: '数据默认不出机', d: '本地单机叙事与实现一致' },
+          { id: 'data-security', t: '本机访问门禁', d: '降低远程乱连风险' },
+        ],
+      },
+      {
+        id: 'flow', label: '研究工作流', icon: '📋', accent: ACCENT.flow,
+        angle: 162, radius: 0.34, hint: '协议与审批',
+        sub: '把「想清楚」做成强制步骤',
+        tags: ['15 字段', '门禁'],
+        lead: '很多工具只管算。Stats Code 多做一层：逼你用结构化方式写下研究意图，并在计算前留下人的确认痕迹。这是给严肃科研用的，不是娱乐计算器。',
+        sections: [
+          { h: '协议卡里有什么（人话版）', html: `
+            <table class="feat">
+              <tr><th>研究问题</th><td>你到底想回答什么</td></tr>
+              <tr><th>设计与人群</th><td>回顾性？前瞻？纳排是谁</td></tr>
+              <tr><th>暴露 / 对照 / 结局</th><td>比什么、看什么终点</td></tr>
+              <tr><th>时间零点与随访</th><td>从何时开始算、跟多久</td></tr>
+              <tr><th>估计目标 estimand</th><td>你估计的是哪一种效应</td></tr>
+              <tr><th>混杂与缺失策略</th><td>准备怎么处理麻烦</td></tr>
+              <tr><th>主分析 / 敏感性</th><td>主线是什么、稳健性怎么查</td></tr>
+            </table>
+            <p>审批前有一组字段强制非空，防止空白协议「一键通过」。</p>` },
+          { h: '撤销怎么理解', html: `
+            <p>当前不搞「单条方案点拒绝」的复杂司法流程；你把协议改回草稿并变更版本，旧协议下的方案授权整体失效，但历史记录仍留着可查。</p>` },
+          { h: '和统计守卫的关系', html: `
+            <p>协议解决「问题研究清楚了吗」；守卫解决「这个方法用在这份数据上是否明显离谱」。两者一起，才像完整的研究助手。</p>` },
+        ],
+        children: [
+          { id: 'use-protocol', t: '研究协议详解', d: '15 字段与审批语义' },
+          { id: 'use-approve', t: '方案审批详解', d: '锁协议+数据+方法' },
+          { id: 'trust-guard', t: '跑前风险提醒', d: '方法守卫最小集' },
+        ],
+      },
+      {
+        id: 'limit', label: '做不到什么', icon: '⚠️', accent: ACCENT.limit,
+        angle: 198, radius: 0.34, hint: '诚实边界',
+        sub: '比夸大功能更重要',
+        tags: ['必读'],
+        lead: '好工具要敢说「不」。Stats Code 在软件内和文档里都维护「支持 / 不支持」清单，避免组员误以为万能。',
+        sections: [
+          { h: '方法上暂不支持', html: `
+            <ul>
+              <li>倾向评分匹配（PSM）、IPW 全套、TMLE</li>
+              <li>竞争风险、复杂多状态生存</li>
+              <li>时空模型、传染病传播平台</li>
+              <li>CDISC / 全套 TFL 监管流水线</li>
+              <li>公网多租户、院级数据中台</li>
+            </ul>` },
+          { h: '输入与工程限制（用户能感知的）', html: `
+            <ul>
+              <li>表格以 CSV/TSV 为主，尚无 sav/dta 一键导入</li>
+              <li>单文件体积上限；超大真实库需先整理</li>
+              <li>部分算法「内核有、按钮无」——见能力分层</li>
+            </ul>` },
+          { h: '责任边界', html: `
+            <div class="callout danger">不独立作出诊断、治疗或个体临床决策。输出必须由具备资质的研究者审核。因果结论需要设计与假设，软件只会提示措辞风险，不会「证明因果」。</div>` },
+        ],
+        children: [
+          { id: 'limit-no', t: '明确不做的方法', d: 'PSM、竞争风险…' },
+          { id: 'limit-human', t: '人的责任', d: '辅助不是主治' },
+          { id: 'algo-engine-only', t: '有内核无入口', d: '避免过度承诺' },
+        ],
+      },
+      {
+        id: 'deliver', label: '怎么交付给你', icon: '📦', accent: ACCENT.deliver,
+        angle: 234, radius: 0.34, hint: '安装形态',
+        sub: '目标机越省事越好',
+        tags: ['桌面', '演示包'],
+        lead: '组员关心的是：我电脑要装什么？答案是——<strong>不需要先装 R、SAS、SPSS、Python 才能算</strong>。核心统计在程序内部完成。',
+        sections: [
+          { h: '你可能拿到的形态', html: `
+            <table class="feat">
+              <tr><th>桌面应用</th><td>自带窗口，体验最接近日常软件</td></tr>
+              <tr><th>单文件 exe</th><td>绿色、好拷贝；也可用浏览器打开本地页</td></tr>
+              <tr><th>Demo 演示包</th><td>带说明、演示数据、启动脚本，适合评测</td></tr>
+            </table>` },
+          { h: '关掉即停', html: `
+            <p>前台运行：关窗口或 Ctrl+C 即结束，不装成偷偷驻留的系统服务（减少「不知道还在跑」）。</p>` },
+        ],
+        children: [
+          { id: 'deliver-desk', t: '桌面窗口版', d: '推荐日常' },
+          { id: 'deliver-exe', t: '单文件 / 演示包', d: '方便分发评测' },
+          { id: 'use-start', t: '启动时发生什么', d: '本机端口与界面' },
+        ],
+      },
+      {
+        id: 'start', label: '组会怎么介绍', icon: '🎤', accent: ACCENT.start,
+        angle: 270, radius: 0.34, hint: '演示脚本',
+        sub: '5 分钟讲明白',
+        tags: ['话术'],
+        lead: '如果你要在组会上介绍 Stats Code，不要从架构图讲起。按「问题 → 本地 → 审批 → 出数 → 可核对 → 边界」六步，评委和导师都听得懂。',
+        sections: [
+          { h: '推荐口播结构', html: `
+            <ol>
+              <li>临床科研需要统计，但云端 AI 乱报 p 值不可用</li>
+              <li>我们做了本机工作台，数据默认不出电脑</li>
+              <li>AI 只负责对话，数字由本机引擎算</li>
+              <li>正式分析有协议与方案审批，防止乱点</li>
+              <li>结果带等价代码和审计包，方便复核</li>
+              <li>能力边界诚实列出，不装会 PSM 等</li>
+            </ol>` },
+          { h: '现场 Demo 顺序', html: `
+            <p>见下方「5 分钟演示剧本」。务必最后点开「能力边界」，主动讲不支持什么——这是加分项不是减分项。</p>` },
+        ],
+        children: [
+          { id: 'start-demo', t: '5 分钟演示剧本', d: '照着点即可' },
+          { id: 'trust', t: '可信话术加深', d: '四句话对外讲' },
+          { id: 'limit', t: '边界怎么讲', d: '主动说清不会什么' },
+        ],
+      },
+      {
+        id: 'future', label: '以后往哪走', icon: '🗺️', accent: ACCENT.future,
+        angle: 306, radius: 0.34, hint: '路线图',
+        sub: '先可信，再变强',
+        tags: ['规划'],
+        lead: '路线不是「堆更多算法名称」，而是先把「敢给临床/epi 用」的门槛垫高：计划更清晰、守卫更严、清洗更顺、报告更贴规范；重方法（PSM 等）排在验证能力够了之后。',
+        sections: [
+          { h: '近期优先（人话）', html: `
+            <ul>
+              <li>一次对话里规划好多步分析，并在关键点停下来让人确认</li>
+              <li>更聪明地挡下「方法用错场景」</li>
+              <li>缺失值画像与基础清洗</li>
+              <li>更接近论文方法学段落的草稿（绑定真实参数，不是空话）</li>
+            </ul>` },
+          { h: '中期', html: `
+            <p>PSM/IPW 与平衡诊断、竞争风险或比例风险诊断加强、更多数据格式、出版级表图。</p>` },
+          { h: '你反馈什么最有用', html: `
+            <p>「我实际课题卡在哪一步」比「再多写十个算法名」更有价值——欢迎按使用路径提需求。</p>` },
+        ],
+        children: [
+          { id: 'future-near', t: '优先补强清单', d: '守卫、计划、清洗、报告' },
+        ],
+      },
+    ];
+
+    /* ========== UI engine ========== */
+    const orbit = document.getElementById('orbit');
+    const linksSvg = document.getElementById('links');
+    const panel = document.getElementById('panel');
+    const panelTitle = document.getElementById('panel-title');
+    const panelSub = document.getElementById('panel-sub');
+    const panelBody = document.getElementById('panel-body');
+    const panelIcon = document.getElementById('panel-icon');
+    const toast = document.getElementById('toast');
+    let listMode = false;
+
+    function nodeById(id) {
+      if (id === 'hub') return HUB;
+      return NODES.find(n => n.id === id) || CHILD[id] || null;
+    }
+
+    function parentOf(id) {
+      return NODES.find(p => p.children?.some(c => c.id === id));
+    }
+
+    function placeNodes() {
+      NODES.forEach(n => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'node';
+        el.dataset.id = n.id;
+        el.style.setProperty('--node-accent', n.accent);
+        el.innerHTML = `<div>
+          <div class="icon">${n.icon}</div>
+          <div class="label">${n.label}</div>
+          <div class="hint">${n.hint || ''}</div>
+        </div>`;
+        const rad = (n.angle * Math.PI) / 180;
+        const x = 50 + Math.cos(rad) * n.radius * 100;
+        const y = 50 + Math.sin(rad) * n.radius * 100;
+        el.style.left = x + '%';
+        el.style.top = y + '%';
+        el.addEventListener('click', () => openNode(n.id));
+        orbit.appendChild(el);
+        n._el = el;
+        n._pos = { x, y };
+      });
+      linksSvg.innerHTML = NODES.map(n =>
+        `<line data-to="${n.id}" x1="50" y1="50" x2="${n._pos.x}" y2="${n._pos.y}" />`
+      ).join('');
+    }
+
+    function setActiveVisual(id) {
+      const hubEl = document.getElementById('hub');
+      hubEl.classList.toggle('active', id === 'hub');
+      const parent = parentOf(id);
+      NODES.forEach(n => {
+        const on = n.id === id || (parent && parent.id === n.id);
+        n._el.classList.toggle('active', on);
+        n._el.classList.toggle('dimmed', !!(id && id !== 'hub' && !on && n.id !== id));
+        if (id === 'hub' || !id) n._el.classList.remove('dimmed', 'active');
+        if (id === 'hub') hubEl.classList.add('active');
+      });
+      if (id === 'hub') {
+        NODES.forEach(n => n._el.classList.remove('dimmed'));
+      }
+      linksSvg.querySelectorAll('line').forEach(l => {
+        const to = l.getAttribute('data-to');
+        l.classList.toggle('active', to === id || (parent && to === parent.id));
+      });
+      orbit.classList.toggle('zoomed', !!(id && id !== 'hub'));
+    }
+
+    function tagHtml(tags) {
+      return (tags || []).map(t => {
+        let cls = 'tag';
+        if (/已可|核心|推荐|ok|隐私/i.test(t)) cls += ' ok';
+        else if (/暂无|规划|可选|限制/i.test(t)) cls += ' warn';
+        else if (/必读|边界|原则/i.test(t)) cls += ' hot';
+        else if (/总览|步骤|UX|形态/i.test(t)) cls += ' blue';
+        return `<span class="${cls}">${t}</span>`;
+      }).join('');
+    }
+
+    function renderDetail(data) {
+      panel.style.setProperty('--node-accent', data.accent || ACCENT.who);
+      panelIcon.textContent = data.icon || '◎';
+      panelIcon.style.background = `color-mix(in srgb, ${data.accent || ACCENT.who} 14%, white)`;
+      panelIcon.style.borderColor = `color-mix(in srgb, ${data.accent || ACCENT.who} 30%, #ded9cd)`;
+      panelTitle.textContent = data.label;
+      panelSub.textContent = data.sub || '';
+      let html = `<div class="tag-row">${tagHtml(data.tags)}</div>`;
+      html += `<p class="lead">${data.lead || ''}</p>`;
+      (data.sections || []).forEach(s => {
+        html += `<div class="section"><h3>${s.h}</h3>${s.html}</div>`;
+      });
+      if (data.children?.length) {
+        html += `<div class="section"><h3>继续了解</h3><div class="child-grid">`;
+        data.children.forEach(c => {
+          html += `<button type="button" class="child-card" data-child="${c.id}">
+            <span class="t">${c.t}</span>
+            <span class="d">${c.d}</span>
+            ${c.badge ? `<span class="badge">${c.badge}</span>` : ''}
+          </button>`;
+        });
+        html += `</div></div>`;
+      }
+      // FAQ footer for hub
+      if (data.id === 'hub') {
+        html += `<div class="section"><h3>组员常问</h3>
+          <div class="qa"><div class="q">要装 SPSS 吗？</div><p class="a">不用。核心计算在软件内部完成。</p></div>
+          <div class="qa"><div class="q">必须联网吗？</div><p class="a">算统计不必须。只有用在线大模型聊天时才需要对应网络与 Key。</p></div>
+          <div class="qa"><div class="q">能代替统计老师吗？</div><p class="a">不能。它加速规范流程与可复核交付，复杂设计与结论责任仍在研究者。</p></div>
+        </div>`;
+      }
+      panelBody.innerHTML = html;
+      panelBody.scrollTop = 0;
+      panelBody.querySelectorAll('[data-child]').forEach(btn => {
+        btn.addEventListener('click', () => openNode(btn.getAttribute('data-child')));
+      });
+    }
+
+    function openNode(id) {
+      const data = nodeById(id);
+      if (!data) { showToast('没有这项内容'); return; }
+      setActiveVisual(id);
+      renderDetail(data);
+      panel.classList.add('open');
+      if (listMode) {
+        document.getElementById('list-mode').classList.remove('show');
+        listMode = false;
+        document.getElementById('btn-list').classList.remove('active');
+      }
+    }
+
+    function closePanel() {
+      panel.classList.remove('open');
+      setActiveVisual(null);
+      NODES.forEach(n => n._el.classList.remove('dimmed', 'active'));
+      linksSvg.querySelectorAll('line').forEach(l => l.classList.remove('active'));
+      orbit.classList.remove('zoomed');
+      document.getElementById('hub').classList.remove('active');
+    }
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function buildList() {
+      const grid = document.getElementById('list-grid');
+      const items = [HUB, ...NODES];
+      grid.innerHTML = items.map(n => `
+        <div class="list-card" data-id="${n.id}">
+          <div class="icon">${n.icon}</div>
+          <div class="label">${n.label}</div>
+          <div class="hint">${n.hint || n.sub || ''}</div>
+        </div>`).join('');
+      grid.querySelectorAll('.list-card').forEach(c => {
+        c.addEventListener('click', () => openNode(c.dataset.id));
+      });
+    }
+
+    function runSearch(q) {
+      q = (q || '').trim().toLowerCase();
+      NODES.forEach(n => n._el.classList.remove('highlight-match', 'dimmed'));
+      if (!q) return;
+      const corpus = [HUB, ...NODES, ...Object.values(CHILD)];
+      const hits = [];
+      corpus.forEach(item => {
+        const blob = [
+          item.label, item.sub, item.lead, item.hint,
+          ...(item.tags || []),
+          ...(item.sections || []).map(s => s.h + ' ' + (s.html || '').replace(/<[^>]+>/g, ' ')),
+        ].join(' ').toLowerCase();
+        if (blob.includes(q)) hits.push(item.id);
+      });
+      if (!hits.length) { showToast('没有匹配「' + q + '」'); return; }
+      NODES.forEach(n => {
+        const childHit = n.children?.some(c => hits.includes(c.id));
+        const selfHit = hits.includes(n.id);
+        n._el.classList.toggle('highlight-match', selfHit || childHit);
+        n._el.classList.toggle('dimmed', !(selfHit || childHit));
+      });
+      const first = hits.find(id => id === 'hub' || NODES.some(n => n.id === id)) || hits[0];
+      openNode(first);
+      showToast(`找到 ${hits.length} 处 · 已打开「${nodeById(first)?.label}」`);
+    }
+
+    /* Soft paper grain */
+    function initGrain() {
+      const canvas = document.getElementById('grain');
+      const ctx = canvas.getContext('2d');
+      let w, h;
+      function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+        const img = ctx.createImageData(w, h);
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = 220 + Math.random() * 30;
+          img.data[i] = img.data[i+1] = img.data[i+2] = v;
+          img.data[i+3] = Math.random() * 18;
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+      resize();
+      window.addEventListener('resize', () => {
+        clearTimeout(resize._t);
+        resize._t = setTimeout(resize, 200);
+      });
+    }
+
+    document.getElementById('hub').addEventListener('click', () => openNode('hub'));
+    document.getElementById('panel-close').addEventListener('click', closePanel);
+    document.getElementById('btn-hub').addEventListener('click', () => openNode('hub'));
+    document.getElementById('btn-list').addEventListener('click', () => {
+      listMode = !listMode;
+      document.getElementById('list-mode').classList.toggle('show', listMode);
+      document.getElementById('btn-list').classList.toggle('active', listMode);
+      if (listMode) closePanel();
+    });
+    document.getElementById('search').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runSearch(e.target.value);
+    });
+    document.getElementById('search').addEventListener('input', e => {
+      if (!e.target.value) NODES.forEach(n => n._el.classList.remove('highlight-match', 'dimmed'));
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        if (panel.classList.contains('open')) closePanel();
+        else document.getElementById('intro').classList.add('hidden');
+      }
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        document.getElementById('search').focus();
+      }
+    });
+    document.getElementById('intro-go').addEventListener('click', () => {
+      document.getElementById('intro').classList.add('hidden');
+      openNode('hub');
+    });
+
+    placeNodes();
+    buildList();
+    initGrain();
+
+    window.addEventListener('mousemove', e => {
+      if (orbit.classList.contains('zoomed')) return;
+      const mx = (e.clientX / window.innerWidth - 0.5) * 6;
+      const my = (e.clientY / window.innerHeight - 0.5) * 6;
+      orbit.style.transform = `translate(${mx}px, ${my}px)`;
+    });
+  </script>
+</body>
+</html>

@@ -25,6 +25,7 @@ import { serializeSseFrame } from './sse.js';
 import { installSpaFallback, type SpaAssetSource } from './spa.js';
 import { createDefaultAssetSource } from './spa-assets.js';
 import { statusFromConfig, testAndSaveConfig, LlmConfigError, providerRequiresOAuth } from './llm.js';
+import { registerInfiniSynapseRoutes, type RegisterInfiniSynapseOptions } from './infinisynapse.js';
 import { extractPreviewRows, sanitizePreviewRows } from './conversation/dataset-store.js';
 import { SpeechTranscribeError, transcribeAudio } from './conversation/speech-transcribe.js';
 import { ResearchWorkflowError } from './conversation/research-workflow.js';
@@ -218,6 +219,8 @@ export interface BuildRouterOptions {
   installSpaFallback?: boolean;
   /** Override the embedded asset source (defaults to SEA/disk auto-detect). */
   spaAssetSource?: SpaAssetSource;
+  /** InfiniSynapse 集成路由的注入点（store/fetch 可换，测试用）。 */
+  infiniSynapse?: RegisterInfiniSynapseOptions;
 }
 
 /**
@@ -1031,6 +1034,9 @@ export function buildRouter(opts: BuildRouterOptions): FastifyInstance {
     }
     return reply.code(200).send();
   });
+
+  // InfiniSynapse 泛数据分析集成（Vibe Coding 参赛面，见 infinisynapse.ts）。
+  registerInfiniSynapseRoutes(app, opts.infiniSynapse);
 
   // GET /api/coverage-matrix — 503 if no provider.
   app.get('/api/coverage-matrix', async (_req, reply) => {

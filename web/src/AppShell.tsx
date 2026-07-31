@@ -13,8 +13,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Spin, Result, Button, Drawer, Space, Typography, Input, Select, AutoComplete, Alert } from 'antd';
-import { LoadingOutlined } from '@ant-design/icons';
+import { Spin, Result, Button, Drawer, FloatButton, Space, Typography, Input, Select, AutoComplete, Alert } from 'antd';
+import { CloudServerOutlined, LoadingOutlined } from '@ant-design/icons';
+import { InfiniSynapsePanel } from './components/InfiniSynapsePanel';
 import { useModePreference } from './hooks/useModePreference';
 import { useSessionController } from './hooks/useSessionController';
 import { useSseChat } from './hooks/useSseChat';
@@ -156,6 +157,7 @@ export function AppShell() {
 
   // 设置抽屉（专业模式 TopBar 设置入口）。
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [infiniOpen, setInfiniOpen] = useState(false);
   const [sProvider, setSProvider] = useState<LlmProvider>('deepseek');
   const [sBaseUrl, setSBaseUrl] = useState('');
   const [sModel, setSModel] = useState(getDefaultModel('deepseek'));
@@ -310,6 +312,24 @@ export function AppShell() {
           errorMessage={llmError}
         />
       )}
+
+      {/* InfiniSynapse 泛数据分析（Vibe Coding 集成） */}
+      <FloatButton
+        icon={<CloudServerOutlined />}
+        tooltip="InfiniSynapse 泛数据分析"
+        onClick={() => setInfiniOpen(true)}
+        style={{ insetInlineEnd: 24, bottom: 96 }}
+      />
+      <Drawer
+        title="InfiniSynapse 泛数据分析"
+        placement="right"
+        width={420}
+        open={infiniOpen}
+        onClose={() => setInfiniOpen(false)}
+        destroyOnClose={false}
+      >
+        <InfiniSynapsePanel />
+      </Drawer>
 
       {/* API 设置抽屉 */}
       <Drawer

@@ -313,12 +313,17 @@ export function AppShell() {
         />
       )}
 
-      {/* InfiniSynapse 泛数据分析（Vibe Coding 集成） */}
+      {/* InfiniSynapse 泛数据分析（Vibe Coding 集成）
+          入口 1：右下角悬浮钮（提高 zIndex，避免被 Onboarding/输入栏挡住）
+          入口 2：API 设置抽屉内的明确按钮（见下方） */}
       <FloatButton
+        type="primary"
         icon={<CloudServerOutlined />}
-        tooltip="InfiniSynapse 泛数据分析"
+        tooltip="InfiniSynapse 泛数据分析 / 配置密钥"
+        description="Infini"
+        shape="square"
         onClick={() => setInfiniOpen(true)}
-        style={{ insetInlineEnd: 24, bottom: 96 }}
+        style={{ insetInlineEnd: 24, bottom: 96, zIndex: 1200 }}
       />
       <Drawer
         title="InfiniSynapse 泛数据分析"
@@ -327,11 +332,12 @@ export function AppShell() {
         open={infiniOpen}
         onClose={() => setInfiniOpen(false)}
         destroyOnClose={false}
+        zIndex={1300}
       >
         <InfiniSynapsePanel />
       </Drawer>
 
-      {/* API 设置抽屉 */}
+      {/* API 设置抽屉 — LLM 密钥 + InfiniSynapse 入口 */}
       <Drawer
         title="API 设置"
         placement="right"
@@ -350,6 +356,19 @@ export function AppShell() {
         }
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="两套密钥互不通用"
+            description={
+              <span>
+                上方为 <strong>LLM 对话</strong> 密钥；InfiniSynapse 泛数据分析密钥请点下方按钮配置（不会出现在 LLM 表单里）。
+              </span>
+            }
+          />
+
+          <Paragraph style={{ marginBottom: 0, fontWeight: 600 }}>LLM 对话模型</Paragraph>
+
           <label style={{ display: 'block' }}>
             <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>提供商</Paragraph>
             <Select<LlmProvider>
@@ -402,6 +421,34 @@ export function AppShell() {
           </label>
 
           {sError ? <Alert type="error" showIcon role="alert" message={<span style={{ color: '#cf1322', fontSize: 13 }}>{sError}</span>} /> : null}
+
+          <div
+            style={{
+              marginTop: 8,
+              paddingTop: 16,
+              borderTop: '1px solid var(--ant-color-split, #f0f0f0)',
+            }}
+          >
+            <Paragraph style={{ marginBottom: 8, fontWeight: 600 }}>
+              <CloudServerOutlined style={{ marginRight: 6 }} />
+              InfiniSynapse 泛数据分析
+            </Paragraph>
+            <Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12 }}>
+              密钥保存在本机后端（infinisynapse.json），与上方 LLM Key 分开。
+            </Paragraph>
+            <Button
+              type="default"
+              icon={<CloudServerOutlined />}
+              block
+              onClick={() => {
+                setSettingsOpen(false);
+                setInfiniOpen(true);
+              }}
+              aria-label="打开 InfiniSynapse 配置与分析"
+            >
+              打开 InfiniSynapse（配置密钥 / 分析）
+            </Button>
+          </div>
         </Space>
       </Drawer>
     </>

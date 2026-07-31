@@ -150,6 +150,26 @@ export function InfiniSynapsePanel() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Alert
+        type="success"
+        showIcon
+        message="InfiniSynapse 密钥已配置"
+        description="密钥保存在本机，不会显示明文。若要更换，点下方「更换密钥」。"
+        action={
+          <Button
+            size="small"
+            onClick={() => {
+              setConfigured(false);
+              setError(null);
+              setApiKey('');
+            }}
+            aria-label="更换 InfiniSynapse 密钥"
+          >
+            更换密钥
+          </Button>
+        }
+      />
+
       <div>
         <Paragraph style={{ marginBottom: 4, fontSize: 13 }}>
           分析指令（发送给 InfiniSynapse 泛数据分析引擎）

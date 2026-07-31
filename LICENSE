@@ -1,0 +1,76 @@
+Stats Code — 专有软件许可 / Proprietary License
+================================================
+
+版权所有 © 2026 Stats Code 作者（GitHub: Brayszieqw）及贡献者。
+保留所有权利。All Rights Reserved.
+
+一、重要声明（请先阅读）
+------------------------
+本仓库中的源代码、文档、脚本、构建产物及相关材料（合称「本软件」）
+以「源码可见 / Source-available」方式发布，**并非** OSI 意义上的
+开放源代码软件（Open Source）。
+
+在未获得版权所有者**事先书面许可**的情况下，任何个人或组织
+**不得**对本软件进行下列行为（包括但不限于）：
+
+  1. 使用（Use）——在任何环境中运行、调用、部署或提供服务；
+  2. 复制（Copy）——下载后另行分发或镜像；
+  3. 修改（Modify）——改编、二次开发、衍生作品；
+  4. 合并（Merge）——并入其他软件或产品；
+  5. 发布 / 再分发（Publish / Redistribute）；
+  6. 再许可（Sublicense）或出售（Sell）；
+  7. 用于商业、竞赛、教学展示以外的未获授权用途，或超出书面授权范围。
+
+仅浏览本 GitHub 仓库页面上的公开文件，本身不构成使用许可。
+下载或克隆仓库**不**自动获得使用权。
+
+二、如何获得使用许可
+--------------------
+如需使用本软件（含评测、集成、二次开发、商业使用等），请通过
+GitHub 仓库 Issues 或版权所有者公开联系方式提交申请，并获得
+**书面同意**（含电子邮件等可留存形式）后方可按授权范围使用。
+
+未获书面许可的任何使用，均属未授权使用。
+
+三、例外（仓库维护需要）
+------------------------
+为便于版权所有者本人维护本仓库，版权所有者及其明确指定的维护者
+可不受上述限制。除此之外无默示许可、无口头许可、无反向工程豁免
+（法律强制规定除外）。
+
+四、免责声明
+------------
+在适用法律允许的最大范围内，本软件按「现状（AS IS）」提供，
+不附带任何明示或默示担保，包括但不限于适销性、特定用途适用性
+及不侵权。因使用或无法使用本软件所产生的任何损害，版权所有者
+不承担责任（法律另有强制规定的除外）。
+
+五、终止
+--------
+一旦发生未授权使用，本文件项下可能被误认为存在的任何容忍或临时
+便利均立即终止；版权所有者有权要求停止使用并删除复制件。
+
+六、适用说明
+------------
+本许可以中文为准；下方英文为对照译本。若中英文不一致，以中文为准。
+
+
+English (for reference)
+-----------------------
+Copyright © 2026 the Stats Code authors (GitHub: Brayszieqw) and contributors.
+All Rights Reserved.
+
+This repository is SOURCE-AVAILABLE, NOT Open Source (OSI).
+
+WITHOUT PRIOR WRITTEN PERMISSION from the copyright holder, you may NOT
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, nor permit others to do so.
+
+Viewing files on GitHub does not grant a license. Cloning or downloading
+does NOT grant rights to use the Software.
+
+To request permission, contact the copyright holder (e.g. via GitHub Issues).
+Use only within the scope of an explicit written grant.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+Chinese text above controls in case of conflict.
